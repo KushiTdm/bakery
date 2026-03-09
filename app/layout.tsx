@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
+   metadataBase: new URL('https://artisandore.fr'),
   title: "L'Artisan Doré - Boulangerie Artisanale Française",
   description:
     "Découvrez notre boulangerie artisanale au cœur de Paris. Pains au levain, viennoiseries et pâtisseries préparés avec passion selon la tradition française depuis 1952.",

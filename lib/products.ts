@@ -14,7 +14,7 @@ export const products: Product[] = [
     category: 'boulangerie',
     description: 'Croustillante et dorée, fermentation naturelle sur 24h',
     price: 1.30,
-    image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1568471173242-461f0a730452?w=800&q=80',
   },
   {
     id: '2',
@@ -22,7 +22,7 @@ export const products: Product[] = [
     category: 'boulangerie',
     description: 'Pain rustique aux farines bio, à la mie alvéolée',
     price: 4.50,
-    image: 'https://images.unsplash.com/photo-1585478259715-876acc5be8eb?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&q=80',
   },
   {
     id: '3',
@@ -30,7 +30,7 @@ export const products: Product[] = [
     category: 'boulangerie',
     description: 'Mélange harmonieux de graines et céréales complètes',
     price: 3.80,
-    image: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=800&q=80',
   },
   {
     id: '4',
@@ -46,7 +46,7 @@ export const products: Product[] = [
     category: 'viennoiserie',
     description: 'Deux barres de chocolat noir 64% de cacao',
     price: 1.60,
-    image: 'https://images.unsplash.com/photo-1623334044303-241021148842?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1587734361993-0490b0d459a5?w=800&q=80',
   },
   {
     id: '6',
@@ -54,7 +54,7 @@ export const products: Product[] = [
     category: 'viennoiserie',
     description: 'Moelleuse et parfumée, idéale pour le petit-déjeuner',
     price: 3.20,
-    image: 'https://images.unsplash.com/photo-1608198399988-3e5c0c2f2f6e?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=800&q=80',
   },
   {
     id: '7',
@@ -70,7 +70,7 @@ export const products: Product[] = [
     category: 'patisserie',
     description: 'Pâte à choux garnie de crème au café, glaçage fondant',
     price: 3.90,
-    image: 'https://images.unsplash.com/photo-1612201142855-e7f48e08c92b?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1483695028939-5bb13f8648b0?w=800&q=80',
   },
   {
     id: '9',
@@ -78,7 +78,7 @@ export const products: Product[] = [
     category: 'patisserie',
     description: 'Trois couches de feuilletage et crème pâtissière vanillée',
     price: 4.50,
-    image: 'https://images.unsplash.com/photo-1612180888157-90cc8f5a0c82?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1542826438-bd32f43d626f?w=800&q=80',
   },
   {
     id: '10',
@@ -86,7 +86,7 @@ export const products: Product[] = [
     category: 'patisserie',
     description: 'Fraises fraîches sur crème pâtissière, pâte sucrée maison',
     price: 5.20,
-    image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=800&q=80',
   },
   {
     id: '11',
@@ -100,9 +100,9 @@ export const products: Product[] = [
     id: '12',
     name: 'Fougasse Provençale',
     category: 'boulangerie',
-    description: "Pain plat aux olives et herbes de Provence",
+    description: 'Pain plat aux olives et herbes de Provence',
     price: 3.50,
-    image: 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=800&q=80',
+    image: 'https://images.unsplash.com/photo-1585478259715-876acc5be8eb?w=800&q=80',
   },
 ];
 
