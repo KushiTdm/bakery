@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: #FDFBF7;
+  --color-text: #2C1810;
+  --color-accent: #C19A6B;
+  --color-secondary: #8B4513;
+}
+
+body {
+  @apply bg-[#FDFBF7] text-[#2C1810];
+  font-family: 'Montserrat', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Playfair Display', serif;
+}
+
+@layer base {
+  :root {
+    --background: 35 25% 98%;
+    --foreground: 20 50% 12%;
+    --card: 35 25% 98%;
+    --card-foreground: 20 50% 12%;
+    --popover: 35 25% 98%;
+    --popover-foreground: 20 50% 12%;
+    --primary: 32 28% 58%;
+    --primary-foreground: 35 25% 98%;
+    --secondary: 25 60% 31%;
+    --secondary-foreground: 35 25% 98%;
+    --muted: 35 15% 92%;
+    --muted-foreground: 20 30% 45%;
+    --accent: 32 28% 58%;
+    --accent-foreground: 20 50% 12%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 35 20% 85%;
+    --input: 35 20% 85%;
+    --ring: 32 28% 58%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
