@@ -10,6 +10,8 @@ import Footer from '@/components/footer';
 import CartSidebar from '@/components/cart-sidebar';
 import AuthModal from '@/components/auth-modal';
 import LoadingScreen from '@/components/Loadingscreen';
+import FlashBanner from '@/components/FlashBanner';
+
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -19,6 +21,7 @@ export default function Home() {
       {loading && <LoadingScreen onFinish={() => setLoading(false)} />}
       <main className="min-h-screen">
         <Navbar />
+        <FlashBanner />
         <Hero />
         <ProductMenu />
         <SavoirFaire />

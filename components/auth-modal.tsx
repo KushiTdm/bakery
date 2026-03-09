@@ -4,10 +4,8 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Mail, Shield, ChevronRight, RotateCcw, Inbox } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
-
-// 🔥 FIREBASE — décommenter en prod
-// import { auth } from '@/lib/firebase';
-// import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 
 type Step = 'email' | 'sent' | 'success';
 
@@ -30,19 +28,18 @@ export default function AuthModal() {
 
   // Gestion retour Magic Link
   useEffect(() => {
-    // 🔥 FIREBASE (décommenter en prod) :
-    // if (isSignInWithEmailLink(auth, window.location.href)) {
-    //   const savedEmail = localStorage.getItem('emailForSignIn');
-    //   if (savedEmail) {
-    //     signInWithEmailLink(auth, savedEmail, window.location.href)
-    //       .then((result) => {
-    //         localStorage.removeItem('emailForSignIn');
-    //         login(result.user.email ?? savedEmail);
-    //         if (pendingProduct) { addItem(pendingProduct); setPendingProduct(null); }
-    //       })
-    //       .catch(() => setError('Lien invalide ou expiré.'));
-    //   }
-    // }
+     if (isSignInWithEmailLink(auth, window.location.href)) {
+     const savedEmail = localStorage.getItem('emailForSignIn');
+       if (savedEmail) {
+         signInWithEmailLink(auth, savedEmail, window.location.href)
+           .then((result) => {
+             localStorage.removeItem('emailForSignIn');
+             login(result.user.email ?? savedEmail);
+             if (pendingProduct) { addItem(pendingProduct); setPendingProduct(null); }
+           })
+           .catch(() => setError('Lien invalide ou expiré.'));
+       }
+     }
   }, []);
 
   const sendMagicLink = async () => {
@@ -51,9 +48,8 @@ export default function AuthModal() {
     }
     setLoading(true); setError('');
     try {
-      // 🔥 FIREBASE (décommenter en prod) :
-      // await sendSignInLinkToEmail(auth, email, ACTION_CODE_SETTINGS);
-      // localStorage.setItem('emailForSignIn', email);
+       await sendSignInLinkToEmail(auth, email, ACTION_CODE_SETTINGS);
+       localStorage.setItem('emailForSignIn', email);
       await new Promise(r => setTimeout(r, 1200));
       setStep('sent');
     } catch (err: any) {
