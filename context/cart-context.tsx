@@ -11,7 +11,7 @@ export interface CartItem {
 }
 
 export interface User {
-  phone: string;
+  email: string;
   verified: boolean;
 }
 
@@ -31,7 +31,7 @@ interface CartContextType {
   user: User | null;
   isAuthOpen: boolean;
   setIsAuthOpen: (open: boolean) => void;
-  login: (phone: string) => void;
+  login: (email: string) => void;
   logout: () => void;
 
   // Pending action (produit à ajouter après auth)
@@ -83,8 +83,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearCart = useCallback(() => setItems([]), []);
 
-  const login = useCallback((phone: string) => {
-    setUser({ phone, verified: true });
+  const login = useCallback((email: string) => {
+    setUser({ email, verified: true });
     setIsAuthOpen(false);
   }, []);
 

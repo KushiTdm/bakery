@@ -71,7 +71,7 @@ export default function Navbar() {
             {user ? (
               <div className="hidden md:flex items-center gap-2">
                 <span className={`text-xs font-medium ${isScrolled ? 'text-[#2C1810]/60' : 'text-white/70'}`}>
-                  {user.phone}
+                  {user.email}
                 </span>
                 <button
                   onClick={logout}

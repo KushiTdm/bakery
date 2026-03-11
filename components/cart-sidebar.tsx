@@ -204,7 +204,7 @@ export default function CartSidebar() {
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                    Connecté : {user.phone}
+                    Connecté : {user.email }
                   </div>
                 ) : (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
