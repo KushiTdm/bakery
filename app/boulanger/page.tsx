@@ -1,17 +1,18 @@
+// app/boulanger/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Camera, Moon, BarChart2, LogOut } from 'lucide-react';
+import { Sun, Camera, Moon, BarChart2, LogOut, Cloud, CloudOff, Check, Loader2 } from 'lucide-react';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
-import PinAuth from '@/components/boulanger/pin-auth';
+import LoginForm from '@/components/boulanger/login-form';
 import VueMatin from '@/components/boulanger/vue-matin';
 import VueSnapshot from '@/components/boulanger/vue-snapshot';
 import VueSoir from '@/components/boulanger/vue-soir';
 import Dashboard from '@/components/boulanger/dashboard';
 import type { ViewType } from '@/context/boulanger-context';
 
-// ─── Horloge live ─────────────────────────────────────────────────────────────
+// ─── Horloge live ─────────────────────────────────────────────
 
 function LiveClock() {
   const [time, setTime] = useState('');
@@ -25,7 +26,42 @@ function LiveClock() {
   return <span className="text-white/30 text-xs font-mono tabular-nums">{time}</span>;
 }
 
-// ─── Navigation ───────────────────────────────────────────────────────────────
+// ─── Indicateur de synchronisation ────────────────────────────
+
+function SyncIndicator() {
+  const { syncStatus } = useBoulanger();
+
+  const icons = {
+    idle:   <Cloud size={13} className="text-white/20" />,
+    saving: <Loader2 size={13} className="text-[#C19A6B]/70 animate-spin" />,
+    saved:  <Check size={13} className="text-green-400" />,
+    error:  <CloudOff size={13} className="text-red-400" />,
+  };
+
+  const labels = {
+    idle:   '',
+    saving: 'Sync...',
+    saved:  'Sauvegardé',
+    error:  'Hors ligne',
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {icons[syncStatus]}
+      {labels[syncStatus] && (
+        <span className={`text-[10px] font-medium ${
+          syncStatus === 'saved' ? 'text-green-400' :
+          syncStatus === 'error' ? 'text-red-400' :
+          'text-[#C19A6B]/70'
+        }`}>
+          {labels[syncStatus]}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Navigation ───────────────────────────────────────────────
 
 const NAV_ITEMS: { id: ViewType; shortLabel: string; icon: React.ElementType }[] = [
   { id: 'matin',     shortLabel: 'Matin',  icon: Sun },
@@ -34,22 +70,35 @@ const NAV_ITEMS: { id: ViewType; shortLabel: string; icon: React.ElementType }[]
   { id: 'dashboard', shortLabel: 'Stats',  icon: BarChart2 },
 ];
 
-// ─── Shell principal ──────────────────────────────────────────────────────────
+// ─── Shell principal ──────────────────────────────────────────
 
 function AppShell() {
-  const { isAuthenticated, activeView, setActiveView, logout } = useBoulanger();
+  const {
+    isAuthenticated, authLoading,
+    activeView, setActiveView,
+    logout, boulangerie,
+  } = useBoulanger();
 
-  if (!isAuthenticated) return <PinAuth />;
+  // Écran de chargement initial (restauration session)
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center">
+        <div className="text-center">
+          <span className="text-4xl block mb-4">🥖</span>
+          <Loader2 size={20} className="text-[#C19A6B]/50 animate-spin mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <LoginForm />;
 
   return (
     <div className="min-h-screen bg-[#1A0F0A]">
-
       {/* Grain overlay */}
       <div
         className="fixed inset-0 opacity-[0.025] pointer-events-none z-0"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-        }}
+        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")' }}
       />
 
       {/* ── Header ── */}
@@ -59,7 +108,7 @@ function AppShell() {
             <span className="text-xl">🥖</span>
             <div>
               <p className="text-white text-sm font-bold leading-none" style={{ fontFamily: 'Playfair Display, serif' }}>
-                L'Artisan Doré
+                {boulangerie?.nom ?? "L'Artisan Doré"}
               </p>
               <p className="text-[#C19A6B]/70 text-[10px] tracking-[0.2em] uppercase leading-none mt-0.5">
                 Espace boulanger
@@ -67,6 +116,7 @@ function AppShell() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <SyncIndicator />
             <LiveClock />
             <button
               onClick={logout}
@@ -133,7 +183,7 @@ function AppShell() {
   );
 }
 
-// ─── Page export ──────────────────────────────────────────────────────────────
+// ─── Page export ──────────────────────────────────────────────
 
 export default function BoulangerPage() {
   return (
