@@ -68,7 +68,7 @@ export default function VueMatin() {
   }
 
   return (
-    <div className="pb-32">
+    <div className="pb-36">
       {/* Header section */}
       <div className="mb-7">
         <div className="flex items-start justify-between">
@@ -181,7 +181,7 @@ export default function VueMatin() {
       ))}
 
       {/* Bouton confirmer — sticky en bas */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1A0F0A] via-[#1A0F0A]/95 to-transparent">
+      <div className="fixed bottom-[68px] left-0 right-0 px-4 pt-6 pb-3 bg-gradient-to-t from-[#1A0F0A] via-[#1A0F0A]/95 to-transparent">
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}

@@ -72,7 +72,7 @@ export default function VueSnapshot() {
   }
 
   return (
-    <div className="pb-32">
+    <div className="pb-36">
 
       {/* Sélecteur de slot */}
       <div className="mb-5">
@@ -261,7 +261,7 @@ export default function VueSnapshot() {
       </div>
 
       {/* Bouton valider — sticky */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1A0F0A] via-[#1A0F0A]/95 to-transparent">
+      <div className="fixed bottom-[68px] left-0 right-0 px-4 pt-6 pb-3 bg-gradient-to-t from-[#1A0F0A] via-[#1A0F0A]/95 to-transparent">
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
