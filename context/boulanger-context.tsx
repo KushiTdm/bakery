@@ -3,6 +3,11 @@
 // Contexte global de l'espace boulanger.
 // Auth    → Supabase (email + mot de passe)
 // Données → Supabase (persistance) + localStorage (cache offline)
+//
+// FIXES :
+//   - Les stocks ne se réinitialisent plus entre les vues
+//   - La sauvegarde Supabase est triggée sur chaque mutation
+//   - stocksLoading ne bloque plus le debounce de sauvegarde
 // ─────────────────────────────────────────────────────────────
 'use client';
 
@@ -56,7 +61,7 @@ export interface BoulangerieInfo {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Catalogue de référence (mis à jour depuis Airtable si disponible)
+// Catalogue de référence
 // ═══════════════════════════════════════════════════════════════
 
 export const INITIAL_PRODUCTS: Omit<StockEntry,
@@ -90,7 +95,8 @@ function buildTodayStocks(): StockEntry[] {
   }));
 }
 
-// ── Conversion DB → StockEntry ─────────────────────────────────
+// ── Conversions DB → app ───────────────────────────────────────
+
 function mapDbToStockEntry(db: DbStockJournalier): StockEntry {
   return {
     id:              db.produit_id,
@@ -108,7 +114,6 @@ function mapDbToStockEntry(db: DbStockJournalier): StockEntry {
   };
 }
 
-// ── Conversion DB → DayData ────────────────────────────────────
 function mapDbToDayData(db: DbJournee): DayData {
   return {
     date:            db.date,
@@ -124,7 +129,6 @@ function mapDbToDayData(db: DbJournee): DayData {
 // ═══════════════════════════════════════════════════════════════
 
 interface BoulangerContextType {
-  // Auth
   isAuthenticated: boolean;
   authLoading: boolean;
   authError: string | null;
@@ -133,11 +137,9 @@ interface BoulangerContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
 
-  // Navigation
   activeView: ViewType;
   setActiveView: (v: ViewType) => void;
 
-  // Stocks du jour
   todayStocks: StockEntry[];
   stocksLoading: boolean;
   updateProduction: (id: string, value: number) => void;
@@ -145,23 +147,19 @@ interface BoulangerContextType {
   validateSnapshot: (slot: '10h' | '14h') => void;
   updateStockFinal: (id: string, value: number) => void;
 
-  // Stats calculées
   revenueToday: number;
   unsoldToday: number;
   unsoldRateToday: number;
   unsoldValueToday: number;
   totalProducedToday: number;
 
-  // Historique
   history: DayData[];
   historyLoading: boolean;
   closeDayAndSave: (commandesOnline: number) => Promise<void>;
 
-  // Commandes
   commandesOnline: number;
   setCommandesOnline: (n: number) => void;
 
-  // Sync state
   syncStatus: 'idle' | 'saving' | 'saved' | 'error';
 }
 
@@ -171,7 +169,6 @@ const BoulangerContext = createContext<BoulangerContextType | null>(null);
 // Provider
 // ═══════════════════════════════════════════════════════════════
 
-const LS_TOKEN_KEY   = 'boulanger_access_token';
 const LS_STOCKS_KEY  = 'boulanger_stocks_today';
 const LS_STOCKS_DATE = 'boulanger_stocks_date';
 
@@ -183,33 +180,88 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [user, setUser]                       = useState<BoulangerUser | null>(null);
   const [boulangerie, setBoulangerie]         = useState<BoulangerieInfo | null>(null);
 
-  // ── Vue ───────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ViewType>('matin');
 
-  // ── Stocks ────────────────────────────────────────────────────
-  const [todayStocks, setTodayStocks] = useState<StockEntry[]>(buildTodayStocks);
-  const [stocksLoading, setStocksLoading] = useState(false);
+  // ── Stocks — initialisés une seule fois, jamais réinitialisés ─
+  const [todayStocks, setTodayStocks]         = useState<StockEntry[]>(buildTodayStocks);
+  const [stocksLoading, setStocksLoading]     = useState(false);
   const [commandesOnline, setCommandesOnline] = useState(0);
 
-  // ── Historique ────────────────────────────────────────────────
+  // ── Indique si les stocks ont été chargés depuis Supabase ─────
+  // Évite de déclencher une sauvegarde avant le chargement initial
+  const stocksReadyRef = useRef(false);
+
   const [history, setHistory]               = useState<DayData[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // ── Sync ──────────────────────────────────────────────────────
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-
-  // ── Token courant (ref pour éviter les closures stale) ────────
-  const tokenRef = useRef<string | null>(null);
+  const tokenRef    = useRef<string | null>(null);
 
   // ─────────────────────────────────────────────────────────────
-  // Helper : headers auth pour les appels API
+  // Auth headers
   // ─────────────────────────────────────────────────────────────
   const authHeaders = useCallback((): Record<string, string> => {
     const token = tokenRef.current;
     if (!token) return { 'Content-Type': 'application/json' };
-    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
   }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // Chargement des données du jour depuis Supabase
+  // ─────────────────────────────────────────────────────────────
+  const loadTodayData = useCallback(async () => {
+    setStocksLoading(true);
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      const res = await fetch('/api/boulanger/journee', { headers: authHeaders() });
+      if (res.ok) {
+        const { journee } = await res.json();
+        if (journee?.stocks_journaliers?.length > 0) {
+          // ✅ Données Supabase trouvées — on les charge
+          setTodayStocks(journee.stocks_journaliers.map(mapDbToStockEntry));
+          setCommandesOnline(journee.commandes_online ?? 0);
+          stocksReadyRef.current = true;
+          setStocksLoading(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[BoulangerContext] Supabase journée unavailable, fallback localStorage');
+    }
+
+    // Fallback : localStorage
+    try {
+      const cachedDate = localStorage.getItem(LS_STOCKS_DATE);
+      const cached     = localStorage.getItem(LS_STOCKS_KEY);
+      if (cached && cachedDate === today) {
+        setTodayStocks(JSON.parse(cached));
+      }
+      // Si la date est différente (nouveau jour) → on garde buildTodayStocks()
+    } catch { /* ignore */ }
+
+    stocksReadyRef.current = true;
+    setStocksLoading(false);
+  }, [authHeaders]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Historique
+  // ─────────────────────────────────────────────────────────────
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch('/api/boulanger/historique', { headers: authHeaders() });
+      if (res.ok) {
+        const { historique } = await res.json();
+        if (historique) setHistory(historique.map(mapDbToDayData));
+      }
+    } catch (err) {
+      console.warn('[BoulangerContext] Historique unavailable');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [authHeaders]);
 
   // ─────────────────────────────────────────────────────────────
   // Restauration de session au montage
@@ -218,11 +270,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     async function restoreSession() {
       setAuthLoading(true);
       try {
-        // 1. Vérifier session Supabase
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
           tokenRef.current = session.access_token;
-          // 2. Récupérer les infos boulangerie
           const res = await fetch('/api/boulanger/auth', {
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
@@ -231,13 +281,16 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
             setUser({ id: data.user.id, email: data.user.email, accessToken: session.access_token });
             setBoulangerie(data.boulangerie);
             setIsAuthenticated(true);
-            // 3. Charger les données du jour
-            await loadTodayData(data.boulangerie?.id);
+            await loadTodayData();
             await loadHistory();
           }
+        } else {
+          // Pas de session — on marque quand même les stocks comme prêts
+          stocksReadyRef.current = true;
         }
       } catch (err) {
         console.error('[BoulangerContext] Session restore error:', err);
+        stocksReadyRef.current = true;
       } finally {
         setAuthLoading(false);
       }
@@ -268,23 +321,22 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       setBoulangerie(data.boulangerie);
       setIsAuthenticated(true);
 
-      // Persiste le token dans Supabase client (refresh automatique)
       await supabase.auth.setSession({
-        access_token: data.access_token,
+        access_token:  data.access_token,
         refresh_token: data.refresh_token,
       });
 
-      // Charge les données
-      await loadTodayData(data.boulangerie?.id);
+      // Charger les données du jour APRÈS avoir mis à jour le token
+      await loadTodayData();
       await loadHistory();
       return true;
-    } catch (err) {
+    } catch {
       setAuthError('Erreur de connexion');
       return false;
     } finally {
       setAuthLoading(false);
     }
-  }, []); // eslint-disable-line
+  }, [loadTodayData, loadHistory]); // eslint-disable-line
 
   // ─────────────────────────────────────────────────────────────
   // Logout
@@ -292,72 +344,24 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     supabase.auth.signOut();
     tokenRef.current = null;
+    stocksReadyRef.current = false;
     setUser(null);
     setBoulangerie(null);
     setIsAuthenticated(false);
     setTodayStocks(buildTodayStocks());
     setHistory([]);
     setActiveView('matin');
-    localStorage.removeItem(LS_STOCKS_KEY);
-    localStorage.removeItem(LS_STOCKS_DATE);
+    try {
+      localStorage.removeItem(LS_STOCKS_KEY);
+      localStorage.removeItem(LS_STOCKS_DATE);
+    } catch { /* ignore */ }
   }, []);
 
   // ─────────────────────────────────────────────────────────────
-  // Chargement des données du jour
-  // ─────────────────────────────────────────────────────────────
-  const loadTodayData = useCallback(async (_boulangerieId?: string) => {
-    setStocksLoading(true);
-    const today = new Date().toISOString().split('T')[0];
-
-    try {
-      const res = await fetch('/api/boulanger/journee', { headers: authHeaders() });
-      if (res.ok) {
-        const { journee } = await res.json();
-        if (journee?.stocks_journaliers?.length > 0) {
-          setTodayStocks(journee.stocks_journaliers.map(mapDbToStockEntry));
-          setCommandesOnline(journee.commandes_online ?? 0);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('[BoulangerContext] Supabase unavailable, using localStorage');
-    }
-
-    // Fallback localStorage
-    try {
-      const cachedDate = localStorage.getItem(LS_STOCKS_DATE);
-      const cached = localStorage.getItem(LS_STOCKS_KEY);
-      if (cached && cachedDate === today) {
-        setTodayStocks(JSON.parse(cached));
-      }
-    } catch { /* ignore */ }
-
-    setStocksLoading(false);
-  }, [authHeaders]);
-
-  // ─────────────────────────────────────────────────────────────
-  // Chargement de l'historique
-  // ─────────────────────────────────────────────────────────────
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
-    try {
-      const res = await fetch('/api/boulanger/historique', { headers: authHeaders() });
-      if (res.ok) {
-        const { historique } = await res.json();
-        if (historique) setHistory(historique.map(mapDbToDayData));
-      }
-    } catch (err) {
-      console.warn('[BoulangerContext] Historique unavailable');
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [authHeaders]);
-
-  // ─────────────────────────────────────────────────────────────
-  // Sauvegarde automatique (debounce 2 secondes)
+  // Sauvegarde Supabase (appelée explicitement après chaque mutation)
   // ─────────────────────────────────────────────────────────────
   const saveToSupabase = useCallback(async (stocks: StockEntry[], cmdOnline: number) => {
-    if (!isAuthenticated) return;
+    if (!tokenRef.current) return;
     setSyncStatus('saving');
     try {
       const res = await fetch('/api/boulanger/journee', {
@@ -366,36 +370,42 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ stocks, commandesOnline: cmdOnline }),
       });
       setSyncStatus(res.ok ? 'saved' : 'error');
-      setTimeout(() => setSyncStatus('idle'), 2000);
     } catch {
       setSyncStatus('error');
-      setTimeout(() => setSyncStatus('idle'), 3000);
     }
-  }, [isAuthenticated, authHeaders]);
+    setTimeout(() => setSyncStatus('idle'), 2500);
+  }, [authHeaders]);
 
+  // ─────────────────────────────────────────────────────────────
+  // Effect : sauvegarde avec debounce à chaque changement des stocks
+  // Conditionné à stocksReadyRef pour éviter de sauvegarder
+  // les stocks vides au chargement initial
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!isAuthenticated || stocksLoading) return;
+    if (!isAuthenticated || !stocksReadyRef.current) return;
 
-    // localStorage immédiat
     const today = new Date().toISOString().split('T')[0];
+
+    // 1. localStorage immédiat (offline-first)
     try {
       localStorage.setItem(LS_STOCKS_KEY, JSON.stringify(todayStocks));
       localStorage.setItem(LS_STOCKS_DATE, today);
-    } catch { /* ignore quota errors */ }
+    } catch { /* ignore quota */ }
 
-    // Supabase avec debounce
+    // 2. Supabase avec debounce 1.5s
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       saveToSupabase(todayStocks, commandesOnline);
-    }, 2000);
+    }, 1500);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [todayStocks, commandesOnline, isAuthenticated, stocksLoading, saveToSupabase]);
+  }, [todayStocks, commandesOnline, isAuthenticated, saveToSupabase]);
 
   // ─────────────────────────────────────────────────────────────
-  // Mutations stocks
+  // Mutations stocks — chacune met à jour l'état React
+  // Le useEffect ci-dessus déclenche ensuite la sauvegarde
   // ─────────────────────────────────────────────────────────────
   const updateProduction = useCallback((id: string, value: number) => {
     setTodayStocks(prev =>
@@ -406,16 +416,22 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const updateSnapshot = useCallback((id: string, value: number, slot: '10h' | '14h') => {
     setTodayStocks(prev => prev.map(s => {
       if (s.id !== id) return s;
-      return slot === '10h'
-        ? { ...s, snapshot10h: Math.max(0, Math.min(value, s.production)) }
-        : { ...s, snapshot14h: Math.max(0, Math.min(value, s.snapshot10h)) };
+      if (slot === '10h') {
+        // snapshot 10h ne peut pas dépasser la production
+        return { ...s, snapshot10h: Math.max(0, Math.min(value, s.production)) };
+      } else {
+        // snapshot 14h ne peut pas dépasser le snapshot 10h
+        return { ...s, snapshot14h: Math.max(0, Math.min(value, s.snapshot10h)) };
+      }
     }));
   }, []);
 
   const validateSnapshot = useCallback((slot: '10h' | '14h') => {
     setTodayStocks(prev =>
       prev.map(s =>
-        slot === '10h' ? { ...s, snapshot10hDone: true } : { ...s, snapshot14hDone: true }
+        slot === '10h'
+          ? { ...s, snapshot10hDone: true }
+          : { ...s, snapshot14hDone: true }
       )
     );
   }, []);
@@ -430,10 +446,11 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   // Clôture de journée
   // ─────────────────────────────────────────────────────────────
   const closeDayAndSave = useCallback(async (cmdOnline: number) => {
-    // 1. Sauvegarde finale des stocks
+    // 1. Sauvegarde finale immédiate (sans debounce)
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     await saveToSupabase(todayStocks, cmdOnline);
 
-    // 2. Marque la journée comme clôturée
+    // 2. Marque la journée clôturée
     await fetch('/api/boulanger/journee', {
       method: 'PUT',
       headers: authHeaders(),
@@ -441,8 +458,10 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
     // 3. Met à jour l'historique local
     const today = new Date().toISOString().split('T')[0];
-    const ca = todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0);
-    const totalProd = todayStocks.reduce((s, p) => s + p.production, 0);
+    const ca = todayStocks.reduce(
+      (s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0
+    );
+    const totalProd    = todayStocks.reduce((s, p) => s + p.production, 0);
     const totalInvendu = todayStocks.reduce((s, p) => s + p.stockFinal, 0);
 
     const dayData: DayData = {
@@ -460,17 +479,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   }, [todayStocks, saveToSupabase, authHeaders]);
 
   // ─────────────────────────────────────────────────────────────
-  // Stats calculées
+  // Stats calculées en temps réel
   // ─────────────────────────────────────────────────────────────
   const totalProducedToday = todayStocks.reduce((s, p) => s + p.production, 0);
   const unsoldToday        = todayStocks.reduce((s, p) => s + p.stockFinal, 0);
-  const unsoldRateToday    = totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0;
-  const unsoldValueToday   = todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0);
-  const revenueToday       = todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0);
+  const unsoldRateToday    = totalProducedToday > 0
+    ? (unsoldToday / totalProducedToday) * 100
+    : 0;
+  const unsoldValueToday   = todayStocks.reduce(
+    (s, p) => s + p.stockFinal * p.coutProduction, 0
+  );
+  const revenueToday       = todayStocks.reduce(
+    (s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0
+  );
 
-  // ─────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────
   return (
     <BoulangerContext.Provider value={{
       isAuthenticated, authLoading, authError,
