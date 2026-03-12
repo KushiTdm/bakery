@@ -123,7 +123,7 @@ export async function GET() {
       results.auth_demo = {
         status: '❌ Login échoué',
         error: authError.message,
-        note: 'As-tu exécuté supabase-seed.sql ? L\'utilisateur demo doit exister.',
+        note: 'As-tu exécuté supabase-seed.sql ? L\'utilisateur doit exister.',
       }
     } else {
       const userId = authData.user?.id
