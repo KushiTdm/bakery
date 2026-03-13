@@ -1,107 +1,83 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { Product } from '@/lib/products';
+// context/cart-context.tsx
+// ─────────────────────────────────────────────────────────────
+// CORRECTIF : Suppression du double système d'authentification.
+// ─────────────────────────────────────────────────────────────
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+
+// ── Types ─────────────────────────────────────────────────────
 
 export interface CartItem {
-  product: Product;
+  id:       string;
+  name:     string;
+  emoji:    string;
+  price:    number;
   quantity: number;
 }
 
-export interface User {
-  email: string;
-  verified: boolean;
-}
-
 interface CartContextType {
-  // Panier
-  items: CartItem[];
-  addItem: (product: Product) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  clearCart: () => void;
-  totalItems: number;
-  totalPrice: number;
-  isCartOpen: boolean;
-  setIsCartOpen: (open: boolean) => void;
-
-  // Auth
-  user: User | null;
-  isAuthOpen: boolean;
-  setIsAuthOpen: (open: boolean) => void;
-  login: (email: string) => void;
-  logout: () => void;
-
-  // Pending action (produit à ajouter après auth)
-  pendingProduct: Product | null;
-  setPendingProduct: (p: Product | null) => void;
+  items:       CartItem[];
+  totalItems:  number;
+  totalPrice:  number;
+  addItem:     (item: Omit<CartItem, 'quantity'>) => void;
+  removeItem:  (id: string) => void;
+  updateQty:   (id: string, qty: number) => void;
+  clearCart:   () => void;
+  isOpen:      boolean;
+  openCart:    () => void;
+  closeCart:   () => void;
+  toggleCart:  () => void;
 }
-
-// ─── Context ──────────────────────────────────────────────────────────────────
 
 const CartContext = createContext<CartContextType | null>(null);
 
+// ── Provider ──────────────────────────────────────────────────
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
-  const addItem = useCallback((product: Product) => {
+  const addItem = useCallback((newItem: Omit<CartItem, 'quantity'>) => {
     setItems(prev => {
-      const existing = prev.find(i => i.product.id === product.id);
+      const existing = prev.find(i => i.id === newItem.id);
       if (existing) {
         return prev.map(i =>
-          i.product.id === product.id
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
+          i.id === newItem.id ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { ...newItem, quantity: 1 }];
     });
-    setIsCartOpen(true);
   }, []);
 
-  const removeItem = useCallback((productId: string) => {
-    setItems(prev => prev.filter(i => i.product.id !== productId));
+  const removeItem = useCallback((id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
   }, []);
 
-  const updateQuantity = useCallback((productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      setItems(prev => prev.filter(i => i.product.id !== productId));
+  const updateQty = useCallback((id: string, qty: number) => {
+    if (qty <= 0) {
+      setItems(prev => prev.filter(i => i.id !== id));
     } else {
       setItems(prev =>
-        prev.map(i =>
-          i.product.id === productId ? { ...i, quantity } : i
-        )
+        prev.map(i => i.id === id ? { ...i, quantity: qty } : i)
       );
     }
   }, []);
 
-  const clearCart = useCallback(() => setItems([]), []);
+  const clearCart  = useCallback(() => setItems([]), []);
+  const openCart   = useCallback(() => setIsOpen(true), []);
+  const closeCart  = useCallback(() => setIsOpen(false), []);
+  const toggleCart = useCallback(() => setIsOpen(v => !v), []);
 
-  const login = useCallback((email: string) => {
-    setUser({ email, verified: true });
-    setIsAuthOpen(false);
-  }, []);
-
-  const logout = useCallback(() => {
-    setUser(null);
-    setItems([]);
-  }, []);
-
-  const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
-  const totalPrice = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
+  const totalItems = items.reduce((s, i) => s + i.quantity, 0);
+  const totalPrice = items.reduce((s, i) => s + i.price * i.quantity, 0);
 
   return (
     <CartContext.Provider value={{
-      items, addItem, removeItem, updateQuantity, clearCart,
-      totalItems, totalPrice, isCartOpen, setIsCartOpen,
-      user, isAuthOpen, setIsAuthOpen, login, logout,
-      pendingProduct, setPendingProduct,
+      items, totalItems, totalPrice,
+      addItem, removeItem, updateQty, clearCart,
+      isOpen, openCart, closeCart, toggleCart,
     }}>
       {children}
     </CartContext.Provider>
@@ -110,6 +86,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
 export function useCart() {
   const ctx = useContext(CartContext);
-  if (!ctx) throw new Error('useCart must be used within CartProvider');
+  if (!ctx) throw new Error('useCart doit être utilisé dans <CartProvider>');
   return ctx;
 }
