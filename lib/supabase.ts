@@ -1,17 +1,10 @@
 // lib/supabase.ts
-// ─────────────────────────────────────────────────────────────
-// Client Supabase — le crash au démarrage est supprimé.
-// Les variables manquantes sont gérées silencieusement.
-// ─────────────────────────────────────────────────────────────
 
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
-// ── Client navigateur (RLS actif) ─────────────────────────────
-// Ne plante pas si les variables sont vides — les appels
-// échoueront proprement avec des erreurs réseau.
 export const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -20,18 +13,18 @@ export const supabase = supabaseUrl && supabaseAnonKey
         detectSessionInUrl: true,
       },
     })
-  : null as any; // null safe — les composants vérifient isAuthenticated avant d'appeler
+  : null as any;
 
 // ── Client serveur (service role) ─────────────────────────────
-// Instancié à la demande uniquement dans les API routes.
-// Ne jamais importer cette fonction côté navigateur.
+// CORRECTION : SUPABASE_SERVICE_KEY → SUPABASE_SERVICE_ROLE_KEY
+// Nom officiel Supabase. Mettre à jour votre .env.local en conséquence.
 export function getSupabaseAdmin() {
   const url        = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // ← corrigé
 
   if (!url || !serviceKey) {
     throw new Error(
-      '[Supabase] NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_KEY sont requis côté serveur. ' +
+      '[Supabase] NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis côté serveur. ' +
       'Vérifiez votre .env.local'
     );
   }
@@ -40,8 +33,6 @@ export function getSupabaseAdmin() {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
-
-// ── Types base de données ──────────────────────────────────────
 
 export interface DbBoulangerie {
   id: string;

@@ -65,7 +65,7 @@ export default function Hero({ setActiveTab }: HeroProps) {
           className="flex items-center justify-center gap-4 flex-wrap"
         >
           <button
-            onClick={() => document.getElementById('savoir-faire')?.scrollIntoView({ behavior: 'smooth' })}
+            onClick={() => document.getElementById('notre-histoire')?.scrollIntoView({ behavior: 'smooth' })}
             className="bg-white text-[#2C1810] px-7 py-3.5 rounded-full text-sm font-semibold hover:bg-[#FDFBF7] transition-colors shadow-xl"
           >
             Découvrir notre savoir-faire
