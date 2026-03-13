@@ -1,40 +1,37 @@
 'use client';
 
+// components/click-collect.tsx
+// ─────────────────────────────────────────────────────────────
+// CORRECTIONS :
+//   - UNSOLD_IDS hardcodés supprimés
+//   - FlashSection utilise unsoldIds + flashConfig depuis useProducts()
+//   - Les invendus affichés correspondent aux vrais stocks du boulanger
+//   - stockRestant affiché si disponible
+// ─────────────────────────────────────────────────────────────
+
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingBag, Zap, Clock, Package, Info } from 'lucide-react';
 import { useProducts } from '@/hooks/use-products';
+import type { FlashConfig } from '@/hooks/use-products';
 import { useCart } from '@/context/cart-context';
 import { products as LOCAL_PRODUCTS, categories } from '@/lib/products';
 
-// ─── Config flash (en prod → Google Sheet) ────────────────────────────────────
-const FLASH_CONFIG = {
-  startHour: 18,
-  endHour: 20,
-  discountPercent: 40,
-  basketPrice: 6.90,
-  basketCount: 4,
-  totalBaskets: 12,
-};
-const UNSOLD_IDS = ['1', '2', '4', '5', '9', '11'];
-// Pour forcer l'affichage des invendus en dev : mettre true
-const DEV_FORCE_FLASH = false;
-
-function useFlashTime() {
+// ─── Calcul de l'état du flash en fonction de flashConfig ────
+function useFlashTime(config: FlashConfig) {
   const [now] = useState(() => new Date());
-  const hour = now.getHours();
-  if (DEV_FORCE_FLASH) return { isFlash: true, timeLeft: '1h 22m 10s' };
-  const active = hour >= FLASH_CONFIG.startHour && hour < FLASH_CONFIG.endHour;
+  const hour  = now.getHours();
+  const active = config.flashActif && hour >= config.heureDebut && hour < config.heureFin;
   if (!active) return { isFlash: false, timeLeft: '' };
   const end = new Date();
-  end.setHours(FLASH_CONFIG.endHour, 0, 0, 0);
+  end.setHours(config.heureFin, 0, 0, 0);
   const diff = end.getTime() - now.getTime();
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   return { isFlash: true, timeLeft: `${h}h ${String(m).padStart(2, '0')}m` };
 }
 
-// ─── Card produit standard ────────────────────────────────────────────────────
+// ─── Card produit standard ────────────────────────────────────
 function ProductCard({ product, index }: { product: any; index: number }) {
   const { addItem, user, setIsAuthOpen, setPendingProduct } = useCart();
 
@@ -81,36 +78,40 @@ function ProductCard({ product, index }: { product: any; index: number }) {
   );
 }
 
-// ─── Section paniers invendus ─────────────────────────────────────────────────
-function FlashSection() {
-  const { isFlash, timeLeft } = useFlashTime();
+// ─── Section paniers invendus ─────────────────────────────────
+// Reçoit les données Airtable en prop : flashConfig + unsoldProducts réels
+function FlashSection({
+  flashConfig,
+  unsoldProducts,
+}: {
+  flashConfig: FlashConfig;
+  unsoldProducts: any[];
+}) {
+  const { isFlash, timeLeft } = useFlashTime(flashConfig);
   const { addItem, user, setIsAuthOpen } = useCart();
-  const allProducts = LOCAL_PRODUCTS;
-  const unsoldProducts = allProducts.filter(p => UNSOLD_IDS.includes(p.id));
 
   const addDiscounted = (product: any) => {
     if (!user) { setIsAuthOpen(true); return; }
     const discounted = {
       ...product,
-      price: +(product.price * (1 - FLASH_CONFIG.discountPercent / 100)).toFixed(2),
+      price: +(product.price * (1 - flashConfig.remisePercent / 100)).toFixed(2),
       name: `${product.name} ⚡`,
     };
     addItem(discounted);
   };
 
   if (!isFlash) {
-    // Teaser - hors horaires
     return (
       <div className="bg-[#2C1810] rounded-3xl p-8 text-center">
         <div className="w-14 h-14 bg-[#C19A6B]/15 rounded-2xl flex items-center justify-center mx-auto mb-5">
           <Clock size={26} className="text-[#C19A6B]" />
         </div>
         <h3 className="text-white text-xl font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
-          Invendus du jour — Disponibles à {FLASH_CONFIG.startHour}h
+          Invendus du jour — Disponibles à {flashConfig.heureDebut}h
         </h3>
         <p className="text-white/50 text-sm leading-relaxed max-w-sm mx-auto">
-          Chaque soir à {FLASH_CONFIG.startHour}h, nous proposons nos invendus à -{FLASH_CONFIG.discountPercent}% 
-          jusqu'à épuisement du stock. Premier arrivé, premier servi.
+          Chaque soir à {flashConfig.heureDebut}h, nos invendus sont proposés à -{flashConfig.remisePercent}%
+          jusqu'à épuisement. Premier arrivé, premier servi.
         </p>
         <div className="mt-6 inline-flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-4 py-2">
           <Info size={13} className="text-[#C19A6B]" />
@@ -120,9 +121,25 @@ function FlashSection() {
     );
   }
 
+  // Flash actif mais aucun invendu déclaré par le boulanger
+  if (unsoldProducts.length === 0) {
+    return (
+      <div className="bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-8 text-center">
+        <div className="w-14 h-14 bg-green-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Zap size={26} className="text-green-400" />
+        </div>
+        <h3 className="text-white text-lg font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
+          Flash actif · {timeLeft} restant
+        </h3>
+        <p className="text-white/50 text-sm">Tous les produits ont été vendus aujourd'hui 🎉</p>
+      </div>
+    );
+  }
+
+  const basketsLeft = flashConfig.panierMystereCount;
+
   return (
     <div className="relative overflow-hidden bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-6">
-      {/* Background shimmer */}
       <motion.div
         className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
         animate={{ x: ['-100%', '100%'] }}
@@ -130,7 +147,6 @@ function FlashSection() {
       />
 
       <div className="relative">
-        {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -145,7 +161,7 @@ function FlashSection() {
                 Flash Invendus
               </h3>
               <span className="bg-yellow-400 text-[#2C1810] text-xs font-black px-2 py-0.5 rounded-full">
-                -{FLASH_CONFIG.discountPercent}%
+                -{flashConfig.remisePercent}%
               </span>
             </div>
             <p className="text-white/55 text-xs">
@@ -154,23 +170,21 @@ function FlashSection() {
           </div>
           <div className="flex items-center gap-1.5 bg-black/25 rounded-xl px-3 py-2 flex-shrink-0">
             <Package size={13} className="text-yellow-400" />
-            <span className="text-white text-sm font-bold">{FLASH_CONFIG.totalBaskets - 5}</span>
-            <span className="text-white/50 text-xs">restants</span>
+            <span className="text-white text-sm font-bold">{basketsLeft}</span>
+            <span className="text-white/50 text-xs">paniers</span>
           </div>
         </div>
 
-        {/* Avertissement premier arrivé */}
         <div className="bg-white/8 border border-white/15 rounded-xl px-3 py-2.5 mb-5 flex items-center gap-2">
           <Info size={13} className="text-yellow-400 flex-shrink-0" />
           <p className="text-white/65 text-xs">
-            Aucune réservation — ajoutez au panier et venez récupérer avant {FLASH_CONFIG.endHour}h
+            Aucune réservation — venez récupérer avant {flashConfig.heureFin}h
           </p>
         </div>
 
-        {/* Grille invendus */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {unsoldProducts.map((product, i) => {
-            const discountedPrice = +(product.price * (1 - FLASH_CONFIG.discountPercent / 100)).toFixed(2);
+            const discountedPrice = +(product.price * (1 - flashConfig.remisePercent / 100)).toFixed(2);
             return (
               <motion.div
                 key={product.id}
@@ -190,6 +204,12 @@ function FlashSection() {
                       <span className="text-yellow-400 text-sm font-bold">{discountedPrice.toFixed(2)}€</span>
                     </div>
                   </div>
+                  {/* Stock restant si disponible */}
+                  {product.stockRestant > 0 && (
+                    <div className="absolute top-2 right-2 bg-black/60 rounded-full px-1.5 py-0.5 text-white text-[10px] font-bold">
+                      ×{product.stockRestant}
+                    </div>
+                  )}
                 </div>
                 <div className="p-2">
                   <button
@@ -208,10 +228,13 @@ function FlashSection() {
   );
 }
 
-// ─── Page principale Click & Collect ─────────────────────────────────────────
+// ─── Page principale Click & Collect ─────────────────────────
 export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
-  const { products, loading, source } = useProducts();
+  const { products, loading, source, flashConfig, unsoldIds } = useProducts();
+
+  // Les vrais invendus viennent d'Airtable via useProducts()
+  const unsoldProducts = products.filter((p: any) => unsoldIds.includes(p.id));
 
   const filteredProducts = activeCategory === 'all'
     ? products
@@ -221,7 +244,6 @@ export default function ClickCollect() {
     <div className="pt-20 min-h-screen bg-[#FDFBF7]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
 
-        {/* Header page */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -242,13 +264,10 @@ export default function ClickCollect() {
           )}
         </motion.div>
 
-        {/* Layout 2 colonnes sur desktop */}
         <div className="grid lg:grid-cols-3 gap-8">
 
           {/* Colonne gauche — Catalogue (2/3) */}
           <div className="lg:col-span-2">
-
-            {/* Filtres */}
             <div className="flex flex-wrap gap-2 mb-7">
               {categories.map(cat => (
                 <button
@@ -265,7 +284,6 @@ export default function ClickCollect() {
               ))}
             </div>
 
-            {/* Grille produits */}
             {loading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -299,29 +317,29 @@ export default function ClickCollect() {
             )}
           </div>
 
-          {/* Colonne droite — Invendus flash (1/3) */}
+          {/* Colonne droite — Flash (1/3) */}
           <div className="lg:col-span-1">
             <div className="sticky top-28">
-              <FlashSection />
+              <FlashSection
+                flashConfig={flashConfig}
+                unsoldProducts={unsoldProducts}
+              />
 
-              {/* Info retrait */}
               <div className="mt-5 bg-white rounded-2xl p-5 border border-[#E8E0D5] space-y-3">
                 <h4 className="text-[#2C1810] font-semibold text-sm" style={{ fontFamily: 'Playfair Display, serif' }}>
                   Informations retrait
                 </h4>
                 <div className="space-y-2.5 text-xs text-[#2C1810]/60">
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Commande disponible <strong className="text-[#2C1810]/80">dès le lendemain matin</strong> à partir de 7h</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Paiement <strong className="text-[#2C1810]/80">sur place uniquement</strong> — espèces ou carte</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Commande conservée <strong className="text-[#2C1810]/80">jusqu'à 10h</strong>, puis libérée</p>
-                  </div>
+                  {[
+                    { text: 'Commande disponible <strong class="text-[#2C1810]/80">dès le lendemain matin</strong> à partir de 7h' },
+                    { text: 'Paiement <strong class="text-[#2C1810]/80">sur place uniquement</strong> — espèces ou carte' },
+                    { text: 'Commande conservée <strong class="text-[#2C1810]/80">jusqu\'à 10h</strong>, puis libérée' },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
+                      <p dangerouslySetInnerHTML={{ __html: item.text }} />
+                    </div>
+                  ))}
                   <div className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
                     <p>Click & Collect <strong className="text-[#2C1810]/80">100% gratuit</strong></p>
@@ -330,7 +348,6 @@ export default function ClickCollect() {
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>

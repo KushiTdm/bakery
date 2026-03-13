@@ -1,7 +1,11 @@
 // components/boulanger/parametres.tsx
 // ─────────────────────────────────────────────────────────────
-// Permet à la boulangerie de saisir ses credentials Airtable
-// et de les tester. Accessible depuis le dashboard ou un menu.
+// CORRECTIONS :
+//   - testConnection() ne fait plus de fetch Airtable direct depuis le browser
+//     (clé API visible dans DevTools / Network tab)
+//   - Passe par PATCH /api/boulanger/airtable (proxy serveur sécurisé)
+//   - Bouton "Sauvegarder" désactivé tant que le test n'a pas réussi
+//   - Champ clé API vidé après sauvegarde réussie
 // ─────────────────────────────────────────────────────────────
 'use client';
 
@@ -12,20 +16,27 @@ import {
   ExternalLink, Eye, EyeOff, Save, Info
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
+import { supabase } from '@/lib/supabase';
 
 export default function Parametres() {
   const { user, boulangerie } = useBoulanger();
 
-  const [apiKey, setApiKey] = useState('');
-  const [baseId, setBaseId] = useState('');
-  const [showKey, setShowKey] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [apiKey, setApiKey]       = useState('');
+  const [baseId, setBaseId]       = useState('');
+  const [showKey, setShowKey]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [testing, setTesting]     = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testMessage, setTestMessage] = useState('');
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved]         = useState(false);
 
-  // ── Test de connexion Airtable ────────────────────────────
+  // ── Récupère le token Supabase courant ────────────────────
+  const getToken = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  };
+
+  // ── Test via proxy serveur (clé jamais exposée au browser) ─
   const testConnection = async () => {
     if (!apiKey || !baseId) {
       setTestResult('error');
@@ -34,24 +45,34 @@ export default function Parametres() {
     }
     setTesting(true);
     setTestResult(null);
+
     try {
-      // Test direct vers Airtable
-      const url = `https://api.airtable.com/v0/${baseId}/Produits?maxRecords=1`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      const token = await getToken();
+      if (!token) {
+        setTestResult('error');
+        setTestMessage('Session expirée — reconnectez-vous');
+        return;
+      }
+
+      // Le test passe par PATCH /api/boulanger/airtable
+      // La clé n'apparaît jamais dans les DevTools côté réseau client
+      const res = await fetch('/api/boulanger/airtable', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ apiKey, baseId }),
       });
-      if (res.ok) {
-        const data = await res.json();
+
+      const data = await res.json();
+
+      if (data.valid) {
         setTestResult('success');
-        setTestMessage(`Connexion réussie ! ${data.records?.length ?? 0} produit(s) trouvé(s).`);
+        setTestMessage('Connexion réussie ! Clés valides.');
       } else {
         setTestResult('error');
-        setTestMessage(res.status === 401
-          ? 'Clé API invalide ou expirée'
-          : res.status === 404
-            ? 'Base introuvable — vérifiez l\'ID de base'
-            : `Erreur Airtable (${res.status})`
-        );
+        setTestMessage(data.error ?? 'Clés invalides');
       }
     } catch {
       setTestResult('error');
@@ -61,20 +82,19 @@ export default function Parametres() {
     }
   };
 
-  // ── Sauvegarde en base Supabase ───────────────────────────
+  // ── Sauvegarde en base Supabase (chiffrement côté serveur) ─
   const saveCredentials = async () => {
-    if (!apiKey || !baseId) return;
+    if (!apiKey || !baseId || testResult !== 'success') return;
     setSaving(true);
     try {
-      const { data: { session } } = await import('@/lib/supabase').then(m => m.supabase.auth.getSession());
-      const token = session?.access_token;
+      const token = await getToken();
       if (!token) return;
 
       const res = await fetch('/api/boulanger/profil', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           airtable_api_key: apiKey,
@@ -84,7 +104,9 @@ export default function Parametres() {
 
       if (res.ok) {
         setSaved(true);
-        setApiKey(''); // Vide le champ après sauvegarde (sécurité)
+        setApiKey('');       // Vide les champs après sauvegarde (sécurité)
+        setBaseId('');
+        setTestResult(null);
         setTimeout(() => setSaved(false), 3000);
       }
     } finally {
@@ -132,14 +154,13 @@ export default function Parametres() {
           <p className="text-white/70 text-sm font-semibold">Catalogue Airtable</p>
         </div>
 
-        {/* Explication */}
         <div className="bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl p-4 mb-5 flex items-start gap-3">
           <Info size={14} className="text-[#C19A6B] flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-[#C19A6B] text-xs font-semibold mb-1">Comment ça fonctionne ?</p>
             <p className="text-white/45 text-xs leading-relaxed">
-              Votre catalogue de produits (noms, prix, photos) est géré depuis votre compte Airtable.
-              Connectez-le ici pour que vos clients voient toujours les bons prix en temps réel.
+              Votre catalogue (noms, prix, photos) est géré depuis Airtable.
+              Vos clés sont transmises et stockées de façon sécurisée — jamais exposées dans le navigateur.
             </p>
             <a
               href="https://support.airtable.com/docs/creating-and-using-api-keys-and-access-tokens"
@@ -162,7 +183,7 @@ export default function Parametres() {
               <input
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
+                onChange={e => { setApiKey(e.target.value); setTestResult(null); }}
                 placeholder="patXXXXXXXXXXXXXX..."
                 className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors pr-10"
               />
@@ -183,12 +204,12 @@ export default function Parametres() {
             <input
               type="text"
               value={baseId}
-              onChange={e => setBaseId(e.target.value)}
+              onChange={e => { setBaseId(e.target.value); setTestResult(null); }}
               placeholder="appXXXXXXXXXXXXXX"
               className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors"
             />
             <p className="text-white/20 text-xs mt-1 px-1">
-              Visible dans l'URL de votre base Airtable : airtable.com/<span className="text-[#C19A6B]/50">appXXX</span>/...
+              Visible dans l'URL de votre base : airtable.com/<span className="text-[#C19A6B]/50">appXXX</span>/...
             </p>
           </div>
 

@@ -1,46 +1,64 @@
 'use client';
 
+// components/auth-modal.tsx
+// ─────────────────────────────────────────────────────────────
+// Auth via Supabase Magic Link (signInWithOtp)
+// Firebase supprimé complètement.
+//
+// Flux :
+//   1. L'utilisateur saisit son email → signInWithOtp()
+//   2. Supabase envoie un email avec un lien /auth/callback?code=...
+//   3. Le middleware @supabase/ssr intercepte le lien et crée la session
+//   4. Redirection vers la page d'origine
+//
+// Prérequis :
+//   - NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY dans .env.local
+//   - Route /app/auth/callback/route.ts créée (voir commentaire en bas)
+//   - Dans Supabase Dashboard > Auth > URL Configuration :
+//       Site URL     : https://ton-domaine.fr
+//       Redirect URL : https://ton-domaine.fr/auth/callback
+// ─────────────────────────────────────────────────────────────
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Mail, Shield, ChevronRight, RotateCcw, Inbox } from 'lucide-react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useCart } from '@/context/cart-context';
-import { auth } from '@/lib/firebase';
-import { sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 
 type Step = 'email' | 'sent' | 'success';
 
-const ACTION_CODE_SETTINGS = {
-  url: typeof window !== 'undefined' ? window.location.href : 'http://localhost:3000',
-  handleCodeInApp: true,
-};
-
 export default function AuthModal() {
   const { isAuthOpen, setIsAuthOpen, login, pendingProduct, addItem, setPendingProduct } = useCart();
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
+  const [step, setStep]       = useState<Step>('email');
+  const [email, setEmail]     = useState('');
+  const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthOpen) { setStep('email'); setEmail(''); setError(''); }
   }, [isAuthOpen]);
 
-  // Gestion retour Magic Link
+  // Écoute le retour Magic Link : Supabase met à jour la session automatiquement
+  // via le middleware @supabase/ssr. On écoute onAuthStateChange pour réagir
+  // côté client (ex. mettre à jour le panier).
   useEffect(() => {
-     if (isSignInWithEmailLink(auth, window.location.href)) {
-     const savedEmail = localStorage.getItem('emailForSignIn');
-       if (savedEmail) {
-         signInWithEmailLink(auth, savedEmail, window.location.href)
-           .then((result) => {
-             localStorage.removeItem('emailForSignIn');
-             login(result.user.email ?? savedEmail);
-             if (pendingProduct) { addItem(pendingProduct); setPendingProduct(null); }
-           })
-           .catch(() => setError('Lien invalide ou expiré.'));
-       }
-     }
-  }, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        setStep('success');
+        setTimeout(() => {
+          login(session.user.email ?? '');
+          if (pendingProduct) { addItem(pendingProduct); setPendingProduct(null); }
+          setIsAuthOpen(false);
+        }, 1500);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [pendingProduct]);
 
   const sendMagicLink = async () => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -48,17 +66,23 @@ export default function AuthModal() {
     }
     setLoading(true); setError('');
     try {
-       await sendSignInLinkToEmail(auth, email, ACTION_CODE_SETTINGS);
-       localStorage.setItem('emailForSignIn', email);
-      await new Promise(r => setTimeout(r, 1200));
+      const { error: supabaseError } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (supabaseError) throw supabaseError;
       setStep('sent');
     } catch (err: any) {
-      setError("Erreur lors de l'envoi. Réessayez.");
+      setError(err?.message ?? "Erreur lors de l'envoi. Réessayez.");
     }
     setLoading(false);
   };
 
-  const simulateLogin = () => {
+  // Connexion dev rapide — visible uniquement en NODE_ENV=development
+  const handleDevLogin = () => {
+    if (!email) { setError("Entrez votre email d'abord"); return; }
     setStep('success');
     setTimeout(() => {
       login(email);
@@ -90,18 +114,18 @@ export default function AuthModal() {
                 </button>
                 <div className="relative">
                   <div className="w-12 h-12 bg-[#C19A6B]/20 rounded-xl flex items-center justify-center mb-4">
-                    {step === 'sent' ? <Inbox size={24} className="text-[#C19A6B]" />
-                      : step === 'success' ? <Shield size={24} className="text-[#C19A6B]" />
-                      : <Mail size={24} className="text-[#C19A6B]" />}
+                    {step === 'sent'    ? <Inbox  size={24} className="text-[#C19A6B]" />
+                    : step === 'success' ? <Shield size={24} className="text-[#C19A6B]" />
+                    :                     <Mail   size={24} className="text-[#C19A6B]" />}
                   </div>
                   <h2 className="text-white font-bold text-xl mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
-                    {step === 'email' && 'Connexion'}
-                    {step === 'sent' && 'Email envoyé !'}
+                    {step === 'email'   && 'Connexion'}
+                    {step === 'sent'    && 'Email envoyé !'}
                     {step === 'success' && 'Bienvenue !'}
                   </h2>
                   <p className="text-white/60 text-sm">
-                    {step === 'email' && 'Entrez votre adresse email'}
-                    {step === 'sent' && `Vérifiez votre boîte : ${email}`}
+                    {step === 'email'   && 'Entrez votre adresse email'}
+                    {step === 'sent'    && `Vérifiez votre boîte : ${email}`}
                     {step === 'success' && 'Connexion réussie'}
                   </p>
                 </div>
@@ -136,6 +160,13 @@ export default function AuthModal() {
                             ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             : <>Recevoir le lien <ChevronRight size={16} /></>}
                         </button>
+
+                        {process.env.NODE_ENV === 'development' && (
+                          <button onClick={handleDevLogin}
+                            className="w-full border border-dashed border-[#2C1810]/20 text-[#2C1810]/40 hover:text-[#2C1810]/70 py-2 rounded-xl text-xs transition-colors">
+                            Connexion dev rapide
+                          </button>
+                        )}
                       </motion.div>
                     )}
 
@@ -154,7 +185,7 @@ export default function AuthModal() {
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700 space-y-1">
                           <p className="font-medium">Vous ne trouvez pas l'email ?</p>
                           <p>→ Vérifiez vos spams</p>
-                          <p>→ Expéditeur : <span className="font-mono">noreply@artisandore.fr</span></p>
+                          <p>→ Expéditeur : <span className="font-mono">noreply@supabase.io</span> (ou ton domaine custom)</p>
                         </div>
                         <div className="flex items-center justify-between text-xs">
                           <button onClick={() => setStep('email')} className="text-[#2C1810]/40 hover:text-[#2C1810] transition-colors">
@@ -164,10 +195,6 @@ export default function AuthModal() {
                             <RotateCcw size={12} /> Renvoyer
                           </button>
                         </div>
-                        <button onClick={simulateLogin}
-                          className="w-full border-2 border-dashed border-[#C19A6B]/40 text-[#C19A6B]/60 hover:border-[#C19A6B] hover:text-[#C19A6B] py-2.5 rounded-xl text-xs font-medium transition-colors">
-                          ⚡ Simuler la connexion (dev uniquement)
-                        </button>
                       </motion.div>
                     )}
 

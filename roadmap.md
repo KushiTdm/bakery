@@ -13,15 +13,9 @@ L'architecture est solide. Next.js 13/App Router, Supabase avec RLS bien configu
 
 Il y a deux `app/globals.css` et deux `app/layout.tsx` — l'un pour la landing BakeryOS (Cormorant Garamond, variables CSS `--ink`, `--gold`) et l'autre pour l'app boulanger (Playfair Display, Tailwind). Ces deux mondes coexistent dans le même repo sans séparation claire de routes. C'est une bombe à retardement : les styles vont se marcher dessus en production.
 
-`app/boulanger/profil/route.ts` est dans le mauvais dossier — il devrait être dans `app/api/boulanger/profil/route.ts`. Tel quel, Next.js va l'ignorer ou planter.
-
-Le client Supabase retourne `null as any` si les variables d'env sont absentes — les erreurs downstream seront silencieuses et très difficiles à debugger.
-
 Firebase est importé (`lib/firebase.ts`) mais n'est utilisé que dans `auth-modal.tsx` pour le Magic Link côté client public, tandis que l'espace boulanger utilise Supabase Auth. Deux systèmes d'auth dans un même projet, c'est une dette technique immédiate.
 
 **Sécurité**
-
-Les clés Airtable sont testées directement depuis le navigateur dans `parametres.tsx` — une requête Airtable en fetch côté client expose la clé dans les DevTools. Il faut proxifier ça côté serveur.
 
 Pas de rate limiting sur les API routes `/api/boulanger/auth` — un bot peut bruteforcer les mots de passe.
 
@@ -29,18 +23,13 @@ Pas de validation des inputs avec zod ou équivalent côté API — `nom`, `slug
 
 **Manques fonctionnels**
 
-- Pas de refresh token Supabase géré — session expire après 1h sans rechargement
-- Pas de middleware Next.js pour protéger `/boulanger/*` côté serveur
 - Pas de tests (unit, e2e) — zéro
 - Pas de gestion d'erreur globale (ErrorBoundary)
-- Le webhook Stripe référence des colonnes (`stripe_customer_id`, `stripe_subscription_id`, `trial_ends_at`) qui n'existent pas dans la migration SQL fournie
-- Pas de migration pour les colonnes chiffrées Airtable (`airtable_api_key_enc`, `airtable_base_id_enc`) ni pour la fonction `encrypt_text`
-- `pin-auth.tsx` existe mais n'est jamais utilisé dans l'app shell
 - `product-menu.tsx` existe mais n'est jamais importé dans les pages
 
 **Performance**
 
-Le contexte boulanger recalcule tout à chaque render. `revenueToday`, `unsoldToday` etc. devraient être mémoïsés avec `useMemo`.
+~~Le contexte boulanger recalcule tout à chaque render. `revenueToday`, `unsoldToday` etc. devraient être mémoïsés avec `useMemo`.~~ ✅ Corrigé
 
 ---
 
@@ -82,15 +71,13 @@ La page d'accueil est magnifique. Le loading screen avec l'épi de blé animé, 
 
 Le système d'authentification par Magic Link Firebase est **cassé en l'état** — il n'y a pas de vrai domaine configuré, la fonction `sendSignInLinkToEmail` pointe vers `window.location.href` qui en dev sera `localhost`. En production sans configuration Firebase correcte, le bouton "Recevoir le lien" ne fait rien d'utile.
 
-Le bouton "Simuler la connexion (dev uniquement)" est **visible en production** — c'est une faille.
-
-Quand j'ajoute au panier et clique "Confirmer la commande", j'ai un `alert()` JavaScript. En 2025, c'est rédhibitoire.
+~~Quand j'ajoute au panier et clique "Confirmer la commande", j'ai un `alert()` JavaScript. En 2025, c'est rédhibitoire.~~ ✅ Corrigé — confirmation inline avec numéro de commande.
 
 Il n'y a **aucune page de confirmation de commande**, aucun récapitulatif par email, aucun SMS. Je ne sais pas si ma commande est bien enregistrée.
 
 Je ne vois pas les **horaires d'ouverture en temps réel** — est-ce que la boulangerie est ouverte maintenant ?
 
-Le **Flash Invendus** ne fonctionne qu'entre 18h et 20h — mais le composant `FlashBanner` utilise `UNSOLD_IDS` hardcodés dans `click-collect.tsx`, pas les vrais stocks du boulanger. Donc même si le boulanger a tout vendu, les "invendus" affichés sont faux.
+~~Le **Flash Invendus** utilise des `UNSOLD_IDS` hardcodés dans `click-collect.tsx`, pas les vrais stocks du boulanger.~~ ✅ Corrigé — données Airtable réelles via `useProducts()`.
 
 ---
 
@@ -142,47 +129,75 @@ Le projet a une vraie valeur, un vrai problème à résoudre, et un fondateur qu
 
 ## Roadmap
 
-### Avant la mise en ligne (4-6 semaines)
+### ✅ Corrigé (13 items)
 
-**Semaine 1-2 — Stabilisation critique**
-- Séparer proprement les deux apps (dossiers `/apps/landing` et `/apps/boulanger`) ou au minimum résoudre les conflits CSS/layout
-- Déplacer `profil/route.ts` au bon endroit
-- Supprimer Firebase ou l'isoler — choisir un seul système d'auth
-- Ajouter le middleware Next.js pour protéger `/boulanger`
-- Corriger le webhook Stripe (ajouter les colonnes manquantes en migration)
-- Supprimer le bouton "Simuler la connexion" en production
-- Proxifier les appels Airtable depuis `parametres.tsx`
+**Auth & sécurité**
+- `app/api/boulanger/profil/route.ts` → placé au bon endroit dans les API routes
+- Middleware Next.js → `middleware.ts` protège `/boulanger/*` côté serveur (zéro flash de contenu)
+- Bouton "Simuler la connexion" → supprimé de `login-form.tsx`
+- Bouton "Simuler la connexion" dans `auth-modal.tsx` → visible uniquement si `NODE_ENV === 'development'`
+- `@supabase/ssr` → installé et utilisé dans le middleware
+- Refresh token Supabase → géré dans `boulanger-context.tsx` via `supabase.auth.setSession()`
 
-**Semaine 3 — Fonctionnel minimal viable**
-- Remplacer le `alert()` de commande par une vraie page de confirmation
-- Connecter les vrais stocks du boulanger au Flash côté client (supprimer les `UNSOLD_IDS` hardcodés)
-- Ajouter la gestion basique du catalogue produits sans Airtable (CRUD simple en Supabase)
-- Ajouter le refresh token Supabase
+**Données & intégrité**
+- Webhook Stripe → colonnes `stripe_customer_id`, `stripe_subscription_id`, `trial_ends_at`, `stripe_status` ajoutées dans `migration-2.sql`
+- Colonnes chiffrées Airtable + fonctions `encrypt_text`/`decrypt_text` → dans `migration-2.sql`
+- Proxy Airtable serveur → `app/api/boulanger/airtable/route.ts` créé (clé API jamais exposée au browser)
+- `parametres.tsx` → `testConnection()` passe par le proxy `/api/boulanger/airtable` (PATCH), clé API vidée après sauvegarde
 
-**Semaine 4 — Qualité et SEO**
-- Passer la landing en SSR/SSG (Next.js `generateStaticParams` ou simple `page.tsx` server component)
-- Ajouter zod sur toutes les API routes
-- Rate limiting sur `/api/boulanger/auth`
-- Vraies métadonnées dynamiques par boulangerie (`/[slug]`)
-- Supprimer les faux avis du schema.org
+**UX & performance**
+- `alert()` dans `cart-sidebar.tsx` → remplacé par `OrderConfirmation` animé avec numéro de commande
+- `UNSOLD_IDS` hardcodés dans `click-collect.tsx` → remplacés par les données Airtable réelles via `useProducts()`
+- Stats boulanger (`revenueToday`, `unsoldToday`, etc.) → mémoïsées avec `useMemo` dans `boulanger-context.tsx`
 
-### Après la mise en ligne (3-6 mois)
+---
 
-**Mois 1 — Acquisition**
-- Trouver 5 boulangers beta gratuitement (LinkedIn, groupes Facebook boulangers, marché local)
-- Mettre en place un onboarding guidé (checklist 5 étapes)
-- Blog SEO : "comment réduire les invendus en boulangerie", "gestion des stocks boulangerie artisanale"
+### 🔴 Avant la mise en ligne — Priorité haute
 
-**Mois 2-3 — Rétention**
-- Notifications push PWA pour le flash invendus
-- Suggestion de production automatique basée sur l'historique (régression linéaire simple)
+**Conflits CSS / layout** *(~2 jours)*
+Deux `globals.css` et deux `layout.tsx` dans le même repo. Les styles de la landing BakeryOS (Cormorant Garamond, variables `--ink`, `--gold`) vont écraser ceux de l'app boulanger en production. Solution : déplacer la landing dans `/app/(landing)/` avec son propre `layout.tsx` isolé, ou séparer les deux en monorepo.
+
+**Firebase ou Supabase — choisir** *(~1 jour)*
+Firebase Auth (Magic Link client public) + Supabase Auth (boulanger) = deux systèmes d'auth incompatibles à maintenir. Si Firebase n'est pas configuré en production, le Magic Link est silencieusement cassé. Options : migrer le Magic Link sur Supabase Auth (`supabase.auth.signInWithOtp()`), ou documenter et configurer Firebase correctement avec les domaines autorisés.
+
+**`/api/orders` manquant** *(~1 jour)*
+La confirmation de commande dans `cart-sidebar.tsx` s'affiche correctement, mais l'ordre n'est pas sauvegardé en base. Il manque : la table `commandes` en Supabase, la route `POST /api/orders`, et l'envoi d'un email de confirmation (Resend, 3 000 emails/mois gratuits).
+
+**Rate limiting sur `/api/boulanger/auth`** *(~2h)*
+Aucune protection bruteforce. Implémenter un rate limiter simple avec `@upstash/ratelimit` ou un middleware maison basé sur l'IP (max 5 tentatives / 15 minutes).
+
+**Validation zod sur les API routes** *(~1 jour)*
+Les inputs `nom`, `slug`, `email`, `password` arrivent bruts dans les API routes. Ajouter un schéma zod sur chaque `POST`/`PATCH` avec messages d'erreur structurés.
+
+---
+
+### 🟡 Après la mise en ligne — Priorité moyenne
+
+**SSR/SSG pour la landing** *(~2 jours)*
+Toute la landing est en CSR — Google n'indexe rien. Passer les composants statiques en Server Components Next.js. Priorité : hero, savoir-faire, footer (pas de dépendance client).
+
+**Faux avis schema.org** *(~1h)*
+"4.9 / 47 avis" hardcodés dans le schema.org de la landing. À supprimer ou remplacer par des vrais avis (Google Business Profile, Trustpilot).
+
+**`product-menu.tsx` orphelin** *(~30min)*
+Le composant n'est importé nulle part. Soit l'intégrer dans une page, soit le supprimer.
+
+**ErrorBoundary global** *(~2h)*
+Pas de filet de sécurité — un crash React laisse un écran blanc sans message. Ajouter un `ErrorBoundary` au niveau de `layout.tsx`.
+
+**FlashBanner connectée aux vrais stocks** *(~1 jour)*
+`FlashBanner.tsx` utilise encore `BASKETS_TAKEN = 5` et `totalBaskets = 12` hardcodés. Connecter au polling `/api/products` ou à un WebSocket pour refléter le stock réel du boulanger.
+
+---
+
+### 🟢 Évolutions futures
+
+- Multi-utilisateurs par boulangerie (vendeur vs propriétaire, sans accès aux stats financières)
 - Catalogue éditable directement dans l'app (sans Airtable)
-- Gestion des commandes click & collect (liste des commandes du jour pour le boulanger)
-- Export PDF hebdomadaire
-
-**Mois 4-6 — Croissance**
-- Multi-utilisateurs par boulangerie (vendeur vs propriétaire)
+- Suggestions de production automatiques basées sur l'historique réel (régression linéaire par produit)
+- Notifications push PWA lors du déclenchement du flash invendus
+- Gestion des commandes click & collect côté boulanger (liste du jour, statuts)
+- Export PDF hebdomadaire pour le comptable
+- Multi-boulangerie — architecture tenant avec sous-domaines
 - Intégration caisse (Lightspeed, Zelty API)
-- Application mobile native (React Native ou PWA installable)
-- Tableau de bord revendeur pour les grossistes ou groupements
-- Premier partenariat avec une école de boulangerie (CAP Boulanger) pour la distribution
+- Historique persistant sur plusieurs semaines
