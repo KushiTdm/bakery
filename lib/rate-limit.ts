@@ -10,8 +10,7 @@ interface RateLimitEntry {
 const ipStore = new Map<string, RateLimitEntry>();
 
 // Nettoyage périodique pour éviter une fuite mémoire
-// TS2802 fix : Array.from() au lieu d'itérer directement sur MapIterator
-// (target "es5" dans tsconfig.json ne supporte pas for...of sur Map sans downlevelIteration)
+
 setInterval(() => {
   const now = Date.now();
   Array.from(ipStore.entries()).forEach(([key, entry]) => {
@@ -66,7 +65,7 @@ export async function isSupabaseRateLimited(
   supabase: ReturnType<typeof import('@/lib/supabase').getSupabaseAdmin>,
   email: string,
   boulangerieId: string,
-  config: SupabaseLimitConfig = { maxOrdersPer24h: 3 }
+  config: SupabaseLimitConfig = { maxOrdersPer24h: 5 }
 ): Promise<boolean> {
   try {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

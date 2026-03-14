@@ -11,7 +11,7 @@ create table if not exists commandes (
   notes             text check (length(notes) <= 500),
   montant_total     numeric(8,2) not null check (montant_total > 0),
   statut            text not null default 'en_attente'
-                    check (statut in ('en_attente', 'confirmee', 'prete', 'retiree', 'annulee')),
+                    check (statut in ('en_attente', 'confirmee', 'prete', 'recuperee', 'retiree', 'annulee')),
   lignes            jsonb not null default '[]'::jsonb,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
