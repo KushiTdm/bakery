@@ -110,6 +110,80 @@ interface BoulangerContextType {
   totalProducedToday: number;
   history: HistoryEntry[];
   closeDayAndSave: (commandesOnline: number) => Promise<void>;
+  // Suggestions de production basées sur l'historique réel (remplace +30% hardcodé)
+  productionSuggestions: ProductionSuggestion[];
+}
+
+// ── Type suggestion de production ────────────────────────────
+export interface ProductionSuggestion {
+  id:            string;
+  name:          string;
+  emoji:         string;
+  avgProduction: number;  // moyenne historique pour ce jour de semaine
+  suggestedQty:  number;  // quantité suggérée (arrondie au multiple de 5)
+  dataPoints:    number;  // nombre de jours similaires dans l'historique
+  changePercent: number;  // delta vs production actuelle (%)
+  confidence:    'high' | 'medium' | 'low';
+}
+
+// ── Helper : calcule les suggestions depuis l'historique ──────
+function computeProductionSuggestions(
+  history: HistoryEntry[],
+  todayStocks: StockEntry[],
+  targetDayOfWeek: number
+): ProductionSuggestion[] {
+  if (history.length === 0) return [];
+
+  // Filtre les journées du même jour de la semaine
+  const sameDayHistory = history.filter(
+    d => new Date(d.date + 'T12:00:00').getDay() === targetDayOfWeek
+  );
+
+  return todayStocks.map(stock => {
+    const relevant = sameDayHistory.length >= 1 ? sameDayHistory : history;
+    const dataPoints = relevant.length;
+
+    const productions = relevant
+      .map(d => d.stocks.find(s => s.id === stock.id)?.production ?? 0)
+      .filter(v => v > 0);
+
+    if (productions.length === 0) {
+      return {
+        id:            stock.id,
+        name:          stock.name,
+        emoji:         stock.emoji,
+        avgProduction: stock.production,
+        suggestedQty:  stock.production,
+        dataPoints:    0,
+        changePercent: 0,
+        confidence:    'low' as const,
+      };
+    }
+
+    const avg = productions.reduce((s, v) => s + v, 0) / productions.length;
+
+    // Arrondir au multiple de 5 le plus proche
+    const suggestedQty = Math.max(1, Math.round(avg / 5) * 5);
+
+    const changePercent = stock.production > 0
+      ? Math.round(((suggestedQty - stock.production) / stock.production) * 100)
+      : 0;
+
+    const confidence: ProductionSuggestion['confidence'] =
+      productions.length >= 4 ? 'high' :
+      productions.length >= 2 ? 'medium' : 'low';
+
+    return {
+      id:            stock.id,
+      name:          stock.name,
+      emoji:         stock.emoji,
+      avgProduction: Math.round(avg),
+      suggestedQty,
+      dataPoints,
+      changePercent,
+      confidence,
+    };
+  });
 }
 
 const BoulangerContext = createContext<BoulangerContextType | null>(null);
@@ -320,6 +394,13 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
   const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);
 
+  // Suggestions de production basées sur l'historique réel
+  // Remplace le +30% week-end / +15% mercredi hardcodé dans vue-matin.tsx
+  const productionSuggestions = useMemo(
+    () => computeProductionSuggestions(history, todayStocks, new Date().getDay()),
+    [history, todayStocks]
+  );
+
   return (
     <BoulangerContext.Provider value={{
       session, user, boulangerie,
@@ -333,6 +414,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       revenueToday, unsoldToday, unsoldValueToday, unsoldRateToday, totalProducedToday,
       history,
       closeDayAndSave,
+      productionSuggestions,
     }}>
       {children}
     </BoulangerContext.Provider>

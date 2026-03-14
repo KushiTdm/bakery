@@ -56,7 +56,6 @@ function dbToStatus(s: DbCommande['statut']): Order['status'] {
     confirmee:  'confirmed',
     prete:      'ready',
     recuperee:  'done',
-    retiree:    'done',
     annulee:    'done',
   };
   return map[s] ?? 'pending';

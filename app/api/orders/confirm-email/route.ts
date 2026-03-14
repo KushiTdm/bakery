@@ -1,3 +1,10 @@
+// app/api/orders/confirm-email/route.ts
+// ─────────────────────────────────────────────────────────────
+// S3 FIX : INTERNAL_API_SECRET désormais obligatoire en production.
+// En développement, l'absence du secret est signalée par un warning
+// mais non bloquante (appels server-side sans secret via localhost).
+// ─────────────────────────────────────────────────────────────
+
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
@@ -18,17 +25,53 @@ interface ConfirmPayload {
   montant_total: number;
 }
 
-export async function POST(req: NextRequest) {
-  // Appel interne uniquement — pas d'auth publique
-  const internalSecret = req.headers.get('x-internal-secret');
-  if (internalSecret !== process.env.INTERNAL_API_SECRET) {
-    // Si pas de secret configuré, on accepte quand même (appel serveur → serveur)
-    // Configurez INTERNAL_API_SECRET en prod pour sécuriser davantage
+// ── Validation du secret interne ─────────────────────────────
+function checkInternalSecret(req: NextRequest): NextResponse | null {
+  const secret   = process.env.INTERNAL_API_SECRET;
+  const provided = req.headers.get('x-internal-secret');
+
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!secret) {
+    if (isProd) {
+      // En production sans secret configuré → erreur bloquante
+      console.error(
+        '[confirm-email] INTERNAL_API_SECRET non défini en production. ' +
+        'Ajoutez-le dans Netlify → Site settings → Environment variables.'
+      );
+      return NextResponse.json(
+        { error: 'Configuration serveur incomplète (INTERNAL_API_SECRET manquant)' },
+        { status: 500 }
+      );
+    } else {
+      // En dev, on accepte mais on avertit
+      console.warn(
+        '[confirm-email] INTERNAL_API_SECRET non défini — ' +
+        'appel accepté en développement uniquement.'
+      );
+      return null; // OK, on continue
+    }
   }
+
+  // Secret configuré → vérification stricte quel que soit l'environnement
+  if (provided !== secret) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
+  return null; // OK
+}
+
+export async function POST(req: NextRequest) {
+  const authError = checkInternalSecret(req);
+  if (authError) return authError;
 
   try {
     const payload: ConfirmPayload = await req.json();
     const { client_prenom, client_email, heure_retrait, lignes, montant_total, commande_id } = payload;
+
+    if (!client_email || !lignes?.length) {
+      return NextResponse.json({ error: 'Payload invalide' }, { status: 400 });
+    }
 
     const lignesHtml = lignes
       .map(
@@ -41,7 +84,7 @@ export async function POST(req: NextRequest) {
       .join('');
 
     const { error } = await resend.emails.send({
-      from:    'BakeryOS <commandes@votreboulangerie.fr>',  // ← adaptez le domaine
+      from:    process.env.RESEND_FROM_EMAIL ?? 'BakeryOS <commandes@artisandore.fr>',
       to:      client_email,
       subject: `✅ Commande confirmée — retrait à ${heure_retrait}`,
       html: `

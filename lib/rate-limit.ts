@@ -1,20 +1,70 @@
 // lib/rate-limit.ts
+// ─────────────────────────────────────────────────────────────
+// BC3 FIX : Rate limiting cross-instances via Upstash Redis.
 //
-// BC3 FIX : Le rate limiting en mémoire (Map) ne fonctionne pas entre les
-// instances serverless (Netlify/Vercel). Chaque invocation peut tomber sur
-// une instance froide avec une Map vide.
+// STRATÉGIE À DEUX NIVEAUX :
 //
-// Stratégie adoptée :
-// - Couche 1 (IP) : on conserve la Map en mémoire MAIS on l'utilise comme
-//   "best-effort" sur une même instance. Pour une protection robuste,
-//   ajouter Upstash Redis (voir commentaire ci-dessous).
-// - Couche 2 (email/Supabase) : déjà persistante → fonctionne correctement.
+//   Niveau 1 (IP) — Upstash Redis en production, Map en mémoire en dev.
+//     Redis permet une fenêtre glissante vraiment persistante entre
+//     les instances serverless Netlify/Vercel.
 //
-// Pour migrer vers Upstash Redis (recommandé en production) :
+//   Niveau 2 (email/Supabase) — Toujours actif, 24h glissantes.
+//     Reste la protection principale contre les abus multi-IP.
+//
+// INSTALLATION (une seule fois) :
 //   npm install @upstash/ratelimit @upstash/redis
-//   Remplacer isMemoryRateLimited par le Ratelimit d'Upstash.
+//
+// VARIABLES D'ENVIRONNEMENT à ajouter dans .env.local ET Netlify :
+//   UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
+//   UPSTASH_REDIS_REST_TOKEN=AXxx...
+//
+// Créer un compte gratuit sur upstash.com (10 000 req/jour gratuits).
+// ─────────────────────────────────────────────────────────────
 
-// ── Couche 1 : Map en mémoire (best-effort par instance) ──────
+interface MemoryLimitConfig {
+  windowMs: number;
+  maxCalls: number;
+}
+
+interface SupabaseLimitConfig {
+  maxOrdersPer24h: number;
+}
+
+// ── Niveau 1A : Upstash Redis (production) ───────────────────
+
+async function isUpstashRateLimited(
+  key: string,
+  config: MemoryLimitConfig
+): Promise<boolean> {
+  try {
+    const { Ratelimit } = await import('@upstash/ratelimit');
+    const { Redis }     = await import('@upstash/redis');
+
+    const redis = new Redis({
+      url:   process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+
+    const ratelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(
+        config.maxCalls,
+        `${Math.round(config.windowMs / 1000)} s`
+      ),
+      analytics: false,
+    });
+
+    const { success } = await ratelimit.limit(key);
+    return !success;
+
+  } catch (err) {
+    // Fail-open : Upstash inaccessible ne doit pas bloquer les commandes
+    console.warn('[rate-limit] Upstash inaccessible, fail-open:', (err as Error).message);
+    return false;
+  }
+}
+
+// ── Niveau 1B : Map en mémoire (dev / fallback sans Upstash) ─
 
 interface RateLimitEntry {
   count:   number;
@@ -23,7 +73,6 @@ interface RateLimitEntry {
 
 const ipStore = new Map<string, RateLimitEntry>();
 
-// Nettoyage périodique — Array.from() requis pour target ES2017+
 setInterval(() => {
   const now = Date.now();
   Array.from(ipStore.entries()).forEach(([key, entry]) => {
@@ -31,20 +80,7 @@ setInterval(() => {
   });
 }, 5 * 60 * 1000);
 
-interface MemoryLimitConfig {
-  windowMs: number;
-  maxCalls: number;
-}
-
-/**
- * Rate limiting en mémoire — best-effort sur une même instance serverless.
- * Protège contre les abus simples sur une même instance chaude.
- * Pour une protection cross-instances, utiliser Upstash Redis.
- */
-export function isMemoryRateLimited(
-  key: string,
-  config: MemoryLimitConfig = { windowMs: 60 * 60 * 1000, maxCalls: 5 }
-): boolean {
+function isMemoryRateLimitedSync(key: string, config: MemoryLimitConfig): boolean {
   const now   = Date.now();
   const entry = ipStore.get(key);
 
@@ -54,18 +90,37 @@ export function isMemoryRateLimited(
   }
 
   if (entry.count >= config.maxCalls) return true;
-
   entry.count++;
   return false;
 }
 
-// ── Couche 2 : Supabase (par email, 24h glissantes) ───────────
-// Cette couche fonctionne correctement en serverless car elle interroge
-// la base de données persistante.
+// ── Export principal ──────────────────────────────────────────
+// Sélectionne automatiquement la couche selon la config disponible.
 
-interface SupabaseLimitConfig {
-  maxOrdersPer24h: number;
+export async function isMemoryRateLimited(
+  key: string,
+  config: MemoryLimitConfig = { windowMs: 60 * 60 * 1000, maxCalls: 5 }
+): Promise<boolean> {
+  const hasUpstash =
+    !!process.env.UPSTASH_REDIS_REST_URL &&
+    !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (hasUpstash) {
+    return isUpstashRateLimited(key, config);
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(
+      '[rate-limit] UPSTASH_REDIS_REST_URL non configuré. ' +
+      'Rate limiting IP inactif entre instances serverless. ' +
+      'Ajoutez UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.'
+    );
+  }
+
+  return isMemoryRateLimitedSync(key, config);
 }
+
+// ── Niveau 2 : Supabase (email, 24h glissantes) ───────────────
 
 export async function isSupabaseRateLimited(
   supabase: ReturnType<typeof import('@/lib/supabase').getSupabaseAdmin>,
@@ -90,22 +145,6 @@ export async function isSupabaseRateLimited(
 
     return (count ?? 0) >= config.maxOrdersPer24h;
   } catch {
-    return false; // fail open — ne jamais bloquer une commande légitime sur erreur
+    return false;
   }
 }
-
-// ── NOTE : Migration Upstash Redis ────────────────────────────
-// Pour une protection robuste cross-instances en production :
-//
-// import { Ratelimit } from '@upstash/ratelimit';
-// import { Redis }     from '@upstash/redis';
-//
-// const ratelimit = new Ratelimit({
-//   redis: Redis.fromEnv(),
-//   limiter: Ratelimit.slidingWindow(5, '1 h'),
-// });
-//
-// export async function isUpstashRateLimited(ip: string): Promise<boolean> {
-//   const { success } = await ratelimit.limit(`orders:${ip}`);
-//   return !success;
-// }

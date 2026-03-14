@@ -48,10 +48,15 @@ export async function POST(req: NextRequest) {
   const config = checkSupabaseConfig();
   if (!config.ok) return config.error;
 
-  // ── Couche 1 : Rate limit IP en mémoire ──────────────────────
-  // 5 commandes max par IP par heure
   const clientIp = getClientIp(req);
-  if (isMemoryRateLimited(`orders:${clientIp}`, { windowMs: 60 * 60 * 1000, maxCalls: 5 })) {
+
+  // BC3 FIX : isMemoryRateLimited est désormais async (Upstash Redis ou Map)
+  const ipLimited = await isMemoryRateLimited(
+    `orders:${clientIp}`,
+    { windowMs: 60 * 60 * 1000, maxCalls: 5 }
+  );
+
+  if (ipLimited) {
     return NextResponse.json(
       { error: 'Trop de tentatives. Réessayez dans une heure.' },
       { status: 429, headers: { 'Retry-After': '3600' } }
@@ -87,8 +92,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Boulangerie non active' }, { status: 403 });
     }
 
-    // ── Couche 2 : Rate limit email via Supabase (24h glissantes) ─
-    // 3 commandes max par email par boulangerie par 24h
     const emailLimited = await isSupabaseRateLimited(
       supabase,
       data.client_email,
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     if (emailLimited) {
       return NextResponse.json(
-        { error: 'Limite de commandes atteinte pour aujourd\'hui. Contactez la boulangerie directement.' },
+        { error: "Limite de commandes atteinte pour aujourd'hui. Contactez la boulangerie directement." },
         { status: 429, headers: { 'Retry-After': '86400' } }
       );
     }
@@ -136,7 +139,7 @@ export async function POST(req: NextRequest) {
         await fetch(`${appUrl}/api/orders/confirm-email`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type':      'application/json',
             'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
           },
           body: JSON.stringify({
@@ -214,8 +217,6 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (date) {
-    // Filtre sur date locale France (UTC+1 hiver, UTC+2 été)
-    // Marge de 2h pour couvrir les deux offsets DST sans perdre de commandes
     const dateStart = new Date(`${date}T00:00:00+01:00`).toISOString();
     const dateEnd   = new Date(`${date}T23:59:59+02:00`).toISOString();
     query = query.gte('created_at', dateStart).lte('created_at', dateEnd);

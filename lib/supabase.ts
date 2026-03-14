@@ -5,6 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
+// S1 FIX : lever une erreur explicite si les variables sont manquantes
+// plutôt que d'exporter null as any qui crash silencieusement
 if (!supabaseUrl || !supabaseAnonKey) {
   const msg =
     '[Supabase] Variables d\'environnement manquantes :\n' +
@@ -110,7 +112,7 @@ export interface DbCommande {
   heure_retrait: string;
   notes: string | null;
   montant_total: number;
-  statut: 'en_attente' | 'confirmee' | 'prete' | 'recuperee' | 'retiree' | 'annulee';
+  statut: 'en_attente' | 'confirmee' | 'prete' | 'recuperee' | 'annulee';
   lignes: DbLigneCommande[];
   created_at: string;
   updated_at: string;
