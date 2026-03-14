@@ -1,45 +1,38 @@
-'use client';
+// app/page.tsx
+// Server Component shell — importe les SC directement,
+// délègue l'interactivité à LandingClient.
 
-import { useState } from 'react';
-import { CartProvider } from '@/context/cart-context';
-import Navbar from '@/components/navbar';
-import Hero from '@/components/hero';
-import SavoirFaire from '@/components/savoir-faire';
-import Ingredients from '@/components/ingredients';
-import Galerie from '@/components/galerie';
-import ClickCollect from '@/components/click-collect';
-import Footer from '@/components/footer';
-import CartSidebar from '@/components/cart-sidebar';
-import AuthModal from '@/components/auth-modal';
-import LoadingScreen from '@/components/Loadingscreen';
-import FlashBanner from '@/components/FlashBanner';
+import { CartProvider }    from '@/context/cart-context';
+import { ActiveTabProvider } from '@/context/active-tab-context';
+import LandingClient       from '@/components/landing-client';
 
-export type ActiveTab = 'vitrine' | 'commander';
+// Server Components — rendus côté serveur, indexés par Google
+import SavoirFaire  from '@/components/savoir-faire';
+import Ingredients  from '@/components/ingredients';
+import Footer       from '@/components/footer';
 
 export default function Home() {
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('vitrine');
-
   return (
     <CartProvider>
-      {loading && <LoadingScreen onFinish={() => setLoading(false)} />}
-      <FlashBanner activeTab={activeTab} setActiveTab={setActiveTab} />
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
-      <main className="min-h-screen">
-        {activeTab === 'vitrine' ? (
-          <>
-            <Hero setActiveTab={setActiveTab} />
-            <SavoirFaire />
-            <Ingredients />
-            <Galerie />
-            <Footer />
-          </>
-        ) : (
-          <ClickCollect />
-        )}
-      </main>
-      <CartSidebar />
-      <AuthModal />
+      <ActiveTabProvider>
+        {/*
+          LandingClient gère :
+          - LoadingScreen
+          - FlashBanner
+          - Navbar
+          - Hero (avec HeroCTA client island)
+          - Galerie (animations hover)
+          - ClickCollect
+          - CartSidebar
+          - AuthModal
+          - activeTab state
+        */}
+        <LandingClient
+          savoirFaire={<SavoirFaire />}
+          ingredients={<Ingredients />}
+          footer={<Footer />}
+        />
+      </ActiveTabProvider>
     </CartProvider>
   );
 }

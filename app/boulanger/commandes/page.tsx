@@ -1,11 +1,8 @@
 'use client';
 
 // app/boulanger/commandes/page.tsx
-// ─────────────────────────────────────────────────────────────
-// Dashboard des commandes click & collect du jour.
-// Authentification via BoulangerProvider (Supabase JWT).
-// Source de données : GET /api/orders (bearer token).
-// ─────────────────────────────────────────────────────────────
+// FIX : loadOrders() récupère d'abord le profil pour obtenir boulangerie_id
+// puis passe ?boulangerie_id=xxx au GET /api/orders
 
 import { useEffect, useState, useCallback } from 'react';
 import { useBoulanger } from '@/context/boulanger-context';
@@ -14,21 +11,21 @@ import { supabase } from '@/lib/supabase';
 // ── Types ─────────────────────────────────────────────────────
 
 interface OrderItem {
-  name:     string;
-  qty:      number;
-  price:    number;
+  name:  string;
+  qty:   number;
+  price: number;
 }
 
 interface Order {
-  id:            string;
-  commande_id:   string;
-  email:         string;
-  prenom:        string | null;
-  items:         OrderItem[];
-  total:         number;
-  pickup_time:   string | null;
-  status:        'pending' | 'confirmed' | 'ready' | 'done';
-  created_at:    string;
+  id:          string;
+  commande_id: string;
+  email:       string;
+  prenom:      string | null;
+  items:       OrderItem[];
+  total:       number;
+  pickup_time: string | null;
+  status:      'pending' | 'confirmed' | 'ready' | 'done';
+  created_at:  string;
 }
 
 const STATUS_LABELS: Record<Order['status'], string> = {
@@ -45,8 +42,6 @@ const STATUS_COLORS: Record<Order['status'], string> = {
   done:      'bg-white/5      text-white/30  border-white/10',
 };
 
-// ── Utils ─────────────────────────────────────────────────────
-
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
@@ -59,23 +54,45 @@ function formatPrice(n: number) {
 
 export default function CommandesPage() {
   const { isAuthenticated, authLoading } = useBoulanger();
-  const [orders, setOrders]   = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [updating, setUpdating] = useState<string | null>(null);
+  const [orders, setOrders]             = useState<Order[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh]   = useState<Date | null>(null);
+  const [updating, setUpdating]         = useState<string | null>(null);
 
-  // Charge les commandes du jour
+  // ── Charge les commandes du jour ────────────────────────────
   const loadOrders = useCallback(async () => {
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { setError('Non authentifié'); return; }
 
-      const res = await fetch('/api/orders', {
+      // 1. Récupère le profil pour obtenir boulangerie_id
+      const profileRes = await fetch('/api/boulanger/profil', {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: 'no-store',
       });
+
+      if (!profileRes.ok) {
+        setError('Impossible de charger le profil boulangerie');
+        return;
+      }
+
+      const profile = await profileRes.json();
+
+      if (!profile.id) {
+        setError('Boulangerie introuvable — vérifiez votre configuration');
+        return;
+      }
+
+      // 2. Charge les commandes avec boulangerie_id
+      const today = new Date().toISOString().split('T')[0];
+      const res = await fetch(
+        `/api/orders?boulangerie_id=${profile.id}&date=${today}`,
+        {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: 'no-store',
+        }
+      );
 
       if (!res.ok) {
         const { error } = await res.json().catch(() => ({ error: 'Erreur inconnue' }));
@@ -83,30 +100,60 @@ export default function CommandesPage() {
         return;
       }
 
-      const { orders: data } = await res.json();
-      setOrders(data ?? []);
+      const { commandes } = await res.json();
+
+      // Normalise les champs (la table s'appelle commandes, pas orders)
+      const normalized: Order[] = (commandes ?? []).map((c: any) => ({
+        id:          c.id,
+        commande_id: c.id.slice(0, 8).toUpperCase(),
+        email:       c.client_email,
+        prenom:      c.client_prenom ?? null,
+        items:       (c.lignes ?? []).map((l: any) => ({
+          name:  l.produit_nom,
+          qty:   l.quantite,
+          price: l.prix_unitaire,
+        })),
+        total:       c.montant_total,
+        pickup_time: c.heure_retrait ?? null,
+        status:      c.statut === 'en_attente' ? 'pending'
+                   : c.statut === 'confirmee'  ? 'confirmed'
+                   : c.statut === 'prete'      ? 'ready'
+                   : c.statut === 'recuperee'  ? 'done'
+                   : 'pending',
+        created_at:  c.created_at,
+      }));
+
+      setOrders(normalized);
       setLastRefresh(new Date());
-    } catch (e) {
+    } catch {
       setError('Erreur réseau');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Mise à jour du statut d'une commande
+  // ── Mise à jour du statut ───────────────────────────────────
   const updateStatus = useCallback(async (orderId: string, status: Order['status']) => {
     setUpdating(orderId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
+      // Mappe le statut front → statut base
+      const statutMap: Record<Order['status'], string> = {
+        pending:   'en_attente',
+        confirmed: 'confirmee',
+        ready:     'prete',
+        done:      'recuperee',
+      };
+
       const res = await fetch(`/api/orders/${orderId}`, {
         method:  'PATCH',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':  'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: statutMap[status] }),
       });
 
       if (res.ok) {
@@ -119,7 +166,7 @@ export default function CommandesPage() {
     }
   }, []);
 
-  // Chargement initial + rafraîchissement auto toutes les 60 s
+  // ── Chargement initial + rafraîchissement auto 60s ──────────
   useEffect(() => {
     if (!isAuthenticated) return;
     loadOrders();
@@ -127,7 +174,7 @@ export default function CommandesPage() {
     return () => clearInterval(interval);
   }, [isAuthenticated, loadOrders]);
 
-  // ── États ──────────────────────────────────────────────────
+  // ── États de chargement / auth ──────────────────────────────
 
   if (authLoading) {
     return (
@@ -145,9 +192,9 @@ export default function CommandesPage() {
     );
   }
 
-  // ── Stats du jour ──────────────────────────────────────────
+  // ── Stats du jour ───────────────────────────────────────────
 
-  const totalCA = orders.reduce((s, o) => s + o.total, 0);
+  const totalCA  = orders.reduce((s, o) => s + o.total, 0);
   const byStatus = {
     pending:   orders.filter(o => o.status === 'pending').length,
     confirmed: orders.filter(o => o.status === 'confirmed').length,
@@ -155,10 +202,9 @@ export default function CommandesPage() {
     done:      orders.filter(o => o.status === 'done').length,
   };
 
-  // ── Rendu ──────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-[#1A0F0A] pb-20">
+
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#1A0F0A]/95 backdrop-blur border-b border-white/8 px-4 py-4">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
@@ -167,7 +213,9 @@ export default function CommandesPage() {
               Commandes du jour
             </h1>
             <p className="text-white/30 text-xs">
-              {lastRefresh ? `Mis à jour à ${formatTime(lastRefresh.toISOString())}` : 'Chargement…'}
+              {lastRefresh
+                ? `Mis à jour à ${formatTime(lastRefresh.toISOString())}`
+                : 'Chargement…'}
             </p>
           </div>
           <button
@@ -181,6 +229,7 @@ export default function CommandesPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-6 space-y-6">
+
         {/* Résumé */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/4 border border-white/8 rounded-2xl p-4">
@@ -193,7 +242,7 @@ export default function CommandesPage() {
           </div>
         </div>
 
-        {/* Filtres statuts */}
+        {/* Badges statuts */}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {(Object.keys(byStatus) as Order['status'][]).map(status => (
             <div
@@ -212,7 +261,7 @@ export default function CommandesPage() {
           </div>
         )}
 
-        {/* Chargement */}
+        {/* Skeleton */}
         {loading && !orders.length && (
           <div className="flex flex-col gap-3">
             {[1, 2, 3].map(i => (
@@ -221,7 +270,7 @@ export default function CommandesPage() {
           </div>
         )}
 
-        {/* Aucune commande */}
+        {/* Vide */}
         {!loading && !error && orders.length === 0 && (
           <div className="text-center py-16">
             <span className="text-5xl block mb-4">🛒</span>
@@ -230,7 +279,7 @@ export default function CommandesPage() {
           </div>
         )}
 
-        {/* Liste des commandes */}
+        {/* Liste */}
         <div className="flex flex-col gap-3">
           {orders.map(order => (
             <div
@@ -240,7 +289,7 @@ export default function CommandesPage() {
               }`}
               style={{ borderColor: 'rgba(255,255,255,0.08)' }}
             >
-              {/* Entête commande */}
+              {/* En-tête */}
               <div className="flex items-start justify-between p-4 pb-2">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
@@ -257,7 +306,7 @@ export default function CommandesPage() {
                 </div>
               </div>
 
-              {/* Pickup */}
+              {/* Heure retrait */}
               {order.pickup_time && (
                 <div className="px-4 py-1.5 bg-[#C19A6B]/6 flex items-center gap-2">
                   <span className="text-sm">🕐</span>
@@ -278,7 +327,7 @@ export default function CommandesPage() {
                 ))}
               </div>
 
-              {/* Actions statut */}
+              {/* Actions */}
               <div className="px-4 pb-4 flex items-center gap-2">
                 <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_COLORS[order.status]}`}>
                   {STATUS_LABELS[order.status]}
@@ -290,27 +339,21 @@ export default function CommandesPage() {
                       <ActionButton
                         onClick={() => updateStatus(order.id, 'confirmed')}
                         loading={updating === order.id}
-                        label="Confirmer"
-                        emoji="✓"
-                        color="blue"
+                        label="Confirmer" emoji="✓" color="blue"
                       />
                     )}
                     {order.status === 'confirmed' && (
                       <ActionButton
                         onClick={() => updateStatus(order.id, 'ready')}
                         loading={updating === order.id}
-                        label="Prête"
-                        emoji="🟢"
-                        color="green"
+                        label="Prête" emoji="🟢" color="green"
                       />
                     )}
                     {order.status === 'ready' && (
                       <ActionButton
                         onClick={() => updateStatus(order.id, 'done')}
                         loading={updating === order.id}
-                        label="Récupérée"
-                        emoji="✓✓"
-                        color="gray"
+                        label="Récupérée" emoji="✓✓" color="gray"
                       />
                     )}
                   </div>
@@ -329,11 +372,11 @@ export default function CommandesPage() {
 function ActionButton({
   onClick, loading, label, emoji, color,
 }: {
-  onClick: () => void;
-  loading: boolean;
-  label:   string;
-  emoji:   string;
-  color:   'blue' | 'green' | 'gray';
+  onClick:  () => void;
+  loading:  boolean;
+  label:    string;
+  emoji:    string;
+  color:    'blue' | 'green' | 'gray';
 }) {
   const colors = {
     blue:  'bg-blue-500/15  border-blue-500/30  text-blue-300  hover:bg-blue-500/25',
