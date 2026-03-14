@@ -9,17 +9,27 @@
 // ─────────────────────────────────────────────────────────────
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Database, Key, CheckCircle, AlertCircle, Loader2,
-  ExternalLink, Eye, EyeOff, Save, Info
+  ExternalLink, Eye, EyeOff, Save, Info, Bell
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
+import PushNotificationToggle from './push-notification-toggle';
 
 export default function Parametres() {
   const { user, boulangerie } = useBoulanger();
+
+  // Token pour les notifications push
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }: { data: { session: { access_token: string } | null } }) => {
+      setToken(data.session?.access_token ?? null);
+    });
+  }, []);
 
   const [apiKey, setApiKey]       = useState('');
   const [baseId, setBaseId]       = useState('');
@@ -275,6 +285,15 @@ export default function Parametres() {
             </p>
           )}
         </div>
+      </div>
+
+      {/* Notifications Push */}
+      <div className="bg-white/5 border border-white/8 rounded-2xl p-5">
+        <div className="flex items-center gap-2.5 mb-4">
+          <Bell size={15} className="text-[#C19A6B]" />
+          <p className="text-white/70 text-sm font-semibold">Notifications push</p>
+        </div>
+        <PushNotificationToggle token={token} />
       </div>
     </div>
   );

@@ -1,15 +1,5 @@
 'use client';
 
-// hooks/use-push-notifications.ts
-// ─────────────────────────────────────────────────────────────
-// Hook React : gestion complète du cycle de vie des push notifications.
-// Importer dans le layout boulanger ou dans les paramètres.
-//
-// Usage :
-//   const { isSupported, permission, subscribe, unsubscribe, isSubscribed } =
-//     usePushNotifications(token);
-// ─────────────────────────────────────────────────────────────
-
 import { useEffect, useState, useCallback } from 'react';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '';
@@ -18,7 +8,14 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw     = window.atob(base64);
-  return Uint8Array.from({ length: raw.length }, (_, i) => raw.charCodeAt(i));
+
+  // ArrayBuffer strict (pas ArrayBufferLike) → compatible BufferSource
+  const buffer  = new ArrayBuffer(raw.length);
+  const arr     = new Uint8Array(buffer);
+  for (let i = 0; i < raw.length; i++) {
+    arr[i] = raw.charCodeAt(i);
+  }
+  return arr;
 }
 
 interface UsePushNotificationsReturn {
@@ -36,8 +33,6 @@ export function usePushNotifications(token: string | null): UsePushNotifications
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading]       = useState(false);
   const [swReg, setSwReg]               = useState<ServiceWorkerRegistration | null>(null);
-
-  // ── Détecter le support et récupérer le SW ───────────────
 
   useEffect(() => {
     if (
@@ -61,14 +56,10 @@ export function usePushNotifications(token: string | null): UsePushNotifications
     });
   }, []);
 
-  // ── Subscribe ─────────────────────────────────────────────
-
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!isSupported || !token || !VAPID_PUBLIC_KEY) return false;
-
     setIsLoading(true);
     try {
-      // Demander la permission si nécessaire
       let perm = Notification.permission;
       if (perm === 'default') {
         perm = await Notification.requestPermission();
@@ -78,15 +69,13 @@ export function usePushNotifications(token: string | null): UsePushNotifications
 
       const reg = swReg ?? await navigator.serviceWorker.ready;
 
-      // Créer la subscription VAPID
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
       });
 
-      // Envoyer au serveur
       const res = await fetch('/api/notifications/subscribe', {
-        method:  'POST',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -94,15 +83,9 @@ export function usePushNotifications(token: string | null): UsePushNotifications
         body: JSON.stringify({ subscription: sub.toJSON() }),
       });
 
-      if (res.ok) {
-        setIsSubscribed(true);
-        return true;
-      }
-
-      // Rollback si le serveur refuse
+      if (res.ok) { setIsSubscribed(true); return true; }
       await sub.unsubscribe();
       return false;
-
     } catch (err) {
       console.error('[usePushNotifications] subscribe:', err);
       return false;
@@ -110,8 +93,6 @@ export function usePushNotifications(token: string | null): UsePushNotifications
       setIsLoading(false);
     }
   }, [isSupported, token, swReg]);
-
-  // ── Unsubscribe ───────────────────────────────────────────
 
   const unsubscribe = useCallback(async (): Promise<boolean> => {
     if (!token) return false;
@@ -125,7 +106,7 @@ export function usePushNotifications(token: string | null): UsePushNotifications
       await sub.unsubscribe();
 
       await fetch('/api/notifications/subscribe', {
-        method:  'DELETE',
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,

@@ -1,42 +1,44 @@
-// app/api/notifications/send/route.ts
-// ─────────────────────────────────────────────────────────────
-// POST (service role uniquement) → envoie une notification push
-//       à tous les abonnements d'une boulangerie.
-//
-// Usage interne : appelé depuis un cron Supabase ou depuis
-// confirm-email/route.ts quand une commande arrive.
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
 interface PushPayload {
-  title:   string;
-  body:    string;
-  icon?:   string;
-  badge?:  string;
-  url?:    string;
-  tag?:    string;
+  title:  string;
+  body:   string;
+  icon?:  string;
+  badge?: string;
+  url?:   string;
+  tag?:   string;
+}
+
+// Interface locale qui couvre les méthodes utilisées de web-push
+interface WebPushSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+interface WebPushModule {
+  setVapidDetails: (subject: string, publicKey: string, privateKey: string) => void;
+  sendNotification: (sub: WebPushSubscription, payload: string) => Promise<unknown>;
 }
 
 export async function POST(req: NextRequest) {
-  // Sécurité : appel interne uniquement (service role ou secret partagé)
   const secret = req.headers.get('x-internal-secret');
   if (secret !== process.env.INTERNAL_API_SECRET && process.env.INTERNAL_API_SECRET) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
   try {
-    const { boulangerie_id, payload }: { boulangerie_id: string; payload: PushPayload } = await req.json();
+    const { boulangerie_id, payload }: { boulangerie_id: string; payload: PushPayload } =
+      await req.json();
 
     if (!boulangerie_id || !payload?.title) {
       return NextResponse.json({ error: 'boulangerie_id et payload.title requis' }, { status: 400 });
     }
 
-    // Charger web-push dynamiquement (évite l'erreur si pas installé)
-    let webpush: typeof import('web-push');
+    // Import dynamique casté via l'interface locale — TS7016 résolu
+    let webpush: WebPushModule;
     try {
-      webpush = await import('web-push');
+      webpush = (await import('web-push')) as unknown as WebPushModule;
     } catch {
       return NextResponse.json(
         { error: 'web-push non installé. Lancez : npm install web-push' },
@@ -57,7 +59,6 @@ export async function POST(req: NextRequest) {
 
     webpush.setVapidDetails(vapidContact, vapidPublic, vapidPrivate);
 
-    // Récupère tous les abonnements de cette boulangerie
     const admin = getSupabaseAdmin();
     const { data: subs, error } = await admin
       .from('push_subscriptions')
@@ -69,46 +70,38 @@ export async function POST(req: NextRequest) {
     }
 
     const notification = JSON.stringify({
-      title:   payload.title,
-      body:    payload.body,
-      icon:    payload.icon  ?? '/icons/icon-192x192.png',
-      badge:   payload.badge ?? '/icons/badge-72x72.png',
-      url:     payload.url   ?? '/boulanger',
-      tag:     payload.tag   ?? 'commande',
+      title:  payload.title,
+      body:   payload.body,
+      icon:   payload.icon  ?? '/icons/icon-192x192.png',
+      badge:  payload.badge ?? '/icons/badge-72x72.png',
+      url:    payload.url   ?? '/boulanger',
+      tag:    payload.tag   ?? 'commande',
     });
 
     const results = await Promise.allSettled(
       subs.map(sub =>
         webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth_key },
-          },
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
           notification
         )
       )
     );
 
-    // Nettoie les abonnements expirés (410 Gone)
+    // Nettoyage des abonnements expirés (410 Gone)
     const expired: string[] = [];
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
-        const err = result.reason as any;
-        if (err?.statusCode === 410) {
-          expired.push(subs[i].endpoint);
-        }
+        const err = result.reason as { statusCode?: number };
+        if (err?.statusCode === 410) expired.push(subs[i].endpoint);
       }
     });
 
     if (expired.length > 0) {
-      await admin
-        .from('push_subscriptions')
-        .delete()
-        .in('endpoint', expired);
+      await admin.from('push_subscriptions').delete().in('endpoint', expired);
     }
 
-    const sent    = results.filter(r => r.status === 'fulfilled').length;
-    const failed  = results.filter(r => r.status === 'rejected').length;
+    const sent   = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
 
     return NextResponse.json({ sent, failed, expired: expired.length });
 

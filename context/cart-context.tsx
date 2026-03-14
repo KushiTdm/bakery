@@ -1,34 +1,49 @@
 'use client';
 
 // context/cart-context.tsx
-// ─────────────────────────────────────────────────────────────
-// CORRECTIF : Suppression du double système d'authentification.
-// ─────────────────────────────────────────────────────────────
+// CORRECTIFS TS7031 + TS7006 :
+//   - getSession() typé explicitement { data: { session: Session | null } }
+//   - onAuthStateChange callback typé (_event: AuthChangeEvent, session: Session | null)
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import {
+  createContext, useContext, useState, useEffect,
+  useCallback, ReactNode,
+} from 'react';
+import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 
 // ── Types ─────────────────────────────────────────────────────
 
+export interface CartProduct {
+  id:          string;
+  name:        string;
+  price:       number;
+  image:       string;
+  category:    string;
+  description: string;
+}
+
 export interface CartItem {
-  id:       string;
-  name:     string;
-  emoji:    string;
-  price:    number;
+  product:  CartProduct;
   quantity: number;
 }
 
 interface CartContextType {
-  items:       CartItem[];
-  totalItems:  number;
-  totalPrice:  number;
-  addItem:     (item: Omit<CartItem, 'quantity'>) => void;
-  removeItem:  (id: string) => void;
-  updateQty:   (id: string, qty: number) => void;
-  clearCart:   () => void;
-  isOpen:      boolean;
-  openCart:    () => void;
-  closeCart:   () => void;
-  toggleCart:  () => void;
+  items:          CartItem[];
+  totalItems:     number;
+  totalPrice:     number;
+  addItem:        (product: CartProduct) => void;
+  removeItem:     (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  clearCart:      () => void;
+  isCartOpen:     boolean;
+  setIsCartOpen:  (open: boolean) => void;
+  user:               User | null;
+  isAuthOpen:         boolean;
+  setIsAuthOpen:      (open: boolean) => void;
+  pendingProduct:     CartProduct | null;
+  setPendingProduct:  (p: CartProduct | null) => void;
+  logout:             () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -36,48 +51,100 @@ const CartContext = createContext<CartContextType | null>(null);
 // ── Provider ──────────────────────────────────────────────────
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
+  const [items, setItems]                   = useState<CartItem[]>([]);
+  const [isCartOpen, setIsCartOpen]         = useState(false);
+  const [user, setUser]                     = useState<User | null>(null);
+  const [isAuthOpen, setIsAuthOpen]         = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<CartProduct | null>(null);
 
-  const addItem = useCallback((newItem: Omit<CartItem, 'quantity'>) => {
+  // ── Session Supabase ─────────────────────────────────────────
+  useEffect(() => {
+    // CORRECTIF TS7031 : type explicite sur la déstructuration de getSession()
+    supabase.auth.getSession().then(
+      ({ data: { session } }: { data: { session: Session | null } }) => {
+        setUser(session?.user ?? null);
+      }
+    );
+
+    // CORRECTIF TS7006 : types explicites sur le callback onAuthStateChange
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        const nextUser = session?.user ?? null;
+        setUser(nextUser);
+
+        // Produit en attente → ajout automatique après connexion
+        if (nextUser && pendingProduct) {
+          setItems(prev => {
+            const existing = prev.find(i => i.product.id === pendingProduct.id);
+            if (existing) {
+              return prev.map(i =>
+                i.product.id === pendingProduct.id
+                  ? { ...i, quantity: i.quantity + 1 }
+                  : i
+              );
+            }
+            return [...prev, { product: pendingProduct, quantity: 1 }];
+          });
+          setPendingProduct(null);
+          setIsAuthOpen(false);
+          setIsCartOpen(true);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Mutations panier ─────────────────────────────────────────
+
+  const addItem = useCallback((product: CartProduct) => {
     setItems(prev => {
-      const existing = prev.find(i => i.id === newItem.id);
+      const existing = prev.find(i => i.product.id === product.id);
       if (existing) {
         return prev.map(i =>
-          i.id === newItem.id ? { ...i, quantity: i.quantity + 1 } : i
+          i.product.id === product.id
+            ? { ...i, quantity: i.quantity + 1 }
+            : i
         );
       }
-      return [...prev, { ...newItem, quantity: 1 }];
+      return [...prev, { product, quantity: 1 }];
     });
+    setIsCartOpen(true);
   }, []);
 
-  const removeItem = useCallback((id: string) => {
-    setItems(prev => prev.filter(i => i.id !== id));
+  const removeItem = useCallback((productId: string) => {
+    setItems(prev => prev.filter(i => i.product.id !== productId));
   }, []);
 
-  const updateQty = useCallback((id: string, qty: number) => {
-    if (qty <= 0) {
-      setItems(prev => prev.filter(i => i.id !== id));
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setItems(prev => prev.filter(i => i.product.id !== productId));
     } else {
       setItems(prev =>
-        prev.map(i => i.id === id ? { ...i, quantity: qty } : i)
+        prev.map(i => i.product.id === productId ? { ...i, quantity } : i)
       );
     }
   }, []);
 
-  const clearCart  = useCallback(() => setItems([]), []);
-  const openCart   = useCallback(() => setIsOpen(true), []);
-  const closeCart  = useCallback(() => setIsOpen(false), []);
-  const toggleCart = useCallback(() => setIsOpen(v => !v), []);
+  const clearCart = useCallback(() => setItems([]), []);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  }, []);
 
   const totalItems = items.reduce((s, i) => s + i.quantity, 0);
-  const totalPrice = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const totalPrice = items.reduce((s, i) => s + i.product.price * i.quantity, 0);
 
   return (
     <CartContext.Provider value={{
       items, totalItems, totalPrice,
-      addItem, removeItem, updateQty, clearCart,
-      isOpen, openCart, closeCart, toggleCart,
+      addItem, removeItem, updateQuantity, clearCart,
+      isCartOpen, setIsCartOpen,
+      user, isAuthOpen, setIsAuthOpen,
+      pendingProduct, setPendingProduct,
+      logout,
     }}>
       {children}
     </CartContext.Provider>

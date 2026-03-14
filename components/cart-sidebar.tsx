@@ -2,17 +2,26 @@
 
 // components/cart-sidebar.tsx
 // ─────────────────────────────────────────────────────────────
-// CORRECTIONS :
-//   - alert() JavaScript supprimé (UX inacceptable en prod)
-//   - Remplacé par un écran de confirmation inline animé
-//   - Numéro de commande généré côté client en attendant /api/orders
-//   - TODO: brancher sur POST /api/orders pour persister en base
+// CORRECTIF CRITIQUE : branché sur POST /api/orders
+//   - Commande persistée en Supabase
+//   - Numéro de commande réel retourné par la base (pas Date.now())
+//   - Email Resend déclenché côté serveur
+//   - Gestion d'erreur inline (pas d'alert())
+//   - Slug boulangerie lu depuis NEXT_PUBLIC_BAKERY_SLUG (env)
+//     ou fallback 'artisan-dore'
 // ─────────────────────────────────────────────────────────────
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Minus, Plus, ShoppingBag, Trash2, ArrowRight, CheckCircle, MapPin, Clock, Mail } from 'lucide-react';
+import {
+  X, Minus, Plus, ShoppingBag, Trash2, ArrowRight,
+  CheckCircle, MapPin, Clock, Mail, AlertCircle, Loader2,
+} from 'lucide-react';
 import { useCart } from '@/context/cart-context';
+
+const BAKERY_SLUG = process.env.NEXT_PUBLIC_BAKERY_SLUG ?? 'artisan-dore';
+
+// ── Écran de confirmation ──────────────────────────────────────
 
 function OrderConfirmation({
   orderNumber,
@@ -100,6 +109,8 @@ function OrderConfirmation({
   );
 }
 
+// ── Sidebar principale ─────────────────────────────────────────
+
 export default function CartSidebar() {
   const {
     isCartOpen, setIsCartOpen,
@@ -110,6 +121,10 @@ export default function CartSidebar() {
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber]       = useState('');
+  const [isSubmitting, setIsSubmitting]     = useState(false);
+  const [submitError, setSubmitError]       = useState<string | null>(null);
+
+  // ── Checkout → POST /api/orders ──────────────────────────────
 
   const handleCheckout = async () => {
     if (!user) {
@@ -117,27 +132,53 @@ export default function CartSidebar() {
       return;
     }
 
-    // TODO: POST /api/orders pour persister la commande en base
-    // const res = await fetch('/api/orders', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ items, total: totalPrice }),
-    // });
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    // Génère un numéro de commande côté client (temporaire)
-    const num = `ART-${Date.now().toString(36).toUpperCase().slice(-6)}`;
-    setOrderNumber(num);
-    setOrderConfirmed(true);
-    clearCart();
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boulangerie_slug:  BAKERY_SLUG,
+          client_prenom:     user.user_metadata?.prenom ?? user.email?.split('@')[0] ?? 'Client',
+          client_email:      user.email!,
+          heure_retrait:     '08:00',
+          lignes: items.map(({ product, quantity }) => ({
+            produit_id:    product.id,
+            produit_nom:   product.name,
+            quantite:      quantity,
+            prix_unitaire: product.price,
+          })),
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setSubmitError(json.error ?? 'Une erreur est survenue. Veuillez réessayer.');
+        return;
+      }
+
+      // Commande persistée — numéro réel depuis Supabase
+      setOrderNumber(json.commande_id);
+      setOrderConfirmed(true);
+      clearCart();
+
+    } catch {
+      setSubmitError('Erreur réseau. Vérifiez votre connexion et réessayez.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
     setIsCartOpen(false);
     setOrderConfirmed(false);
     setOrderNumber('');
+    setSubmitError(null);
   };
 
-  const LIVRAISON = 0;
   const TVA       = totalPrice * 0.055;
   const TOTAL_TTC = totalPrice;
 
@@ -192,14 +233,8 @@ export default function CartSidebar() {
 
             {/* Corps */}
             <div className="flex-1 overflow-y-auto">
-
-              {/* Écran confirmation */}
               {orderConfirmed ? (
-                <OrderConfirmation
-                  orderNumber={orderNumber}
-                  total={TOTAL_TTC}
-                  onClose={handleClose}
-                />
+                <OrderConfirmation orderNumber={orderNumber} total={TOTAL_TTC} onClose={handleClose} />
               ) : items.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -292,6 +327,7 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
+                {/* Statut connexion */}
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
@@ -303,14 +339,35 @@ export default function CartSidebar() {
                   </div>
                 )}
 
+                {/* Erreur serveur */}
+                {submitError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 flex items-start gap-2"
+                  >
+                    <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-red-600 text-xs">{submitError}</p>
+                  </motion.div>
+                )}
+
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleCheckout}
-                  className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2"
+                  disabled={isSubmitting}
+                  className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {user ? 'Confirmer la commande' : 'Se connecter pour commander'}
-                  <ArrowRight size={16} />
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Envoi en cours…
+                    </>
+                  ) : user ? (
+                    <>Confirmer la commande <ArrowRight size={16} /></>
+                  ) : (
+                    <>Se connecter pour commander <ArrowRight size={16} /></>
+                  )}
                 </motion.button>
 
                 <p className="text-center text-[#2C1810]/40 text-xs">

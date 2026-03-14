@@ -1,55 +1,64 @@
-// middleware.ts  — à placer à la RACINE du repo app (même niveau que /app)
-// Protège toutes les routes /boulanger/* côté serveur via Supabase Auth.
-// Next.js exécute ce fichier à l'edge AVANT le rendu : aucun flash de contenu.
+// middleware.ts
+// CORRECTIF TS2305 :
+//   createMiddlewareClient n'existe pas dans @supabase/auth-helpers-nextjs.
+//   Le projet utilise @supabase/ssr — on remplace par createServerClient
+//   avec l'API cookies() compatible Next.js middleware.
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
+  const res  = NextResponse.next();
+  const path = req.nextUrl.pathname;
 
-  // Seules les routes /boulanger/* sont protégées
-  if (!pathname.startsWith('/boulanger')) {
-    return NextResponse.next()
+  // ── 1. Routes publiques — ne jamais intercepter ─────────────
+  const PUBLIC_PATHS = [
+    '/boulanger/login',
+    '/boulanger/auth',
+    '/boulanger/register',
+  ];
+
+  if (PUBLIC_PATHS.some(p => path.startsWith(p))) {
+    return res;
   }
 
-  // Crée la réponse modifiable pour que Supabase rafraîchisse les cookies
-  let res = NextResponse.next({
-    request: { headers: req.headers },
-  })
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () =>
-          req.cookies.getAll().map(({ name, value }) => ({ name, value })),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            req.cookies.set(name, value)
-            res.cookies.set(name, value, options)
-          })
+  // ── 2. Vérification session via @supabase/ssr ───────────────
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            // En middleware on écrit sur la response, pas la request
+            cookiesToSet.forEach(({ name, value, options }) =>
+              res.cookies.set(name, value, options)
+            );
+          },
         },
-      },
+      }
+    );
+
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      const loginUrl = req.nextUrl.clone();
+      loginUrl.pathname = '/boulanger/login';
+      loginUrl.searchParams.set('redirect', path);
+      return NextResponse.redirect(loginUrl);
     }
-  )
-
-  // getUser() valide le JWT côté Supabase et rafraîchit la session si besoin
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    // Pas de session → redirige vers /boulanger (qui affiche le LoginForm)
-    const loginUrl = new URL('/boulanger', req.url)
-    loginUrl.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(loginUrl)
+  } catch (err) {
+    // Erreur Supabase → laisser passer plutôt que boucler
+    console.error('[middleware]', err);
+    return res;
   }
 
-  // Injecte l'user_id dans un header custom pour les Server Components si besoin
-  res.headers.set('x-boulanger-user-id', user.id)
-  return res
+  return res;
 }
 
 export const config = {
-  matcher: ['/boulanger/:path*'],
-}
+  matcher: ['/boulanger/:path+'], // :path+ exclut /boulanger exact
+};

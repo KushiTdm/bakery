@@ -1,23 +1,12 @@
 'use client';
 
-// context/boulanger-context.tsx
-// ─────────────────────────────────────────────────────────────
-// CORRECTIF CRITIQUE : le context fourni lors de la session précédente
-// n'exposait que { session, user, boulangerie, isLoading, signOut }.
-// Cela faisait crasher TOUTE l'app (/boulanger/page.tsx, dashboard.tsx,
-// vue-matin.tsx, vue-snapshot.tsx, vue-soir.tsx).
-//
-// Ce fichier est la version COMPLÈTE compatible avec tous les composants.
-// ─────────────────────────────────────────────────────────────
-
 import {
   createContext, useContext, useEffect, useState,
   useCallback, useMemo, useRef, ReactNode,
 } from 'react';
-import { Session, User } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-
-// ─── Types publics exportés ───────────────────────────────────
 
 export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'dashboard';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -55,8 +44,6 @@ interface Boulangerie {
   airtable_base_id: string | null;
 }
 
-// ─── Stocks par défaut (avant chargement Airtable) ───────────
-
 const DEFAULT_STOCKS: StockEntry[] = [
   { id: 'b1', name: 'Baguette Tradition', emoji: '🥖', category: 'boulangerie', prixVente: 1.30, coutProduction: 0.35, production: 80, snapshot10h: 80, snapshot10hDone: false, snapshot14h: 80, snapshot14hDone: false, stockFinal: 0 },
   { id: 'b2', name: 'Pain au Levain',     emoji: '🍞', category: 'boulangerie', prixVente: 4.50, coutProduction: 1.20, production: 20, snapshot10h: 20, snapshot10hDone: false, snapshot14h: 20, snapshot14hDone: false, stockFinal: 0 },
@@ -69,80 +56,49 @@ const DEFAULT_STOCKS: StockEntry[] = [
   { id: 'p3', name: 'Millefeuille',       emoji: '🎂', category: 'patisserie',   prixVente: 4.50, coutProduction: 1.40, production: 6,  snapshot10h: 6,  snapshot10hDone: false, snapshot14h: 6,  snapshot14hDone: false, stockFinal: 0 },
 ];
 
-// ─── Interface du context ─────────────────────────────────────
-
 interface BoulangerContextType {
-  // Auth
   session: Session | null;
   user: User | null;
   boulangerie: Boulangerie | null;
   isAuthenticated: boolean;
   authLoading: boolean;
   logout: () => Promise<void>;
-
-  // Navigation
   activeView: ViewType;
   setActiveView: (v: ViewType) => void;
-
-  // Sync cloud
   syncStatus: SyncStatus;
-
-  // Stocks du jour
   todayStocks: StockEntry[];
   updateProduction: (id: string, val: number) => void;
   updateSnapshot: (id: string, val: number, slot: '10h' | '14h') => void;
   validateSnapshot: (slot: '10h' | '14h') => void;
   updateStockFinal: (id: string, val: number) => void;
-
-  // Commandes online
   commandesOnline: number;
   setCommandesOnline: (n: number) => void;
-
-  // Stats dérivées (mémoïsées)
   revenueToday: number;
   unsoldToday: number;
   unsoldValueToday: number;
   unsoldRateToday: number;
   totalProducedToday: number;
-
-  // Historique
   history: HistoryEntry[];
-
-  // Clôture
   closeDayAndSave: (commandesOnline: number) => Promise<void>;
 }
 
-// ─── Context ──────────────────────────────────────────────────
-
 const BoulangerContext = createContext<BoulangerContextType | null>(null);
 
-// ─── Provider ─────────────────────────────────────────────────
-
 export function BoulangerProvider({ children }: { children: ReactNode }) {
-  // Auth
   const [session, setSession]         = useState<Session | null>(null);
   const [user, setUser]               = useState<User | null>(null);
   const [boulangerie, setBoulangerie] = useState<Boulangerie | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-
-  // Navigation
   const [activeView, setActiveView]   = useState<ViewType>('matin');
-
-  // Sync
   const [syncStatus, setSyncStatus]   = useState<SyncStatus>('idle');
-
-  // Données
   const [todayStocks, setTodayStocks] = useState<StockEntry[]>(DEFAULT_STOCKS);
   const [commandesOnline, _setCommandesOnline] = useState(0);
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
-
-  // Debounce save
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Auth ────────────────────────────────────────────────────
-
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // CORRECTIF TS7031 : type explicite sur la déstructuration de getSession()
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -152,22 +108,26 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadAll(session.user.id);
-      } else {
-        setBoulangerie(null);
-        setAuthLoading(false);
+    // CORRECTIF TS7006 : types explicites sur le callback onAuthStateChange
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          loadAll(session.user.id);
+        } else {
+          setBoulangerie(null);
+          setAuthLoading(false);
+        }
       }
-    });
+    );
 
     return () => subscription.unsubscribe();
   }, []);
 
   async function getToken(): Promise<string | null> {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } }: { data: { session: Session | null } } =
+      await supabase.auth.getSession();
     return session?.access_token ?? null;
   }
 
@@ -183,10 +143,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       setBoulangerie(data);
 
-      await Promise.all([
-        loadTodayData(),
-        loadHistory(),
-      ]);
+      await Promise.all([loadTodayData(), loadHistory()]);
     } catch (err) {
       console.error('[BoulangerContext]', err);
       setBoulangerie(null);
@@ -199,29 +156,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getToken();
       if (!token) return;
-
       const res = await fetch('/api/boulanger/journee', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
-
       const { journee } = await res.json();
       if (!journee?.stocks_journaliers?.length) return;
-
       setTodayStocks(
         journee.stocks_journaliers.map((s: any) => ({
-          id:              s.produit_id,
-          name:            s.produit_nom,
-          emoji:           s.produit_emoji ?? '🥖',
-          category:        s.categorie ?? 'boulangerie',
-          prixVente:       s.prix_vente,
-          coutProduction:  s.cout_production,
-          production:      s.production,
-          snapshot10h:     s.snapshot_10h,
-          snapshot10hDone: s.snapshot_10h_done,
-          snapshot14h:     s.snapshot_14h,
-          snapshot14hDone: s.snapshot_14h_done,
-          stockFinal:      s.stock_final,
+          id: s.produit_id, name: s.produit_nom, emoji: s.produit_emoji ?? '🥖',
+          category: s.categorie ?? 'boulangerie', prixVente: s.prix_vente,
+          coutProduction: s.cout_production, production: s.production,
+          snapshot10h: s.snapshot_10h, snapshot10hDone: s.snapshot_10h_done,
+          snapshot14h: s.snapshot_14h, snapshot14hDone: s.snapshot_14h_done,
+          stockFinal: s.stock_final,
         }))
       );
       _setCommandesOnline(journee.commandes_online ?? 0);
@@ -234,34 +182,23 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getToken();
       if (!token) return;
-
       const res = await fetch('/api/boulanger/historique?limit=30', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
-
       const { historique } = await res.json();
       if (!historique?.length) return;
-
       setHistory(
         historique.map((j: any) => ({
-          date:            j.date,
-          chiffreAffaires: j.ca_estime ?? 0,
-          tauxInvendu:     j.taux_invendu ?? 0,
-          commandesOnline: j.commandes_online ?? 0,
+          date: j.date, chiffreAffaires: j.ca_estime ?? 0,
+          tauxInvendu: j.taux_invendu ?? 0, commandesOnline: j.commandes_online ?? 0,
           stocks: (j.stocks_journaliers ?? []).map((s: any) => ({
-            id:              s.produit_id,
-            name:            s.produit_nom,
-            emoji:           s.produit_emoji ?? '🥖',
-            category:        s.categorie ?? 'boulangerie',
-            prixVente:       s.prix_vente,
-            coutProduction:  s.cout_production,
-            production:      s.production,
-            snapshot10h:     s.snapshot_10h,
-            snapshot10hDone: s.snapshot_10h_done,
-            snapshot14h:     s.snapshot_14h,
-            snapshot14hDone: s.snapshot_14h_done,
-            stockFinal:      s.stock_final,
+            id: s.produit_id, name: s.produit_nom, emoji: s.produit_emoji ?? '🥖',
+            category: s.categorie ?? 'boulangerie', prixVente: s.prix_vente,
+            coutProduction: s.cout_production, production: s.production,
+            snapshot10h: s.snapshot_10h, snapshot10hDone: s.snapshot_10h_done,
+            snapshot14h: s.snapshot_14h, snapshot14hDone: s.snapshot_14h_done,
+            stockFinal: s.stock_final,
           })),
         }))
       );
@@ -270,23 +207,18 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // ── Debounce save ────────────────────────────────────────────
-
   const triggerSave = useCallback((stocks: StockEntry[], online: number) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSyncStatus('saving');
-
     saveTimer.current = setTimeout(async () => {
       try {
         const token = await getToken();
         if (!token) { setSyncStatus('error'); return; }
-
         const res = await fetch('/api/boulanger/journee', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ stocks, commandesOnline: online }),
         });
-
         setSyncStatus(res.ok ? 'saved' : 'error');
         setTimeout(() => setSyncStatus('idle'), 3000);
       } catch {
@@ -294,8 +226,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       }
     }, 2000);
   }, []);
-
-  // ── Mutations ────────────────────────────────────────────────
 
   const updateProduction = useCallback((id: string, val: number) => {
     setTodayStocks(prev => {
@@ -348,25 +278,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     triggerSave(todayStocks, n);
   }, [todayStocks, triggerSave]);
 
-  // ── Clôture ──────────────────────────────────────────────────
-
   const closeDayAndSave = useCallback(async (online: number) => {
     setSyncStatus('saving');
     try {
       const token = await getToken();
       if (!token) { setSyncStatus('error'); return; }
-
       await fetch('/api/boulanger/journee', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stocks: todayStocks, commandesOnline: online }),
       });
-
       await fetch('/api/boulanger/journee', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });
-
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
       await loadHistory();
@@ -374,8 +299,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       setSyncStatus('error');
     }
   }, [todayStocks]);
-
-  // ── Logout ───────────────────────────────────────────────────
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
@@ -385,37 +308,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setActiveView('matin');
   }, []);
 
-  // ── Stats dérivées ───────────────────────────────────────────
-
-  const totalProducedToday = useMemo(
-    () => todayStocks.reduce((s, p) => s + p.production, 0),
-    [todayStocks]
-  );
-  const unsoldToday = useMemo(
-    () => todayStocks.reduce((s, p) => s + p.stockFinal, 0),
-    [todayStocks]
-  );
-  const unsoldValueToday = useMemo(
-    () => todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0),
-    [todayStocks]
-  );
-  const revenueToday = useMemo(
-    () => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0),
-    [todayStocks]
-  );
-  const unsoldRateToday = useMemo(
-    () => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0,
-    [unsoldToday, totalProducedToday]
-  );
-
-  // ── Valeur ───────────────────────────────────────────────────
+  const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0), [todayStocks]);
+  const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0), [todayStocks]);
+  const unsoldValueToday   = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0), [todayStocks]);
+  const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
+  const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);
 
   return (
     <BoulangerContext.Provider value={{
       session, user, boulangerie,
       isAuthenticated: !!session,
-      authLoading,
-      logout,
+      authLoading, logout,
       activeView, setActiveView,
       syncStatus,
       todayStocks,
