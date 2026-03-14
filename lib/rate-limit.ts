@@ -10,12 +10,13 @@ interface RateLimitEntry {
 const ipStore = new Map<string, RateLimitEntry>();
 
 // Nettoyage périodique pour éviter une fuite mémoire
-// (les entrées expirées s'accumulent si jamais purgées)
+// TS2802 fix : Array.from() au lieu d'itérer directement sur MapIterator
+// (target "es5" dans tsconfig.json ne supporte pas for...of sur Map sans downlevelIteration)
 setInterval(() => {
   const now = Date.now();
-  for (const [key, entry] of ipStore.entries()) {
+  Array.from(ipStore.entries()).forEach(([key, entry]) => {
     if (entry.resetAt < now) ipStore.delete(key);
-  }
+  });
 }, 5 * 60 * 1000); // toutes les 5 minutes
 
 interface MemoryLimitConfig {
