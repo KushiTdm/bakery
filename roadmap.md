@@ -42,27 +42,20 @@ const VALID_STATUSES = ['en_attente', 'confirmee', 'prete', 'recuperee', 'annule
 
 ---
 
-### BC2. Icônes PWA manquantes ❌
+### BC2. Icônes PWA manquantes ✅ CORRIGÉ
 **Fichier :** `public/manifest.json` référence des icônes inexistantes
 
-**Problème :** Le `manifest.json` référence :
-- `/icons/icon-72x72.png`
-- `/icons/icon-96x96.png`
-- `/icons/icon-128x128.png`
-- `/icons/icon-144x144.png`
-- `/icons/icon-152x152.png`
-- `/icons/icon-192x192.png`
-- `/icons/icon-384x384.png`
-- `/icons/icon-512x512.png`
-
-**Mais seul `/icons/icon.svg` existe dans le dossier !**
-
-**Impact :** 
-- PWA non installable sur iOS/Android
-- Erreurs 404 en console
-- Notification push sans icône
-
-**Fix :** Générer les icônes depuis `icon.svg` via [realfavicongenerator.net](https://realfavicongenerator.net)
+**Problème résolu :** Les icônes ont été générées le 14/03/2026 via le script `scripts/generate-icons.js` :
+- `/icons/icon-72x72.png` ✅
+- `/icons/icon-96x96.png` ✅
+- `/icons/icon-128x128.png` ✅
+- `/icons/icon-144x144.png` ✅
+- `/icons/icon-152x152.png` ✅
+- `/icons/icon-192x192.png` ✅
+- `/icons/icon-384x384.png` ✅
+- `/icons/icon-512x512.png` ✅
+- `/icons/favicon.ico` ✅
+- `/icons/apple-touch-icon.png` ✅
 
 ---
 
@@ -276,7 +269,7 @@ Ce fichier contient des produits statiques hardcodés qui servent de fallback, m
 
 ### 1. Corriger les bugs critiques
 - [ ] BC1 : Uniformiser `retiree` vs `recuperee`
-- [ ] BC2 : Générer les icônes PWA
+- [x] BC2 : Générer les icônes PWA ✅ CORRIGÉ
 - [ ] BC3 : Migrer rate limiting vers Upstash Redis
 
 ### 2. Sécurité

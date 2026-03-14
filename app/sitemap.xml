@@ -1,0 +1,41 @@
+import { MetadataRoute } from 'next';
+
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://artisandore.fr';
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  return [
+    // ── Page d'accueil ──────────────────────────────────────
+    {
+      url:             `${BASE_URL}`,
+      lastModified:    new Date(),
+      changeFrequency: 'weekly',
+      priority:        1.0,
+    },
+
+    // ── Sections de la landing (ancres) ─────────────────────
+    {
+      url:             `${BASE_URL}/#notre-histoire`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly',
+      priority:        0.7,
+    },
+    {
+      url:             `${BASE_URL}/#ingredients`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly',
+      priority:        0.6,
+    },
+    {
+      url:             `${BASE_URL}/#galerie`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly',
+      priority:        0.6,
+    },
+    {
+      url:             `${BASE_URL}/#contact`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly',
+      priority:        0.5,
+    },
+  ];
+}

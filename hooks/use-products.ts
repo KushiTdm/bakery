@@ -6,46 +6,49 @@ import { Product } from '@/lib/products';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FlashConfig {
-  heureDebut: number;
-  heureFin: number;
-  remisePercent: number;
-  panierMysterePrix: number;
+  // Champs API Airtable / backend
+  heureDebut:         number;
+  heureFin:           number;
+  remisePercent:      number;
+  panierMysterePrix:  number;
   panierMystereCount: number;
-  flashActif: boolean;
+  flashActif:         boolean;
+  // Alias pour FlashBanner (rétro-compatibilité)
+  startHour?:   number;
+  endHour?:     number;
+  warningHour?: number;
 }
 
 interface ProductsState {
-  products: Product[];
+  products:    Product[];
   flashConfig: FlashConfig;
-  unsoldIds: string[];
-  loading: boolean;
-  error: boolean;
-  source: 'airtable' | 'fallback' | 'local';
+  unsoldIds:   string[];
+  loading:     boolean;
+  error:       boolean;
+  source:      'airtable' | 'fallback' | 'local';
 }
-
-// ─── Produits locaux (utilisés avant que l'API réponde) ───────────────────────
 
 import { products as LOCAL_PRODUCTS } from '@/lib/products';
 
 const DEFAULT_FLASH: FlashConfig = {
-  heureDebut: 15,
-  heureFin: 20,
-  remisePercent: 40,
-  panierMysterePrix: 6.90,
+  heureDebut:         15,
+  heureFin:           20,
+  remisePercent:      40,
+  panierMysterePrix:  6.90,
   panierMystereCount: 4,
-  flashActif: false,
+  flashActif:         false,
 };
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useProducts() {
   const [state, setState] = useState<ProductsState>({
-    products: LOCAL_PRODUCTS, // Affichage immédiat avec données locales
+    products:    LOCAL_PRODUCTS,
     flashConfig: DEFAULT_FLASH,
-    unsoldIds: [],
-    loading: true,
-    error: false,
-    source: 'local',
+    unsoldIds:   [],
+    loading:     true,
+    error:       false,
+    source:      'local',
   });
 
   useEffect(() => {
@@ -54,23 +57,26 @@ export function useProducts() {
     async function load() {
       try {
         const res = await fetch('/api/products', {
-          // Cache navigateur 5 minutes
           headers: { 'Cache-Control': 'max-age=300' },
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const data = await res.json();
+        const data = await res.json() as {
+          source:      'airtable' | 'fallback';
+          products:    Product[];
+          flashConfig: FlashConfig;
+          unsoldIds:   string[];
+        };
 
         if (!cancelled) {
           setState({
-            // Si fallback, on garde les produits locaux avec leurs prix
-            products: data.source === 'fallback' ? LOCAL_PRODUCTS : data.products,
+            products:    data.source === 'fallback' ? LOCAL_PRODUCTS : data.products,
             flashConfig: data.flashConfig,
-            unsoldIds: data.unsoldIds,
-            loading: false,
-            error: data.source === 'fallback',
-            source: data.source,
+            unsoldIds:   data.unsoldIds,
+            loading:     false,
+            error:       data.source === 'fallback',
+            source:      data.source,
           });
         }
       } catch (err) {

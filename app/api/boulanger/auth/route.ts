@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
       const { data: authData, error: authError } = await admin.auth.admin.createUser({
         email,
         password,
-        email_confirm: true, // Pas de confirmation email en phase dev
+        email_confirm: false, // Pas de confirmation email en phase dev
       });
 
       if (authError) {

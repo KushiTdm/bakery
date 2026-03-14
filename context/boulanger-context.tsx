@@ -7,6 +7,7 @@ import {
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
 
 export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'dashboard';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -56,6 +57,35 @@ const DEFAULT_STOCKS: StockEntry[] = [
   { id: 'p3', name: 'Millefeuille',       emoji: '🎂', category: 'patisserie',   prixVente: 4.50, coutProduction: 1.40, production: 6,  snapshot10h: 6,  snapshot10hDone: false, snapshot14h: 6,  snapshot14hDone: false, stockFinal: 0 },
 ];
 
+// ── Helper : mappe un DbStockJournalier → StockEntry ──────────
+function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
+  return {
+    id:              s.produit_id,
+    name:            s.produit_nom,
+    emoji:           s.produit_emoji ?? '🥖',
+    category:        (s.categorie ?? 'boulangerie') as StockEntry['category'],
+    prixVente:       s.prix_vente,
+    coutProduction:  s.cout_production,
+    production:      s.production,
+    snapshot10h:     s.snapshot_10h,
+    snapshot10hDone: s.snapshot_10h_done,
+    snapshot14h:     s.snapshot_14h,
+    snapshot14hDone: s.snapshot_14h_done,
+    stockFinal:      s.stock_final,
+  };
+}
+
+// ── Helper : mappe une DbJournee → HistoryEntry ───────────────
+function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
+  return {
+    date:            j.date,
+    chiffreAffaires: j.ca_estime ?? 0,
+    tauxInvendu:     j.taux_invendu ?? 0,
+    commandesOnline: j.commandes_online ?? 0,
+    stocks:          (j.stocks_journaliers ?? []).map(mapDbStockToEntry),
+  };
+}
+
 interface BoulangerContextType {
   session: Session | null;
   user: User | null;
@@ -97,7 +127,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // CORRECTIF TS7031 : type explicite sur la déstructuration de getSession()
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -108,7 +137,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // CORRECTIF TS7006 : types explicites sur le callback onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
         setSession(session);
@@ -123,7 +151,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function getToken(): Promise<string | null> {
     const { data: { session } }: { data: { session: Session | null } } =
@@ -141,7 +169,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error) throw error;
-      setBoulangerie(data);
+      setBoulangerie(data as Boulangerie);
 
       await Promise.all([loadTodayData(), loadHistory()]);
     } catch (err) {
@@ -160,18 +188,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
-      const { journee } = await res.json();
+      const { journee } = await res.json() as { journee: DbJournee | null };
       if (!journee?.stocks_journaliers?.length) return;
-      setTodayStocks(
-        journee.stocks_journaliers.map((s: any) => ({
-          id: s.produit_id, name: s.produit_nom, emoji: s.produit_emoji ?? '🥖',
-          category: s.categorie ?? 'boulangerie', prixVente: s.prix_vente,
-          coutProduction: s.cout_production, production: s.production,
-          snapshot10h: s.snapshot_10h, snapshot10hDone: s.snapshot_10h_done,
-          snapshot14h: s.snapshot_14h, snapshot14hDone: s.snapshot_14h_done,
-          stockFinal: s.stock_final,
-        }))
-      );
+      setTodayStocks(journee.stocks_journaliers.map(mapDbStockToEntry));
       _setCommandesOnline(journee.commandes_online ?? 0);
     } catch (err) {
       console.warn('[BoulangerContext] loadTodayData:', err);
@@ -186,22 +205,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return;
-      const { historique } = await res.json();
+      const { historique } = await res.json() as { historique: DbJournee[] };
       if (!historique?.length) return;
-      setHistory(
-        historique.map((j: any) => ({
-          date: j.date, chiffreAffaires: j.ca_estime ?? 0,
-          tauxInvendu: j.taux_invendu ?? 0, commandesOnline: j.commandes_online ?? 0,
-          stocks: (j.stocks_journaliers ?? []).map((s: any) => ({
-            id: s.produit_id, name: s.produit_nom, emoji: s.produit_emoji ?? '🥖',
-            category: s.categorie ?? 'boulangerie', prixVente: s.prix_vente,
-            coutProduction: s.cout_production, production: s.production,
-            snapshot10h: s.snapshot_10h, snapshot10hDone: s.snapshot_10h_done,
-            snapshot14h: s.snapshot_14h, snapshot14hDone: s.snapshot_14h_done,
-            stockFinal: s.stock_final,
-          })),
-        }))
-      );
+      setHistory(historique.map(mapDbJourneeToHistory));
     } catch (err) {
       console.warn('[BoulangerContext] loadHistory:', err);
     }
@@ -225,7 +231,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         setSyncStatus('error');
       }
     }, 2000);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateProduction = useCallback((id: string, val: number) => {
     setTodayStocks(prev => {
@@ -298,7 +304,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     } catch {
       setSyncStatus('error');
     }
-  }, [todayStocks]);
+  }, [todayStocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();

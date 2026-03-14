@@ -1,0 +1,21 @@
+# Robots.txt — L'Artisan Doré
+# https://artisandore.fr/robots.txt
+
+User-agent: *
+Allow: /
+
+# Espace boulanger (interface privée, non indexable)
+Disallow: /boulanger/
+Disallow: /boulanger
+
+# API routes (pas de contenu indexable)
+Disallow: /api/
+
+# Reset password (page utilitaire)
+Disallow: /reset-password
+
+# Sitemap
+Sitemap: https://artisandore.fr/sitemap.xml
+
+# Crawl delay recommandé (bienveillance serveur)
+Crawl-delay: 10

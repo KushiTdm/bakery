@@ -1,10 +1,5 @@
 'use client';
 
-// context/cart-context.tsx
-// CORRECTIFS TS7031 + TS7006 :
-//   - getSession() typé explicitement { data: { session: Session | null } }
-//   - onAuthStateChange callback typé (_event: AuthChangeEvent, session: Session | null)
-
 import {
   createContext, useContext, useState, useEffect,
   useCallback, ReactNode,
@@ -29,24 +24,44 @@ export interface CartItem {
 }
 
 interface CartContextType {
-  items:          CartItem[];
-  totalItems:     number;
-  totalPrice:     number;
-  addItem:        (product: CartProduct) => void;
-  removeItem:     (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  clearCart:      () => void;
-  isCartOpen:     boolean;
-  setIsCartOpen:  (open: boolean) => void;
-  user:               User | null;
-  isAuthOpen:         boolean;
-  setIsAuthOpen:      (open: boolean) => void;
-  pendingProduct:     CartProduct | null;
-  setPendingProduct:  (p: CartProduct | null) => void;
-  logout:             () => Promise<void>;
+  items:             CartItem[];
+  totalItems:        number;
+  totalPrice:        number;
+  addItem:           (product: CartProduct) => void;
+  removeItem:        (productId: string) => void;
+  updateQuantity:    (productId: string, quantity: number) => void;
+  clearCart:         () => void;
+  isCartOpen:        boolean;
+  setIsCartOpen:     (open: boolean) => void;
+  user:              User | null;
+  isAuthOpen:        boolean;
+  setIsAuthOpen:     (open: boolean) => void;
+  pendingProduct:    CartProduct | null;
+  setPendingProduct: (p: CartProduct | null) => void;
+  logout:            () => Promise<void>;
+  // Slug dynamique — récupéré depuis l'URL ou NEXT_PUBLIC_BAKERY_SLUG
+  boulangerieSlug:   string;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
+
+// ── Helper : résout le slug de la boulangerie ─────────────────
+// Priorité : 1) variable d'env  2) hostname (artisandore.fr → artisan-dore)
+//            3) fallback 'artisan-dore'
+function resolveBoulangerieSlug(): string {
+  const envSlug = process.env.NEXT_PUBLIC_BAKERY_SLUG;
+  if (envSlug) return envSlug;
+
+  if (typeof window !== 'undefined') {
+    // Hostname → slug (ex: "mon-pain.fr" → "mon-pain")
+    const host = window.location.hostname.replace(/\.(fr|com|net|io)$/, '');
+    if (host && host !== 'localhost' && !host.includes('127.0.0.1')) {
+      return host;
+    }
+  }
+
+  return 'artisan-dore';
+}
 
 // ── Provider ──────────────────────────────────────────────────
 
@@ -56,17 +71,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [user, setUser]                     = useState<User | null>(null);
   const [isAuthOpen, setIsAuthOpen]         = useState(false);
   const [pendingProduct, setPendingProduct] = useState<CartProduct | null>(null);
+  const [boulangerieSlug]                   = useState(resolveBoulangerieSlug);
 
   // ── Session Supabase ─────────────────────────────────────────
   useEffect(() => {
-    // CORRECTIF TS7031 : type explicite sur la déstructuration de getSession()
     supabase.auth.getSession().then(
       ({ data: { session } }: { data: { session: Session | null } }) => {
         setUser(session?.user ?? null);
       }
     );
 
-    // CORRECTIF TS7006 : types explicites sur le callback onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event: AuthChangeEvent, session: Session | null) => {
         const nextUser = session?.user ?? null;
@@ -103,9 +117,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const existing = prev.find(i => i.product.id === product.id);
       if (existing) {
         return prev.map(i =>
-          i.product.id === product.id
-            ? { ...i, quantity: i.quantity + 1 }
-            : i
+          i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
       return [...prev, { product, quantity: 1 }];
@@ -121,9 +133,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (quantity <= 0) {
       setItems(prev => prev.filter(i => i.product.id !== productId));
     } else {
-      setItems(prev =>
-        prev.map(i => i.product.id === productId ? { ...i, quantity } : i)
-      );
+      setItems(prev => prev.map(i => i.product.id === productId ? { ...i, quantity } : i));
     }
   }, []);
 
@@ -145,6 +155,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       user, isAuthOpen, setIsAuthOpen,
       pendingProduct, setPendingProduct,
       logout,
+      boulangerieSlug,
     }}>
       {children}
     </CartContext.Provider>

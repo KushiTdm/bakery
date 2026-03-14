@@ -1,16 +1,5 @@
 'use client';
 
-// components/cart-sidebar.tsx
-// ─────────────────────────────────────────────────────────────
-// CORRECTIF CRITIQUE : branché sur POST /api/orders
-//   - Commande persistée en Supabase
-//   - Numéro de commande réel retourné par la base (pas Date.now())
-//   - Email Resend déclenché côté serveur
-//   - Gestion d'erreur inline (pas d'alert())
-//   - Slug boulangerie lu depuis NEXT_PUBLIC_BAKERY_SLUG (env)
-//     ou fallback 'artisan-dore'
-// ─────────────────────────────────────────────────────────────
-
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -18,8 +7,6 @@ import {
   CheckCircle, MapPin, Clock, Mail, AlertCircle, Loader2,
 } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
-
-const BAKERY_SLUG = process.env.NEXT_PUBLIC_BAKERY_SLUG ?? 'artisan-dore';
 
 // ── Écran de confirmation ──────────────────────────────────────
 
@@ -29,8 +16,8 @@ function OrderConfirmation({
   onClose,
 }: {
   orderNumber: string;
-  total: number;
-  onClose: () => void;
+  total:       number;
+  onClose:     () => void;
 }) {
   return (
     <motion.div
@@ -56,42 +43,22 @@ function OrderConfirmation({
         </p>
 
         <div className="bg-[#F5F0E8] rounded-2xl p-4 mb-5 space-y-3 text-left">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
-              <ShoppingBag size={13} className="text-[#C19A6B]" />
+          {[
+            { icon: ShoppingBag, label: 'Numéro de commande', value: orderNumber, mono: true },
+            { icon: MapPin,      label: 'Retrait en boutique', value: '42 Rue de la Boulangerie, Paris' },
+            { icon: Clock,       label: 'Disponible dès demain', value: 'À partir de 7h · Jusqu\'à 10h' },
+            { icon: Mail,        label: 'Confirmation', value: 'Email envoyé à votre adresse' },
+          ].map(({ icon: Icon, label, value, mono }) => (
+            <div key={label} className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
+                <Icon size={13} className="text-[#C19A6B]" />
+              </div>
+              <div>
+                <p className="text-[#2C1810]/50 text-xs">{label}</p>
+                <p className={`text-[#2C1810] text-sm font-medium ${mono ? 'font-mono font-bold' : ''}`}>{value}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[#2C1810]/50 text-xs">Numéro de commande</p>
-              <p className="text-[#2C1810] font-mono font-bold text-sm">{orderNumber}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
-              <MapPin size={13} className="text-[#C19A6B]" />
-            </div>
-            <div>
-              <p className="text-[#2C1810]/50 text-xs">Retrait en boutique</p>
-              <p className="text-[#2C1810] text-sm font-medium">42 Rue de la Boulangerie, Paris</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
-              <Clock size={13} className="text-[#C19A6B]" />
-            </div>
-            <div>
-              <p className="text-[#2C1810]/50 text-xs">Disponible dès demain</p>
-              <p className="text-[#2C1810] text-sm font-medium">À partir de 7h · Jusqu'à 10h</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
-              <Mail size={13} className="text-[#C19A6B]" />
-            </div>
-            <div>
-              <p className="text-[#2C1810]/50 text-xs">Confirmation</p>
-              <p className="text-[#2C1810] text-sm font-medium">Email envoyé à votre adresse</p>
-            </div>
-          </div>
+          ))}
         </div>
 
         <p className="text-[#2C1810]/40 text-xs mb-5">
@@ -117,6 +84,7 @@ export default function CartSidebar() {
     items, updateQuantity, removeItem, clearCart,
     totalItems, totalPrice,
     user, setIsAuthOpen,
+    boulangerieSlug,  // slug dynamique depuis le CartContext
   } = useCart();
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
@@ -127,23 +95,20 @@ export default function CartSidebar() {
   // ── Checkout → POST /api/orders ──────────────────────────────
 
   const handleCheckout = async () => {
-    if (!user) {
-      setIsAuthOpen(true);
-      return;
-    }
+    if (!user) { setIsAuthOpen(true); return; }
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
       const res = await fetch('/api/orders', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          boulangerie_slug:  BAKERY_SLUG,
-          client_prenom:     user.user_metadata?.prenom ?? user.email?.split('@')[0] ?? 'Client',
-          client_email:      user.email!,
-          heure_retrait:     '08:00',
+          boulangerie_slug: boulangerieSlug,
+          client_prenom:    user.user_metadata?.prenom ?? user.email?.split('@')[0] ?? 'Client',
+          client_email:     user.email!,
+          heure_retrait:    '08:00',
           lignes: items.map(({ product, quantity }) => ({
             produit_id:    product.id,
             produit_nom:   product.name,
@@ -153,18 +118,16 @@ export default function CartSidebar() {
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json() as { commande_id?: string; error?: string };
 
       if (!res.ok) {
         setSubmitError(json.error ?? 'Une erreur est survenue. Veuillez réessayer.');
         return;
       }
 
-      // Commande persistée — numéro réel depuis Supabase
-      setOrderNumber(json.commande_id);
+      setOrderNumber(json.commande_id ?? '');
       setOrderConfirmed(true);
       clearCart();
-
     } catch {
       setSubmitError('Erreur réseau. Vérifiez votre connexion et réessayez.');
     } finally {
@@ -186,7 +149,6 @@ export default function CartSidebar() {
     <AnimatePresence>
       {isCartOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -195,7 +157,6 @@ export default function CartSidebar() {
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[55]"
           />
 
-          {/* Sidebar */}
           <motion.div
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
@@ -304,7 +265,7 @@ export default function CartSidebar() {
               )}
             </div>
 
-            {/* Footer récap + CTA */}
+            {/* Footer */}
             {items.length > 0 && !orderConfirmed && (
               <div className="border-t border-[#E8E0D5] bg-white px-5 py-5 space-y-3">
                 <div className="space-y-1.5 text-sm">
@@ -327,7 +288,6 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
-                {/* Statut connexion */}
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
@@ -339,7 +299,6 @@ export default function CartSidebar() {
                   </div>
                 )}
 
-                {/* Erreur serveur */}
                 {submitError && (
                   <motion.div
                     initial={{ opacity: 0, y: -5 }}
@@ -359,10 +318,7 @@ export default function CartSidebar() {
                   className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Envoi en cours…
-                    </>
+                    <><Loader2 size={16} className="animate-spin" /> Envoi en cours…</>
                   ) : user ? (
                     <>Confirmer la commande <ArrowRight size={16} /></>
                   ) : (

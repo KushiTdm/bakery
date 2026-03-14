@@ -4,16 +4,20 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Clock, X, ShoppingBag, ChevronRight } from 'lucide-react';
 import type { ActiveTab } from '@/context/active-tab-context';
+import type { FlashConfig } from '@/hooks/use-products';
 
-const FLASH_CONFIG = {
+// ── Valeurs par défaut (remplacées dès le fetch) ──────────────
+const DEFAULT_FLASH_CONFIG: FlashConfig = {
   startHour:    18,
   endHour:      20,
   warningHour:  15,
-  totalBaskets: 12,
-  basketPrice:  6.90,
+  heureDebut:   18,
+  heureFin:     20,
+  remisePercent: 40,
+  panierMysterePrix: 6.90,
+  panierMystereCount: 6,
+  flashActif: false,
 };
-
-const BASKETS_TAKEN = 5;
 
 interface FlashBannerProps {
   activeTab:    ActiveTab;
@@ -22,17 +26,43 @@ interface FlashBannerProps {
 
 type BannerState = 'hidden' | 'teaser' | 'live';
 
+// ── Hook : état du banner + données réelles depuis l'API ──────
 function useBannerState() {
-  const [state, setState]           = useState<BannerState>('hidden');
-  const [timeLeft, setTimeLeft]     = useState('');
-  const [basketsLeft]               = useState(FLASH_CONFIG.totalBaskets - BASKETS_TAKEN);
+  const [state, setState]       = useState<BannerState>('hidden');
+  const [timeLeft, setTimeLeft] = useState('');
+
+  // Données réelles depuis /api/products
+  const [basketsLeft, setBasketsLeft] = useState<number>(0);
+  const [startHour, setStartHour]     = useState(18);
+  const [endHour, setEndHour]         = useState(20);
+  const [warningHour, setWarningHour] = useState(15);
+
+  // Fetch la config flash + le nombre d'invendus réels
+  useEffect(() => {
+    fetch('/api/products')
+      .then(r => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
+        const cfg: FlashConfig = data.flashConfig ?? DEFAULT_FLASH_CONFIG;
+        setStartHour(cfg.heureDebut);
+        setEndHour(cfg.heureFin);
+        setWarningHour(cfg.heureDebut - 3); // teaser 3h avant
+        // Nombre de paniers restants = nb produits invendus
+        const unsoldCount: number = (data.unsoldIds ?? []).length;
+        setBasketsLeft(Math.max(0, cfg.panierMystereCount - unsoldCount));
+      })
+      .catch(() => {
+        // Fallback silencieux — la banner reste sur les valeurs par défaut
+        setBasketsLeft(DEFAULT_FLASH_CONFIG.panierMystereCount);
+      });
+  }, []);
 
   useEffect(() => {
     const check = () => {
       const now  = new Date();
       const hour = now.getHours();
 
-      if (hour >= FLASH_CONFIG.endHour || hour < FLASH_CONFIG.warningHour) {
+      if (hour >= endHour || hour < warningHour) {
         setState('hidden');
         return;
       }
@@ -45,15 +75,15 @@ function useBannerState() {
         return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
       };
 
-      if (hour >= FLASH_CONFIG.startHour) {
+      if (hour >= startHour) {
         setState('live');
         const end = new Date();
-        end.setHours(FLASH_CONFIG.endHour, 0, 0, 0);
+        end.setHours(endHour, 0, 0, 0);
         setTimeLeft(buildCountdown(end));
       } else {
         setState('teaser');
         const launch = new Date();
-        launch.setHours(FLASH_CONFIG.startHour, 0, 0, 0);
+        launch.setHours(startHour, 0, 0, 0);
         setTimeLeft(buildCountdown(launch));
       }
     };
@@ -61,14 +91,16 @@ function useBannerState() {
     check();
     const interval = setInterval(check, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [startHour, endHour, warningHour]);
 
-  return { state, timeLeft, basketsLeft };
+  return { state, timeLeft, basketsLeft, startHour, endHour };
 }
 
+// ── Composant ─────────────────────────────────────────────────
+
 export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProps) {
-  const { state, timeLeft, basketsLeft } = useBannerState();
-  const [dismissed, setDismissed]        = useState(false);
+  const { state, timeLeft, basketsLeft, startHour, endHour } = useBannerState();
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => { setDismissed(false); }, [state]);
 
@@ -79,15 +111,17 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
       <motion.div
         key={state}
         initial={{ y: -60, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: -60, opacity: 0 }}
+        animate={{ y: 0,   opacity: 1 }}
+        exit={{   y: -60,  opacity: 0 }}
         transition={{ type: 'spring', damping: 22, stiffness: 220 }}
         className="fixed top-20 left-0 right-0 z-40 px-4 sm:px-8 lg:px-0 lg:max-w-3xl lg:mx-auto"
       >
         {state === 'teaser' ? (
+          /* ── Teaser ─────────────────────────────────────────── */
           <div className="relative overflow-hidden rounded-2xl shadow-xl">
             <div className="absolute inset-0 bg-[#2C1810]" />
-            <div className="absolute inset-0 opacity-20"
+            <div
+              className="absolute inset-0 opacity-20"
               style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23C19A6B\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}
             />
             <div className="relative flex items-center gap-3 px-4 py-3 sm:px-5">
@@ -96,10 +130,10 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white font-semibold text-sm" style={{ fontFamily: 'Playfair Display, serif' }}>
-                  Ce soir à {FLASH_CONFIG.startHour}h — Paniers Invendus
+                  Ce soir à {startHour}h — Paniers Invendus
                 </p>
                 <p className="text-white/55 text-xs mt-0.5">
-                  Nos invendus du jour proposés à prix réduit · {FLASH_CONFIG.totalBaskets} paniers disponibles
+                  Nos invendus du jour proposés à prix réduit · {basketsLeft} panier{basketsLeft > 1 ? 's' : ''} disponibles
                 </p>
               </div>
               <div className="flex-shrink-0 bg-black/30 rounded-lg px-3 py-1.5 hidden sm:block">
@@ -108,12 +142,16 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
                   <span className="text-white font-mono text-sm font-bold tracking-wider">{timeLeft}</span>
                 </div>
               </div>
-              <button onClick={() => setDismissed(true)} className="text-white/30 hover:text-white/70 transition-colors ml-1 flex-shrink-0">
+              <button
+                onClick={() => setDismissed(true)}
+                className="text-white/30 hover:text-white/70 transition-colors ml-1 flex-shrink-0"
+              >
                 <X size={16} />
               </button>
             </div>
           </div>
         ) : (
+          /* ── Live ───────────────────────────────────────────── */
           <div className="relative overflow-hidden rounded-2xl shadow-2xl">
             <div className="absolute inset-0 bg-gradient-to-r from-[#8B4513] via-[#C19A6B] to-[#8B4513]" />
             <motion.div
@@ -140,11 +178,13 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
                       {basketsLeft} panier{basketsLeft > 1 ? 's' : ''} restant{basketsLeft > 1 ? 's' : ''}
                     </span>
                   ) : (
-                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">Épuisé</span>
+                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                      Épuisé
+                    </span>
                   )}
                 </div>
                 <p className="text-white/70 text-xs mt-0.5">
-                  Premier arrivé, premier servi · Jusqu'à {FLASH_CONFIG.endHour}h00 · {timeLeft} restant
+                  Premier arrivé, premier servi · Jusqu'à {endHour}h00 · {timeLeft} restant
                 </p>
               </div>
 
@@ -161,7 +201,10 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
                 </motion.button>
               )}
 
-              <button onClick={() => setDismissed(true)} className="text-white/40 hover:text-white transition-colors ml-1 flex-shrink-0">
+              <button
+                onClick={() => setDismissed(true)}
+                className="text-white/40 hover:text-white transition-colors ml-1 flex-shrink-0"
+              >
                 <X size={16} />
               </button>
             </div>
