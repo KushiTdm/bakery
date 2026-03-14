@@ -1,10 +1,9 @@
 // app/api/orders/route.ts
-// Persiste les commandes click & collect en base Supabase
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { isMemoryRateLimited, isSupabaseRateLimited } from '@/lib/rate-limit';
 
-// ── Validation Zod ────────────────────────────────────────────
 const LigneCommandeSchema = z.object({
   produit_id:    z.string().min(1),
   produit_nom:   z.string().min(1),
@@ -22,37 +21,44 @@ const CommandeSchema = z.object({
   notes:            z.string().max(500).optional(),
 });
 
-// ── Helper : vérifie la config Supabase ──────────────────────
 function checkSupabaseConfig(): { ok: true } | { ok: false; error: NextResponse } {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!url || !key) {
-    console.error(
-      '[POST /api/orders] Variables manquantes :',
-      !url ? 'NEXT_PUBLIC_SUPABASE_URL' : '',
-      !key ? 'SUPABASE_SERVICE_ROLE_KEY' : ''
-    );
+    console.error('[POST /api/orders] Supabase config manquante');
     return {
       ok: false,
-      error: NextResponse.json(
-        {
-          error: 'Configuration serveur incomplète. Ajoutez NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans votre .env.local',
-        },
-        { status: 503 }
-      ),
+      error: NextResponse.json({ error: 'Configuration serveur incomplète.' }, { status: 503 }),
     };
   }
   return { ok: true };
 }
 
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-nf-client-connection-ip') ??
+    req.headers.get('x-real-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
+    'unknown'
+  );
+}
+
 export async function POST(req: NextRequest) {
-  // 1. Vérification config avant tout
   const config = checkSupabaseConfig();
   if (!config.ok) return config.error;
 
+  // ── Couche 1 : Rate limit IP en mémoire ──────────────────────
+  // 5 commandes max par IP par heure
+  const clientIp = getClientIp(req);
+  if (isMemoryRateLimited(`orders:${clientIp}`, { windowMs: 60 * 60 * 1000, maxCalls: 5 })) {
+    return NextResponse.json(
+      { error: 'Trop de tentatives. Réessayez dans une heure.' },
+      { status: 429, headers: { 'Retry-After': '3600' } }
+    );
+  }
+
   try {
-    // 2. Parse & validation
     const body   = await req.json();
     const parsed = CommandeSchema.safeParse(body);
 
@@ -64,12 +70,9 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
-
-    // Import lazy pour éviter le crash au démarrage si les vars ne sont pas là
     const { getSupabaseAdmin } = await import('@/lib/supabase');
     const supabase = getSupabaseAdmin();
 
-    // 3. Récupère la boulangerie par slug
     const { data: boulangerie, error: bErr } = await supabase
       .from('boulangeries')
       .select('id, actif')
@@ -84,13 +87,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Boulangerie non active' }, { status: 403 });
     }
 
-    // 4. Calcule le montant total
+    // ── Couche 2 : Rate limit email via Supabase (24h glissantes) ─
+    // 3 commandes max par email par boulangerie par 24h
+    const emailLimited = await isSupabaseRateLimited(
+      supabase,
+      data.client_email,
+      boulangerie.id,
+      { maxOrdersPer24h: 3 }
+    );
+
+    if (emailLimited) {
+      return NextResponse.json(
+        { error: 'Limite de commandes atteinte pour aujourd\'hui. Contactez la boulangerie directement.' },
+        { status: 429, headers: { 'Retry-After': '86400' } }
+      );
+    }
+
     const montant_total = data.lignes.reduce(
       (sum, l) => sum + l.quantite * l.prix_unitaire,
       0
     );
 
-    // 5. Insère la commande
     const { data: commande, error: cErr } = await supabase
       .from('commandes')
       .insert({
@@ -112,13 +129,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la création' }, { status: 500 });
     }
 
-    // 6. Email de confirmation (non bloquant)
+    // Email de confirmation (non bloquant)
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
       if (appUrl) {
         await fetch(`${appUrl}/api/orders/confirm-email`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+          },
           body: JSON.stringify({
             commande_id:   commande.id,
             client_prenom: data.client_prenom,
@@ -144,7 +164,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── GET : liste les commandes d'une boulangerie ──────────────
 export async function GET(req: NextRequest) {
   const config = checkSupabaseConfig();
   if (!config.ok) return config.error;
@@ -195,9 +214,11 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (date) {
-    query = query
-      .gte('created_at', `${date}T00:00:00Z`)
-      .lte('created_at', `${date}T23:59:59Z`);
+    // Filtre sur date locale France (UTC+1 hiver, UTC+2 été)
+    // Marge de 2h pour couvrir les deux offsets DST sans perdre de commandes
+    const dateStart = new Date(`${date}T00:00:00+01:00`).toISOString();
+    const dateEnd   = new Date(`${date}T23:59:59+02:00`).toISOString();
+    query = query.gte('created_at', dateStart).lte('created_at', dateEnd);
   }
 
   const { data, error } = await query;
