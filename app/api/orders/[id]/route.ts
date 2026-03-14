@@ -1,8 +1,4 @@
 // app/api/orders/[id]/route.ts
-// ─────────────────────────────────────────────────────────────
-// PATCH → met à jour le statut d'une commande
-// GET   → récupère une commande spécifique
-// ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
@@ -17,7 +13,8 @@ async function getAuthUser(req: NextRequest) {
   return { user, admin };
 }
 
-const VALID_STATUSES = ['pending', 'confirmed', 'ready', 'done'] as const;
+// Statuts alignés avec la contrainte CHECK de la table commandes
+const VALID_STATUSES = ['en_attente', 'confirmee', 'prete', 'recuperee', 'annulee'] as const;
 type Status = typeof VALID_STATUSES[number];
 
 export async function PATCH(
@@ -29,12 +26,17 @@ export async function PATCH(
     if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     const { user, admin } = auth;
 
-    const { status }: { status: Status } = await req.json();
+    const body = await req.json();
+    const status: Status = body.status;
+
     if (!VALID_STATUSES.includes(status)) {
-      return NextResponse.json({ error: 'Statut invalide' }, { status: 400 });
+      return NextResponse.json(
+        { error: `Statut invalide. Valeurs acceptées : ${VALID_STATUSES.join(', ')}` },
+        { status: 400 }
+      );
     }
 
-    // Vérifier que la commande appartient bien à ce boulanger
+    // Vérifie ownership — la commande appartient bien à ce boulanger
     const { data: boulangerie } = await admin
       .from('boulangeries')
       .select('id')
@@ -45,19 +47,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
     }
 
+    // Table réelle : commandes (pas orders)
     const { data, error } = await admin
-      .from('orders')
-      .update({ status, updated_at: new Date().toISOString() })
+      .from('commandes')
+      .update({ statut: status, updated_at: new Date().toISOString() })
       .eq('id', params.id)
-      .eq('boulangerie_id', boulangerie.id) // ← sécurité : n'update que SES commandes
+      .eq('boulangerie_id', boulangerie.id)
       .select()
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+      return NextResponse.json({ error: 'Commande introuvable ou accès refusé' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, order: data });
+    return NextResponse.json({ success: true, commande: data });
 
   } catch (err) {
     console.error('[PATCH /api/orders/[id]]', err);
@@ -80,18 +83,23 @@ export async function GET(
       .eq('user_id', user.id)
       .single();
 
-    if (!boulangerie) return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
+    if (!boulangerie) {
+      return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
+    }
 
+    // Table réelle : commandes
     const { data, error } = await admin
-      .from('orders')
+      .from('commandes')
       .select('*')
       .eq('id', params.id)
       .eq('boulangerie_id', boulangerie.id)
       .single();
 
-    if (error || !data) return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+    if (error || !data) {
+      return NextResponse.json({ error: 'Commande introuvable' }, { status: 404 });
+    }
 
-    return NextResponse.json({ order: data });
+    return NextResponse.json({ commande: data });
 
   } catch (err) {
     console.error('[GET /api/orders/[id]]', err);

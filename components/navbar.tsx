@@ -4,15 +4,15 @@ import { useState, useEffect } from 'react';
 import { ShoppingBag, Menu, X, LogOut, User, Store, UtensilsCrossed } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCart } from '@/context/cart-context';
-import type { ActiveTab } from '@/app/page';
+import type { ActiveTab } from '@/context/active-tab-context';
 
 interface NavbarProps {
-  activeTab: ActiveTab;
+  activeTab:    ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
 }
 
 export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
-  const [isScrolled, setIsScrolled] = useState(false);
+  const [isScrolled, setIsScrolled]         = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { totalItems, setIsCartOpen, user, setIsAuthOpen, logout } = useCart();
 
@@ -98,7 +98,6 @@ export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
               </button>
             )}
 
-            {/* Panier — visible uniquement sur Click & Collect */}
             <AnimatePresence>
               {activeTab === 'commander' && (
                 <motion.button
@@ -128,7 +127,6 @@ export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
               )}
             </AnimatePresence>
 
-            {/* Menu mobile */}
             <button
               className={`md:hidden p-2 transition-colors ${isTransparent ? 'text-white' : 'text-[#2C1810]'}`}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}

@@ -1,16 +1,8 @@
 // app/api/products/route.ts
-// ─────────────────────────────────────────────────────────────
-// Récupère le catalogue depuis Airtable.
-// Supabase est importé LAZILY (seulement si un token boulanger
-// est présent dans le header) pour éviter tout crash au
-// démarrage si les variables Supabase ne sont pas configurées.
-// ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-
-// ─── Types ────────────────────────────────────────────────────
 
 export interface AirtableProduct {
   id: string;
@@ -33,24 +25,22 @@ export interface AirtableFlashConfig {
   flashActif: boolean;
 }
 
-// ─── Fallback si Airtable indisponible ────────────────────────
-
 const FALLBACK_PRODUCTS: AirtableProduct[] = [
   {
     id: 'fallback-1', name: 'Baguette Tradition', category: 'boulangerie',
-    description: 'Notre baguette artisanale du jour', price: 0,
+    description: 'Notre baguette artisanale du jour', price: 1.30,
     image: 'https://images.unsplash.com/photo-1568471173242-461f0a730452?w=800&q=80',
     disponible: true, estInvendu: false, stockRestant: 0,
   },
   {
     id: 'fallback-2', name: 'Croissant', category: 'viennoiserie',
-    description: 'Viennoiserie pur beurre', price: 0,
+    description: 'Viennoiserie pur beurre', price: 1.50,
     image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&q=80',
     disponible: true, estInvendu: false, stockRestant: 0,
   },
   {
     id: 'fallback-3', name: 'Pâtisserie du jour', category: 'patisserie',
-    description: 'Création de notre pâtissier', price: 0,
+    description: 'Création de notre pâtissier', price: 4.50,
     image: 'https://images.unsplash.com/photo-1519915212116-7cfef71f1d3e?w=800&q=80',
     disponible: true, estInvendu: false, stockRestant: 0,
   },
@@ -60,8 +50,6 @@ const FALLBACK_FLASH: AirtableFlashConfig = {
   heureDebut: 15, heureFin: 20, remisePercent: 40,
   panierMysterePrix: 6.90, panierMystereCount: 4, flashActif: false,
 };
-
-// ─── Helpers Airtable ─────────────────────────────────────────
 
 function getAirtableImageUrl(record: any): string {
   const attachments = record.fields?.image;
@@ -100,20 +88,15 @@ async function fetchAirtableTable(baseId: string, apiKey: string, table: string)
   return res.json();
 }
 
-// ─── Résolution des credentials Airtable ─────────────────────
-// Priorité :
-//   1. Token JWT boulanger → clés stockées dans Supabase (multi-tenant)
-//   2. Variables d'environnement AIRTABLE_* (mono-tenant / démo)
-
 async function resolveAirtableCredentials(
   req: NextRequest
 ): Promise<{ baseId: string; apiKey: string } | null> {
 
-  // ── Tentative multi-tenant (lazy import Supabase) ──────────
   const authHeader = req.headers.get('Authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey  = process.env.SUPABASE_SERVICE_KEY;
+    // CORRECTION : utilise SUPABASE_SERVICE_ROLE_KEY (pas SUPABASE_SERVICE_KEY)
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (supabaseUrl && serviceKey) {
       try {
@@ -139,7 +122,6 @@ async function resolveAirtableCredentials(
     }
   }
 
-  // ── Fallback : variables d'environnement ──────────────────
   const baseId = process.env.AIRTABLE_BASE_ID;
   const apiKey = process.env.AIRTABLE_API_KEY;
   if (baseId && apiKey) return { baseId, apiKey };
@@ -147,14 +129,11 @@ async function resolveAirtableCredentials(
   return null;
 }
 
-// ─── Handler GET ──────────────────────────────────────────────
-
 export async function GET(req: NextRequest) {
   try {
     const credentials = await resolveAirtableCredentials(req);
 
     if (!credentials) {
-      console.warn('[API/products] Aucun credentials Airtable — vérifiez AIRTABLE_API_KEY et AIRTABLE_BASE_ID dans .env.local');
       return NextResponse.json({
         success: false,
         source: 'fallback',

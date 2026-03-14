@@ -3,35 +3,33 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Clock, X, ShoppingBag, ChevronRight } from 'lucide-react';
-import type { ActiveTab } from '@/app/page';
+import type { ActiveTab } from '@/context/active-tab-context';
 
-// ─── Config (en prod → Google Sheet) ──────────────────────────────────────────
 const FLASH_CONFIG = {
-  startHour: 18,       // Heure de lancement des paniers mystère
-  endHour: 20,         // Fermeture
-  warningHour: 15,     // Heure à partir de laquelle le teaser apparaît
-  totalBaskets: 12,    // Nombre total de paniers disponibles (viendra du Sheet)
-  basketPrice: 6.90,
+  startHour:    18,
+  endHour:      20,
+  warningHour:  15,
+  totalBaskets: 12,
+  basketPrice:  6.90,
 };
 
-// Simule les paniers pris (en prod : websocket ou polling)
-const BASKETS_TAKEN = 5; // Démo — à remplacer par donnée temps réel
+const BASKETS_TAKEN = 5;
 
 interface FlashBannerProps {
-  activeTab: ActiveTab;
+  activeTab:    ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
 }
 
 type BannerState = 'hidden' | 'teaser' | 'live';
 
 function useBannerState() {
-  const [state, setState] = useState<BannerState>('hidden');
-  const [timeLeft, setTimeLeft] = useState('');
-  const [basketsLeft, setBasketsLeft] = useState(FLASH_CONFIG.totalBaskets - BASKETS_TAKEN);
+  const [state, setState]           = useState<BannerState>('hidden');
+  const [timeLeft, setTimeLeft]     = useState('');
+  const [basketsLeft]               = useState(FLASH_CONFIG.totalBaskets - BASKETS_TAKEN);
 
   useEffect(() => {
     const check = () => {
-      const now = new Date();
+      const now  = new Date();
       const hour = now.getHours();
 
       if (hour >= FLASH_CONFIG.endHour || hour < FLASH_CONFIG.warningHour) {
@@ -39,36 +37,30 @@ function useBannerState() {
         return;
       }
 
+      const buildCountdown = (target: Date) => {
+        const diff = target.getTime() - now.getTime();
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+      };
+
       if (hour >= FLASH_CONFIG.startHour) {
         setState('live');
-        // Compte à rebours jusqu'à la fermeture
         const end = new Date();
         end.setHours(FLASH_CONFIG.endHour, 0, 0, 0);
-        const diff = end.getTime() - now.getTime();
-        const h = Math.floor(diff / 3600000);
-        const m = Math.floor((diff % 3600000) / 60000);
-        const s = Math.floor((diff % 60000) / 1000);
-        setTimeLeft(`${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`);
+        setTimeLeft(buildCountdown(end));
       } else {
         setState('teaser');
-        // Compte à rebours jusqu'au lancement
         const launch = new Date();
         launch.setHours(FLASH_CONFIG.startHour, 0, 0, 0);
-        const diff = launch.getTime() - now.getTime();
-        const h = Math.floor(diff / 3600000);
-        const m = Math.floor((diff % 3600000) / 60000);
-        const s = Math.floor((diff % 60000) / 1000);
-        setTimeLeft(`${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`);
+        setTimeLeft(buildCountdown(launch));
       }
     };
 
     check();
     const interval = setInterval(check, 1000);
     return () => clearInterval(interval);
-
-  // ── DEV : forcer un état pour tester ──────────────────────────────────────
-  // Pour tester le teaser : setState('teaser'); setTimeLeft('2h 45m 00s');
-  // Pour tester le live  : setState('live'); setTimeLeft('1h 23m 45s');
   }, []);
 
   return { state, timeLeft, basketsLeft };
@@ -76,9 +68,8 @@ function useBannerState() {
 
 export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProps) {
   const { state, timeLeft, basketsLeft } = useBannerState();
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed]        = useState(false);
 
-  // Reset dismissed quand l'état change (teaser → live)
   useEffect(() => { setDismissed(false); }, [state]);
 
   if (state === 'hidden' || dismissed) return null;
@@ -94,7 +85,6 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
         className="fixed top-20 left-0 right-0 z-40 px-4 sm:px-8 lg:px-0 lg:max-w-3xl lg:mx-auto"
       >
         {state === 'teaser' ? (
-          /* ── Teaser : annonce pour plus tard ── */
           <div className="relative overflow-hidden rounded-2xl shadow-xl">
             <div className="absolute inset-0 bg-[#2C1810]" />
             <div className="absolute inset-0 opacity-20"
@@ -124,9 +114,7 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
             </div>
           </div>
         ) : (
-          /* ── Live : paniers disponibles maintenant ── */
           <div className="relative overflow-hidden rounded-2xl shadow-2xl">
-            {/* Fond animé */}
             <div className="absolute inset-0 bg-gradient-to-r from-[#8B4513] via-[#C19A6B] to-[#8B4513]" />
             <motion.div
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
@@ -152,9 +140,7 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
                       {basketsLeft} panier{basketsLeft > 1 ? 's' : ''} restant{basketsLeft > 1 ? 's' : ''}
                     </span>
                   ) : (
-                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      Épuisé
-                    </span>
+                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">Épuisé</span>
                   )}
                 </div>
                 <p className="text-white/70 text-xs mt-0.5">
