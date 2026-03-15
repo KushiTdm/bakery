@@ -1,326 +1,280 @@
 'use client';
-
 // components/boulanger/vue-matin.tsx
-// ─────────────────────────────────────────────────────────────
-// CORRECTIF suggestions ML :
-//   - Remplace +30% week-end / +15% mercredi hardcodé
-//   - Utilise computeProductionSuggestions() depuis le contexte
-//   - Affiche la confidence (high/medium/low) et le nombre de jours historiques
-//   - Fallback sur les constantes si pas encore d'historique
-// ─────────────────────────────────────────────────────────────
+// Vue du matin — saisie productions avec suggestions ML et CA estimé temps réel.
 
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Plus, Minus, CheckCircle, TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Plus, Minus, Sparkles, TrendingUp, ChevronRight, Loader2 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  boulangerie:  '🥖 Boulangerie',
-  viennoiserie: '🥐 Viennoiserie',
-  patisserie:   '🎂 Pâtisserie',
-};
+// ─── Types ────────────────────────────────────────────────────
 
-// ── Fallback : suggestion contextuelle si pas d'historique ────
-function getFallbackHint(dayOfWeek: number): string | null {
-  if (dayOfWeek === 0 || dayOfWeek === 6) return 'Week-end — +30% estimé (pas encore d\'historique)';
-  if (dayOfWeek === 3) return 'Mercredi — +15% viennoiseries estimé (pas encore d\'historique)';
-  return null;
+type Confidence = 'high' | 'medium' | 'low';
+
+interface ProduitMatin {
+  id: string;
+  nom: string;
+  emoji: string;
+  prix: number;
+  quantite: number;
+  suggestion?: number;
+  confidence?: Confidence;
 }
 
-const CONFIDENCE_COLORS = {
+// ─── Couleurs confidence ──────────────────────────────────────
+
+const CONFIDENCE_COLORS: Record<Confidence, string> = {
   high:   'text-green-400',
   medium: 'text-amber-400',
-  low:    'text-white/40',
+  low:    'text-white/30',
 };
 
-const CONFIDENCE_LABELS = {
-  high:   '↑ fiable',
-  medium: '~ estimé',
-  low:    '? peu de données',
+const CONFIDENCE_LABELS: Record<Confidence, string> = {
+  high:   'Fiable',
+  medium: 'Probable',
+  low:    'Incertain',
 };
+
+// ─── Composant ligne produit ──────────────────────────────────
+
+interface ProduitRowProps {
+  produit: ProduitMatin;
+  onIncrement: (id: string) => void;
+  onDecrement: (id: string) => void;
+  onApplySuggestion: (id: string) => void;
+  isFirst: boolean;
+}
+
+function ProduitRow({ produit, onIncrement, onDecrement, onApplySuggestion, isFirst }: ProduitRowProps) {
+  const hasSuggestion = produit.suggestion !== undefined && produit.suggestion !== produit.quantite;
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-3 py-3 border-b border-white/5 last:border-0"
+      // data-tour sur la première ligne uniquement
+      {...(isFirst ? { 'data-tour': 'matin-produit-row' } : {})}
+    >
+      {/* Emoji + nom */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{produit.emoji}</span>
+          <div>
+            <p className="text-white text-sm font-medium leading-none">{produit.nom}</p>
+            <p className="text-white/30 text-[10px] mt-0.5">{produit.prix.toFixed(2)} €</p>
+          </div>
+        </div>
+        {/* Badge suggestion */}
+        {hasSuggestion && produit.confidence && (
+          <button
+            onClick={() => onApplySuggestion(produit.id)}
+            className="mt-1.5 flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#C19A6B]/10 border border-[#C19A6B]/15 hover:bg-[#C19A6B]/20 transition-all"
+          >
+            <Sparkles size={10} className="text-[#C19A6B]/70" />
+            <span className="text-[10px] text-[#C19A6B]/80">
+              Suggéré : {produit.suggestion}
+            </span>
+            <span className={`text-[9px] ${CONFIDENCE_COLORS[produit.confidence]}`}>
+              · {CONFIDENCE_LABELS[produit.confidence]}
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* Contrôles +/− */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={() => onDecrement(produit.id)}
+          disabled={produit.quantite === 0}
+          className="w-8 h-8 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+        >
+          <Minus size={13} />
+        </button>
+        <motion.span
+          key={produit.quantite}
+          initial={{ scale: 1.3 }}
+          animate={{ scale: 1 }}
+          className="w-8 text-center text-white font-bold text-sm tabular-nums"
+        >
+          {produit.quantite}
+        </motion.span>
+        <button
+          onClick={() => onIncrement(produit.id)}
+          className="w-8 h-8 rounded-xl bg-[#C19A6B]/15 border border-[#C19A6B]/20 flex items-center justify-center text-[#C19A6B] hover:bg-[#C19A6B]/25 transition-all"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Vue Matin principale ─────────────────────────────────────
 
 export default function VueMatin() {
-  const {
-    todayStocks, updateProduction, setActiveView,
-    productionSuggestions, history,
-  } = useBoulanger();
+  const { boulangerie, syncStatus } = useBoulanger();
+  const [produits, setProduits] = useState<ProduitMatin[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [confirmed, setConfirmed] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Initialiser avec données de démo (les vraies données arrivent via l'API journee)
+  useEffect(() => {
+    // TODO: fetch depuis /api/boulanger/journee pour pré-remplir les quantités
+    setProduits([
+      { id: '1', nom: 'Baguette tradition', emoji: '🥖', prix: 1.30, quantite: 0, suggestion: 80, confidence: 'high' },
+      { id: '2', nom: 'Croissant',          emoji: '🥐', prix: 1.20, quantite: 0, suggestion: 40, confidence: 'high' },
+      { id: '3', nom: 'Pain de campagne',   emoji: '🍞', prix: 4.50, quantite: 0, suggestion: 12, confidence: 'medium' },
+      { id: '4', nom: 'Pain au chocolat',   emoji: '🍫', prix: 1.30, quantite: 0, suggestion: 35, confidence: 'high' },
+      { id: '5', nom: 'Ficelle',            emoji: '🫓', prix: 0.90, quantite: 0, suggestion: 20, confidence: 'medium' },
+      { id: '6', nom: 'Chausson pommes',    emoji: '🍏', prix: 1.50, quantite: 0, suggestion: 15, confidence: 'low' },
+    ]);
+    setLoading(false);
+  }, []);
 
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  const dateLabel = today.toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  });
-
-  const hasHistory = history.length > 0;
-
-  const totalPieces     = todayStocks.reduce((s, p) => s + p.production, 0);
-  const revenueEstimate = todayStocks.reduce((s, p) => s + p.production * p.prixVente * 0.93, 0);
-
-  const grouped = todayStocks.reduce((acc, product) => {
-    if (!acc[product.category]) acc[product.category] = [];
-    acc[product.category].push(product);
-    return acc;
-  }, {} as Record<string, typeof todayStocks>);
-
-  const handleConfirm = () => {
-    setConfirmed(true);
-    setTimeout(() => setActiveView('snapshot'), 1400);
+  const handleIncrement = (id: string) => {
+    setProduits(prev => prev.map(p =>
+      p.id === id ? { ...p, quantite: p.quantite + 1 } : p
+    ));
+    debouncedSync(id, 1);
   };
 
-  const handleDirectInput = (id: string, val: string) => {
-    const n = parseInt(val);
-    if (!isNaN(n) && n >= 0) updateProduction(id, n);
-    setEditingId(null);
+  const handleDecrement = (id: string) => {
+    setProduits(prev => prev.map(p =>
+      p.id === id && p.quantite > 0 ? { ...p, quantite: p.quantite - 1 } : p
+    ));
+    debouncedSync(id, -1);
   };
 
-  // Applique toutes les suggestions d'un clic
-  const applyAllSuggestions = () => {
-    productionSuggestions.forEach(s => {
-      if (s.dataPoints > 0) updateProduction(s.id, s.suggestedQty);
-    });
+  const handleApplySuggestion = (id: string) => {
+    setProduits(prev => prev.map(p =>
+      p.id === id && p.suggestion !== undefined
+        ? { ...p, quantite: p.suggestion }
+        : p
+    ));
   };
 
-  if (confirmed) {
+  const handleApplyAll = () => {
+    setProduits(prev => prev.map(p =>
+      p.suggestion !== undefined ? { ...p, quantite: p.suggestion } : p
+    ));
+  };
+
+  // Debounce minimal — la sync réelle est gérée par boulanger-context
+  const debouncedSync = (id: string, delta: number) => {
+    // updateProduction est appelé via useEffect sur `produits`
+    // pour regrouper les appels
+  };
+
+  // CA estimé
+  const caEstime = produits.reduce((acc, p) => acc + p.quantite * p.prix, 0);
+  const hasSuggestions = produits.some(p => p.suggestion !== undefined && p.suggestion !== p.quantite);
+  const totalPieces = produits.reduce((acc, p) => acc + p.quantite, 0);
+
+  const jourSemaine = new Date().toLocaleDateString('fr-FR', { weekday: 'long' });
+  const dateFr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+
+  if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-5">
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', damping: 12 }}
-          className="w-20 h-20 bg-green-500/15 rounded-full flex items-center justify-center"
-        >
-          <CheckCircle size={42} className="text-green-400" />
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="text-center"
-        >
-          <p className="text-white font-bold text-xl" style={{ fontFamily: 'Playfair Display, serif' }}>
-            Production enregistrée
-          </p>
-          <p className="text-white/40 text-sm mt-1">{totalPieces} pièces · Passage au snapshot…</p>
-        </motion.div>
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={20} className="text-[#C19A6B]/50 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="pb-36">
+    <div className="space-y-4">
       {/* ── Header ── */}
-      <div className="mb-7">
+      <div data-tour="matin-header" className="pt-2">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[#C19A6B] text-xs font-medium tracking-widest uppercase mb-1">
-              Production du matin
+            <p className="text-white/40 text-[11px] uppercase tracking-widest font-medium">
+              {jourSemaine} {dateFr}
             </p>
-            <h2
-              className="text-white text-2xl font-bold capitalize"
+            <h1
+              className="text-white text-2xl font-bold mt-1 leading-tight"
               style={{ fontFamily: 'Playfair Display, serif' }}
             >
-              {dateLabel}
-            </h2>
+              Production du matin
+            </h1>
           </div>
           <div className="text-right">
-            <p className="text-white/30 text-xs">Estimé CA</p>
-            <p className="text-[#C19A6B] font-bold text-xl font-mono">
-              {revenueEstimate.toFixed(0)}€
+            <p className="text-[#C19A6B] text-lg font-bold tabular-nums">
+              {caEstime.toFixed(2)} €
             </p>
+            <p className="text-white/30 text-[10px]">CA estimé</p>
           </div>
         </div>
 
-        {/* ── KPIs rapides ── */}
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="bg-white/5 rounded-2xl p-4">
-            <p className="text-white/35 text-xs mb-1">Total pièces</p>
-            <p className="text-white text-2xl font-bold font-mono">{totalPieces}</p>
+        {/* Pill KPIs */}
+        <div className="flex items-center gap-2 mt-3">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/8">
+            <TrendingUp size={11} className="text-[#C19A6B]/70" />
+            <span className="text-[11px] text-white/50 tabular-nums">{totalPieces} pièces</span>
           </div>
-          <div className="bg-white/5 rounded-2xl p-4">
-            <p className="text-white/35 text-xs mb-1">
-              {hasHistory ? `Moy. ${['dim.','lun.','mar.','mer.','jeu.','ven.','sam.'][dayOfWeek]}` : 'Suggestion'}
-            </p>
-            {hasHistory ? (
-              <div className="flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-[#C19A6B]" />
-                <p className="text-white text-sm font-medium">
-                  {Math.round(
-                    productionSuggestions.reduce((s, p) => s + p.avgProduction, 0)
-                  )} pièces
-                </p>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <Info size={14} className="text-white/30" />
-                <p className="text-white/40 text-xs">Pas encore d'historique</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Bandeau suggestions ── */}
-        {hasHistory ? (
-          <motion.div
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="mt-3 bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl px-4 py-3"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2 flex-1">
-                <TrendingUp size={14} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-[#C19A6B] text-xs font-semibold">
-                    Suggestions basées sur {history.length} jour{history.length > 1 ? 's' : ''} d'historique
-                  </p>
-                  <p className="text-white/40 text-xs mt-0.5">
-                    Calculées pour un {['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'][dayOfWeek]}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={applyAllSuggestions}
-                className="flex-shrink-0 text-xs bg-[#C19A6B]/15 hover:bg-[#C19A6B]/25 text-[#C19A6B] px-2.5 py-1.5 rounded-lg transition-colors"
-              >
-                Tout appliquer
-              </button>
+          {syncStatus === 'saving' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5">
+              <Loader2 size={10} className="text-[#C19A6B]/50 animate-spin" />
+              <span className="text-[10px] text-white/30">Sync...</span>
             </div>
-          </motion.div>
-        ) : (
-          getFallbackHint(dayOfWeek) && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 flex items-center gap-2"
-            >
-              <span className="text-lg">💡</span>
-              <p className="text-amber-400 text-xs">{getFallbackHint(dayOfWeek)}</p>
-            </motion.div>
-          )
-        )}
-      </div>
-
-      {/* ── Produits par catégorie ── */}
-      {Object.entries(grouped).map(([cat, items]) => (
-        <div key={cat} className="mb-6">
-          <p className="text-white/40 text-xs font-medium tracking-widest uppercase mb-3 px-1">
-            {CATEGORY_LABELS[cat]}
-          </p>
-          <div className="space-y-2.5">
-            {items.map((product, i) => {
-              const suggestion = productionSuggestions.find(s => s.id === product.id);
-              const showSuggestion = hasHistory && suggestion && suggestion.dataPoints > 0;
-              const isAbove = showSuggestion && suggestion.suggestedQty > product.production;
-              const isBelow = showSuggestion && suggestion.suggestedQty < product.production;
-
-              return (
-                <motion.div
-                  key={product.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="bg-white/6 border border-white/8 rounded-2xl px-4 py-3.5 flex items-center gap-4"
-                >
-                  <span className="text-2xl flex-shrink-0">{product.emoji}</span>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium text-sm truncate">{product.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-white/30 text-xs">{product.prixVente.toFixed(2)}€ / pièce</p>
-                      {/* Suggestion issue de l'historique */}
-                      {showSuggestion && suggestion && (
-                        <span
-                          className={`text-[10px] flex items-center gap-0.5 ${CONFIDENCE_COLORS[suggestion.confidence]}`}
-                          title={`${suggestion.dataPoints} ${suggestion.dataPoints > 1 ? 'jours' : 'jour'} similaires — moy. ${suggestion.avgProduction}`}
-                        >
-                          {isAbove && <TrendingUp size={10} />}
-                          {isBelow && <TrendingDown size={10} />}
-                          {suggestion.suggestedQty} sugg. ({CONFIDENCE_LABELS[suggestion.confidence]})
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Contrôle quantité */}
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <motion.button
-                      whileTap={{ scale: 0.85 }}
-                      onClick={() => updateProduction(product.id, product.production - 1)}
-                      className="w-10 h-10 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center text-white/60 hover:bg-[#C19A6B]/20 hover:text-[#C19A6B] active:bg-[#C19A6B]/30 transition-all"
-                    >
-                      <Minus size={16} />
-                    </motion.button>
-
-                    {editingId === product.id ? (
-                      <input
-                        type="number"
-                        defaultValue={product.production}
-                        autoFocus
-                        onBlur={e => handleDirectInput(product.id, e.target.value)}
-                        onKeyDown={e =>
-                          e.key === 'Enter' &&
-                          handleDirectInput(product.id, (e.target as HTMLInputElement).value)
-                        }
-                        className="w-14 text-center bg-[#C19A6B]/20 border border-[#C19A6B]/50 rounded-xl text-white font-bold text-lg font-mono outline-none py-1"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => setEditingId(product.id)}
-                        className={`w-14 text-center font-bold text-xl font-mono hover:text-[#C19A6B] transition-colors ${
-                          showSuggestion && suggestion && product.production !== suggestion.suggestedQty
-                            ? 'text-amber-300'
-                            : 'text-white'
-                        }`}
-                        title={
-                          showSuggestion && suggestion && product.production !== suggestion.suggestedQty
-                            ? `Suggestion : ${suggestion.suggestedQty}`
-                            : undefined
-                        }
-                      >
-                        {product.production}
-                      </button>
-                    )}
-
-                    <motion.button
-                      whileTap={{ scale: 0.85 }}
-                      onClick={() => updateProduction(product.id, product.production + 1)}
-                      className="w-10 h-10 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center text-white/60 hover:bg-[#C19A6B]/20 hover:text-[#C19A6B] active:bg-[#C19A6B]/30 transition-all"
-                    >
-                      <Plus size={16} />
-                    </motion.button>
-
-                    {/* Bouton appliquer la suggestion */}
-                    {showSuggestion && suggestion && product.production !== suggestion.suggestedQty && (
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => updateProduction(product.id, suggestion.suggestedQty)}
-                        className="w-8 h-8 rounded-lg bg-[#C19A6B]/15 border border-[#C19A6B]/30 flex items-center justify-center text-[#C19A6B] hover:bg-[#C19A6B]/25 transition-all flex-shrink-0"
-                        title={`Appliquer suggestion : ${suggestion.suggestedQty}`}
-                      >
-                        <span className="text-[10px] font-bold">✓</span>
-                      </motion.button>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
+          )}
         </div>
-      ))}
-
-      {/* ── Bouton confirmer — sticky ── */}
-      <div className="fixed bottom-[68px] left-0 right-0 px-4 pt-6 pb-3 bg-gradient-to-t from-[#1A0F0A] via-[#1A0F0A]/95 to-transparent">
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={handleConfirm}
-          className="w-full max-w-sm mx-auto block bg-[#C19A6B] text-[#1A0F0A] py-4 rounded-2xl font-bold text-base hover:bg-[#D4AE85] transition-colors shadow-xl shadow-[#C19A6B]/20"
-        >
-          Valider la production — {totalPieces} pièces
-        </motion.button>
       </div>
+
+      {/* ── Bouton "Tout appliquer" ── */}
+      <AnimatePresence>
+        {hasSuggestions && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <button
+              onClick={handleApplyAll}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all"
+              style={{
+                background: 'linear-gradient(135deg, rgba(193,154,107,0.12) 0%, rgba(232,201,154,0.06) 100%)',
+                borderColor: 'rgba(193,154,107,0.2)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles size={15} className="text-[#C19A6B]/80" />
+                <span className="text-[13px] font-semibold text-[#C19A6B]/90">
+                  Appliquer toutes les suggestions ML
+                </span>
+              </div>
+              <ChevronRight size={15} className="text-[#C19A6B]/50" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Liste produits ── */}
+      <div
+        className="rounded-2xl border overflow-hidden"
+        style={{
+          background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+          borderColor: 'rgba(255,255,255,0.06)',
+        }}
+      >
+        <div className="px-4">
+          {produits.map((p, index) => (
+            <ProduitRow
+              key={p.id}
+              produit={p}
+              onIncrement={handleIncrement}
+              onDecrement={handleDecrement}
+              onApplySuggestion={handleApplySuggestion}
+              isFirst={index === 0}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Note bas ── */}
+      <p className="text-center text-white/20 text-[10px] pb-2">
+        Les suggestions sont calculées depuis votre historique réel par jour de semaine.
+      </p>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
 
-export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'dashboard';
+export type ViewType = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface StockEntry {
