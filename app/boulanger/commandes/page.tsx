@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
 import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
+import { Zap } from 'lucide-react';
 
 // ── Types UI (front-end) ──────────────────────────────────────
 
@@ -23,6 +24,7 @@ interface Order {
   pickup_time: string | null;
   status:      'pending' | 'confirmed' | 'ready' | 'done';
   created_at:  string;
+  isFlash:     boolean; // commande contenant des produits ⚡ anti-gaspi
 }
 
 // ── Constantes ────────────────────────────────────────────────
@@ -62,21 +64,26 @@ function dbToStatus(s: DbCommande['statut']): Order['status'] {
 }
 
 // Mappe une DbCommande vers Order (UI)
+// Une commande est "flash" si elle contient au moins un produit avec ⚡ dans le nom
 function mapDbCommande(c: DbCommande): Order {
+  const items = (c.lignes ?? []).map((l: DbLigneCommande) => ({
+    name:  l.produit_nom,
+    qty:   l.quantite,
+    price: l.prix_unitaire,
+  }));
+  const isFlash = items.some(i => i.name.includes('⚡'));
+
   return {
     id:          c.id,
     commande_id: c.id.slice(0, 8).toUpperCase(),
     email:       c.client_email,
     prenom:      c.client_prenom ?? null,
-    items:       (c.lignes ?? []).map((l: DbLigneCommande) => ({
-      name:  l.produit_nom,
-      qty:   l.quantite,
-      price: l.prix_unitaire,
-    })),
+    items,
     total:       c.montant_total,
     pickup_time: c.heure_retrait ? String(c.heure_retrait).slice(0, 5) : null,
     status:      dbToStatus(c.statut),
     created_at:  c.created_at,
+    isFlash,
   };
 }
 
@@ -100,6 +107,8 @@ export default function CommandesPage() {
   const [lastRefresh, setLastRefresh]   = useState<Date | null>(null);
   const [updating, setUpdating]         = useState<string | null>(null);
   const [boulangerieId, setBoulangerieId] = useState<string | null>(null);
+  // Filtre : 'all' | 'standard' | 'flash'
+  const [filter, setFilter]             = useState<'all' | 'standard' | 'flash'>('all');
 
   // ── Chargement initial ────────────────────────────────────────
 
@@ -141,9 +150,7 @@ export default function CommandesPage() {
     }
   }, []);
 
-  // ── Supabase Realtime — remplace le polling toutes les 60s ───
-  // I7 FIX : useEffect souscrit au channel postgres_changes
-  // dès que boulangerieId est connu.
+  // ── Supabase Realtime ─────────────────────────────────────────
 
   useEffect(() => {
     if (!boulangerieId) return;
@@ -189,7 +196,6 @@ export default function CommandesPage() {
   useEffect(() => {
     if (!isAuthenticated) return;
     loadOrders();
-    // Plus de setInterval — Realtime prend le relais
   }, [isAuthenticated, loadOrders]);
 
   // ── Action : changement de statut ────────────────────────────
@@ -209,7 +215,6 @@ export default function CommandesPage() {
         body: JSON.stringify({ status: STATUS_TO_DB[newStatus] }),
       });
 
-      // Mise à jour optimiste : Realtime confirmera via UPDATE
       if (res.ok) {
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       }
@@ -238,13 +243,23 @@ export default function CommandesPage() {
 
   // ── Stats ─────────────────────────────────────────────────────
 
-  const totalCA  = orders.reduce((s, o) => s + o.total, 0);
+  const flashOrders    = orders.filter(o => o.isFlash);
+  const standardOrders = orders.filter(o => !o.isFlash);
+  const totalCA        = orders.reduce((s, o) => s + o.total, 0);
+  const flashCA        = flashOrders.reduce((s, o) => s + o.total, 0);
+
   const byStatus = {
     pending:   orders.filter(o => o.status === 'pending').length,
     confirmed: orders.filter(o => o.status === 'confirmed').length,
     ready:     orders.filter(o => o.status === 'ready').length,
     done:      orders.filter(o => o.status === 'done').length,
   };
+
+  // Commandes filtrées selon l'onglet actif
+  const visibleOrders =
+    filter === 'flash'    ? flashOrders :
+    filter === 'standard' ? standardOrders :
+    orders;
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -290,6 +305,35 @@ export default function CommandesPage() {
           </div>
         </div>
 
+        {/* Bloc anti-gaspi — affiché seulement si des commandes flash existent */}
+        {flashOrders.length > 0 && (
+          <div className="bg-yellow-400/8 border border-yellow-400/25 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="bg-yellow-400 rounded-lg p-1.5">
+                <Zap size={14} className="text-[#2C1810] fill-current" />
+              </div>
+              <p className="text-yellow-300 font-semibold text-sm">
+                Paniers Anti-Gaspi
+              </p>
+              <span className="ml-auto bg-yellow-400/20 text-yellow-300 text-xs font-bold px-2 py-0.5 rounded-full border border-yellow-400/30">
+                {flashOrders.length} commande{flashOrders.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-black/20 rounded-xl p-3">
+                <p className="text-white/35 text-xs mb-0.5">CA flash</p>
+                <p className="text-yellow-300 font-bold font-mono">{formatPrice(flashCA)}</p>
+              </div>
+              <div className="bg-black/20 rounded-xl p-3">
+                <p className="text-white/35 text-xs mb-0.5">En attente</p>
+                <p className="text-yellow-300 font-bold font-mono">
+                  {flashOrders.filter(o => o.status === 'pending').length} / {flashOrders.length}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Badges statut */}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {(Object.keys(byStatus) as Order['status'][]).map(s => (
@@ -301,6 +345,31 @@ export default function CommandesPage() {
             </div>
           ))}
         </div>
+
+        {/* Filtre par type */}
+        {flashOrders.length > 0 && (
+          <div className="flex gap-2">
+            {([
+              { key: 'all',      label: `Toutes (${orders.length})` },
+              { key: 'standard', label: `Click & Collect (${standardOrders.length})` },
+              { key: 'flash',    label: `⚡ Anti-Gaspi (${flashOrders.length})` },
+            ] as const).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                  filter === tab.key
+                    ? tab.key === 'flash'
+                      ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/40'
+                      : 'bg-[#C19A6B]/20 text-[#C19A6B] border border-[#C19A6B]/40'
+                    : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Erreur */}
         {error && (
@@ -327,14 +396,42 @@ export default function CommandesPage() {
           </div>
         )}
 
+        {/* État vide sur filtre flash */}
+        {!loading && !error && orders.length > 0 && visibleOrders.length === 0 && (
+          <div className="text-center py-10">
+            <span className="text-4xl block mb-3">
+              {filter === 'flash' ? '⚡' : '🛒'}
+            </span>
+            <p className="text-white/40 text-sm">
+              {filter === 'flash'
+                ? 'Aucune commande anti-gaspi pour l\'instant'
+                : 'Aucune commande standard pour l\'instant'
+              }
+            </p>
+          </div>
+        )}
+
         {/* Liste des commandes */}
         <div className="flex flex-col gap-3">
-          {orders.map(order => (
+          {visibleOrders.map(order => (
             <div
               key={order.id}
-              className={`bg-white/4 border rounded-2xl overflow-hidden transition-opacity ${order.status === 'done' ? 'opacity-50' : ''}`}
-              style={{ borderColor: 'rgba(255,255,255,0.08)' }}
+              className={`border rounded-2xl overflow-hidden transition-opacity ${
+                order.status === 'done' ? 'opacity-50' : ''
+              } ${
+                order.isFlash
+                  ? 'bg-yellow-400/5 border-yellow-400/20'
+                  : 'bg-white/4 border-white/8'
+              }`}
             >
+              {/* Badge flash */}
+              {order.isFlash && (
+                <div className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400/10 border-b border-yellow-400/15">
+                  <Zap size={11} className="text-yellow-400 fill-current" />
+                  <span className="text-yellow-400 text-xs font-semibold">Panier Anti-Gaspi</span>
+                </div>
+              )}
+
               <div className="flex items-start justify-between p-4 pb-2">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
@@ -346,7 +443,9 @@ export default function CommandesPage() {
                   <p className="text-white/30 text-xs">{order.email}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[#C19A6B] font-bold">{formatPrice(order.total)}</p>
+                  <p className={`font-bold ${order.isFlash ? 'text-yellow-300' : 'text-[#C19A6B]'}`}>
+                    {formatPrice(order.total)}
+                  </p>
                   <p className="text-white/25 text-xs">{formatTime(order.created_at)}</p>
                 </div>
               </div>
