@@ -1,14 +1,17 @@
 // app/api/boulanger/auth/route.ts
 // ─────────────────────────────────────────────────────────────
-// Gestion du compte boulanger via Supabase Auth
+// Auth boulanger — email + password (pas d'OTP).
+// Évite la limite d'emails Supabase (2/h plan gratuit).
+//
 // POST /api/boulanger/auth  → login ou register
-// GET  /api/boulanger/auth  → session courante
+// GET  /api/boulanger/auth  → session courante (via token JWT)
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
 // ── GET — Vérifie la session depuis le token JWT ───────────────
+
 export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
@@ -25,7 +28,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    // Récupère la boulangerie liée
     const { data: boulangerie } = await admin
       .from('boulangeries')
       .select('id, nom, slug, plan, airtable_base_id')
@@ -43,16 +45,21 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST — Login ou Register ───────────────────────────────────
+
 export async function POST(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
-    const body = await req.json();
+    const body  = await req.json();
     const { action, email, password, nom, slug } = body;
 
     // ── Login ──────────────────────────────────────────────────
+
     if (action === 'login') {
       if (!email || !password) {
-        return NextResponse.json({ error: 'Email et mot de passe requis' }, { status: 400 });
+        return NextResponse.json(
+          { error: 'Email et mot de passe requis' },
+          { status: 400 }
+        );
       }
 
       const { data, error } = await admin.auth.signInWithPassword({ email, password });
@@ -64,7 +71,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Récupère la boulangerie
       const { data: boulangerie } = await admin
         .from('boulangeries')
         .select('id, nom, slug, plan, airtable_api_key, airtable_base_id')
@@ -72,18 +78,26 @@ export async function POST(req: NextRequest) {
         .single();
 
       return NextResponse.json({
-        access_token: data.session?.access_token,
+        access_token:  data.session?.access_token,
         refresh_token: data.session?.refresh_token,
-        user: { id: data.user.id, email: data.user.email },
+        user:          { id: data.user.id, email: data.user.email },
         boulangerie,
       });
     }
 
     // ── Register ───────────────────────────────────────────────
+
     if (action === 'register') {
       if (!email || !password || !nom || !slug) {
         return NextResponse.json(
           { error: 'Email, mot de passe, nom et slug requis' },
+          { status: 400 }
+        );
+      }
+
+      if (password.length < 8) {
+        return NextResponse.json(
+          { error: 'Le mot de passe doit faire au moins 8 caractères' },
           { status: 400 }
         );
       }
@@ -96,14 +110,18 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (existing) {
-        return NextResponse.json({ error: 'Ce slug est déjà utilisé' }, { status: 409 });
+        return NextResponse.json(
+          { error: 'Ce slug est déjà utilisé' },
+          { status: 409 }
+        );
       }
 
-      // Crée le compte Auth
+      // Crée le compte Auth avec mot de passe
+      // email_confirm: true → pas d'email de confirmation envoyé
       const { data: authData, error: authError } = await admin.auth.admin.createUser({
         email,
         password,
-        email_confirm: false, // Pas de confirmation email en phase dev
+        email_confirm: true, // confirme directement, pas d'email envoyé
       });
 
       if (authError) {
@@ -114,12 +132,12 @@ export async function POST(req: NextRequest) {
       const { data: boulangerie, error: boulangerieError } = await admin
         .from('boulangeries')
         .insert({
-          user_id: authData.user.id,
+          user_id:       authData.user.id,
           nom,
           slug,
           email_contact: email,
-          plan: 'starter',
-          actif: true,
+          plan:          'starter',
+          actif:         true,
         })
         .select()
         .single();
@@ -127,16 +145,19 @@ export async function POST(req: NextRequest) {
       if (boulangerieError) {
         // Rollback : supprime le user Auth si la boulangerie n'a pas pu être créée
         await admin.auth.admin.deleteUser(authData.user.id);
-        return NextResponse.json({ error: 'Erreur création boulangerie' }, { status: 500 });
+        return NextResponse.json(
+          { error: 'Erreur création boulangerie' },
+          { status: 500 }
+        );
       }
 
       // Login automatique après register
       const { data: session } = await admin.auth.signInWithPassword({ email, password });
 
       return NextResponse.json({
-        access_token: session?.session?.access_token,
+        access_token:  session?.session?.access_token,
         refresh_token: session?.session?.refresh_token,
-        user: { id: authData.user.id, email },
+        user:          { id: authData.user.id, email },
         boulangerie,
       }, { status: 201 });
     }

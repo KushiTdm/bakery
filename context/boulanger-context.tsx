@@ -45,18 +45,6 @@ interface Boulangerie {
   airtable_base_id: string | null;
 }
 
-const DEFAULT_STOCKS: StockEntry[] = [
-  { id: 'b1', name: 'Baguette Tradition', emoji: '🥖', category: 'boulangerie', prixVente: 1.30, coutProduction: 0.35, production: 80, snapshot10h: 80, snapshot10hDone: false, snapshot14h: 80, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'b2', name: 'Pain au Levain',     emoji: '🍞', category: 'boulangerie', prixVente: 4.50, coutProduction: 1.20, production: 20, snapshot10h: 20, snapshot10hDone: false, snapshot14h: 20, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'b3', name: 'Pain aux Céréales',  emoji: '🌾', category: 'boulangerie', prixVente: 3.80, coutProduction: 1.00, production: 15, snapshot10h: 15, snapshot10hDone: false, snapshot14h: 15, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'v1', name: 'Croissant',          emoji: '🥐', category: 'viennoiserie', prixVente: 1.50, coutProduction: 0.45, production: 60, snapshot10h: 60, snapshot10hDone: false, snapshot14h: 60, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'v2', name: 'Pain au Chocolat',   emoji: '🍫', category: 'viennoiserie', prixVente: 1.60, coutProduction: 0.50, production: 40, snapshot10h: 40, snapshot10hDone: false, snapshot14h: 40, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'v3', name: 'Brioche',            emoji: '🧁', category: 'viennoiserie', prixVente: 3.20, coutProduction: 0.90, production: 10, snapshot10h: 10, snapshot10hDone: false, snapshot14h: 10, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'p1', name: 'Tarte au Citron',    emoji: '🍋', category: 'patisserie',   prixVente: 4.80, coutProduction: 1.50, production: 8,  snapshot10h: 8,  snapshot10hDone: false, snapshot14h: 8,  snapshot14hDone: false, stockFinal: 0 },
-  { id: 'p2', name: 'Éclair au Café',     emoji: '☕', category: 'patisserie',   prixVente: 3.90, coutProduction: 1.20, production: 12, snapshot10h: 12, snapshot10hDone: false, snapshot14h: 12, snapshot14hDone: false, stockFinal: 0 },
-  { id: 'p3', name: 'Millefeuille',       emoji: '🎂', category: 'patisserie',   prixVente: 4.50, coutProduction: 1.40, production: 6,  snapshot10h: 6,  snapshot10hDone: false, snapshot14h: 6,  snapshot14hDone: false, stockFinal: 0 },
-];
-
 // ── Helper : mappe un DbStockJournalier → StockEntry ──────────
 function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
   return {
@@ -75,6 +63,33 @@ function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
   };
 }
 
+// ── Helper : mappe les produits Supabase → StockEntry vierge ──
+interface ProduitDb {
+  id: string;
+  nom: string;
+  emoji: string;
+  categorie: 'boulangerie' | 'viennoiserie' | 'patisserie';
+  prix_vente: number;
+  cout_production: number;
+}
+
+function produitToStockEntry(p: ProduitDb): StockEntry {
+  return {
+    id:              p.id,
+    name:            p.nom,
+    emoji:           p.emoji ?? '🥖',
+    category:        p.categorie,
+    prixVente:       p.prix_vente,
+    coutProduction:  p.cout_production,
+    production:      0,
+    snapshot10h:     0,
+    snapshot10hDone: false,
+    snapshot14h:     0,
+    snapshot14hDone: false,
+    stockFinal:      0,
+  };
+}
+
 // ── Helper : mappe une DbJournee → HistoryEntry ───────────────
 function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
   return {
@@ -86,43 +101,15 @@ function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
   };
 }
 
-interface BoulangerContextType {
-  session: Session | null;
-  user: User | null;
-  boulangerie: Boulangerie | null;
-  isAuthenticated: boolean;
-  authLoading: boolean;
-  logout: () => Promise<void>;
-  activeView: ViewType;
-  setActiveView: (v: ViewType) => void;
-  syncStatus: SyncStatus;
-  todayStocks: StockEntry[];
-  updateProduction: (id: string, val: number) => void;
-  updateSnapshot: (id: string, val: number, slot: '10h' | '14h') => void;
-  validateSnapshot: (slot: '10h' | '14h') => void;
-  updateStockFinal: (id: string, val: number) => void;
-  commandesOnline: number;
-  setCommandesOnline: (n: number) => void;
-  revenueToday: number;
-  unsoldToday: number;
-  unsoldValueToday: number;
-  unsoldRateToday: number;
-  totalProducedToday: number;
-  history: HistoryEntry[];
-  closeDayAndSave: (commandesOnline: number) => Promise<void>;
-  // Suggestions de production basées sur l'historique réel (remplace +30% hardcodé)
-  productionSuggestions: ProductionSuggestion[];
-}
-
 // ── Type suggestion de production ────────────────────────────
 export interface ProductionSuggestion {
   id:            string;
   name:          string;
   emoji:         string;
-  avgProduction: number;  // moyenne historique pour ce jour de semaine
-  suggestedQty:  number;  // quantité suggérée (arrondie au multiple de 5)
-  dataPoints:    number;  // nombre de jours similaires dans l'historique
-  changePercent: number;  // delta vs production actuelle (%)
+  avgProduction: number;
+  suggestedQty:  number;
+  dataPoints:    number;
+  changePercent: number;
   confidence:    'high' | 'medium' | 'low';
 }
 
@@ -132,9 +119,12 @@ function computeProductionSuggestions(
   todayStocks: StockEntry[],
   targetDayOfWeek: number
 ): ProductionSuggestion[] {
-  if (history.length === 0) return [];
+  if (history.length === 0) return todayStocks.map(s => ({
+    id: s.id, name: s.name, emoji: s.emoji,
+    avgProduction: s.production, suggestedQty: s.production,
+    dataPoints: 0, changePercent: 0, confidence: 'low' as const,
+  }));
 
-  // Filtre les journées du même jour de la semaine
   const sameDayHistory = history.filter(
     d => new Date(d.date + 'T12:00:00').getDay() === targetDayOfWeek
   );
@@ -161,10 +151,7 @@ function computeProductionSuggestions(
     }
 
     const avg = productions.reduce((s, v) => s + v, 0) / productions.length;
-
-    // Arrondir au multiple de 5 le plus proche
     const suggestedQty = Math.max(1, Math.round(avg / 5) * 5);
-
     const changePercent = stock.production > 0
       ? Math.round(((suggestedQty - stock.production) / stock.production) * 100)
       : 0;
@@ -186,6 +173,33 @@ function computeProductionSuggestions(
   });
 }
 
+interface BoulangerContextType {
+  session: Session | null;
+  user: User | null;
+  boulangerie: Boulangerie | null;
+  isAuthenticated: boolean;
+  authLoading: boolean;
+  logout: () => Promise<void>;
+  activeView: ViewType;
+  setActiveView: (v: ViewType) => void;
+  syncStatus: SyncStatus;
+  todayStocks: StockEntry[];
+  updateProduction: (id: string, val: number) => void;
+  updateSnapshot: (id: string, val: number, slot: '10h' | '14h') => void;
+  validateSnapshot: (slot: '10h' | '14h') => void;
+  updateStockFinal: (id: string, val: number) => void;
+  commandesOnline: number;
+  setCommandesOnline: (n: number) => void;
+  revenueToday: number;
+  unsoldToday: number;
+  unsoldValueToday: number;
+  unsoldRateToday: number;
+  totalProducedToday: number;
+  history: HistoryEntry[];
+  closeDayAndSave: (commandesOnline: number) => Promise<void>;
+  productionSuggestions: ProductionSuggestion[];
+}
+
 const BoulangerContext = createContext<BoulangerContextType | null>(null);
 
 export function BoulangerProvider({ children }: { children: ReactNode }) {
@@ -195,7 +209,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView]   = useState<ViewType>('matin');
   const [syncStatus, setSyncStatus]   = useState<SyncStatus>('idle');
-  const [todayStocks, setTodayStocks] = useState<StockEntry[]>(DEFAULT_STOCKS);
+  // todayStocks vide par défaut — chargé depuis Supabase
+  const [todayStocks, setTodayStocks] = useState<StockEntry[]>([]);
   const [commandesOnline, _setCommandesOnline] = useState(0);
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -219,6 +234,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
           loadAll(session.user.id);
         } else {
           setBoulangerie(null);
+          setTodayStocks([]);
+          setHistory([]);
           setAuthLoading(false);
         }
       }
@@ -245,7 +262,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       setBoulangerie(data as Boulangerie);
 
-      await Promise.all([loadTodayData(), loadHistory()]);
+      await Promise.all([loadTodayData(data.id), loadHistory()]);
     } catch (err) {
       console.error('[BoulangerContext]', err);
       setBoulangerie(null);
@@ -254,20 +271,48 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function loadTodayData() {
+  async function loadTodayData(boulangerieId?: string) {
     try {
       const token = await getToken();
       if (!token) return;
+
+      // 1. Tente de charger la journée du jour
       const res = await fetch('/api/boulanger/journee', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Pas de journée → charge les produits depuis le catalogue
+        await loadProduitsAsList(token);
+        return;
+      }
       const { journee } = await res.json() as { journee: DbJournee | null };
-      if (!journee?.stocks_journaliers?.length) return;
-      setTodayStocks(journee.stocks_journaliers.map(mapDbStockToEntry));
-      _setCommandesOnline(journee.commandes_online ?? 0);
+
+      if (journee?.stocks_journaliers?.length) {
+        // Journée existante avec stocks
+        setTodayStocks(journee.stocks_journaliers.map(mapDbStockToEntry));
+        _setCommandesOnline(journee.commandes_online ?? 0);
+      } else {
+        // Journée sans stocks → charge les produits du catalogue
+        await loadProduitsAsList(token);
+      }
     } catch (err) {
       console.warn('[BoulangerContext] loadTodayData:', err);
+    }
+  }
+
+  async function loadProduitsAsList(token: string) {
+    try {
+      const res = await fetch('/api/boulanger/produits', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const { produits } = await res.json() as { produits: ProduitDb[] };
+      if (produits?.length) {
+        setTodayStocks(produits.map(produitToStockEntry));
+      }
+    } catch (err) {
+      console.warn('[BoulangerContext] loadProduitsAsList:', err);
     }
   }
 
@@ -363,17 +408,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getToken();
       if (!token) { setSyncStatus('error'); return; }
+      // Sauvegarde finale
       await fetch('/api/boulanger/journee', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stocks: todayStocks, commandesOnline: online }),
       });
+      // Clôture
       await fetch('/api/boulanger/journee', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
+      // Recharge l'historique pour avoir les nouvelles données
       await loadHistory();
     } catch {
       setSyncStatus('error');
@@ -382,10 +430,11 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
-    setTodayStocks(DEFAULT_STOCKS);
+    setTodayStocks([]);
     setHistory([]);
     _setCommandesOnline(0);
     setActiveView('matin');
+    setBoulangerie(null);
   }, []);
 
   const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0), [todayStocks]);
@@ -394,8 +443,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
   const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);
 
-  // Suggestions de production basées sur l'historique réel
-  // Remplace le +30% week-end / +15% mercredi hardcodé dans vue-matin.tsx
   const productionSuggestions = useMemo(
     () => computeProductionSuggestions(history, todayStocks, new Date().getDay()),
     [history, todayStocks]

@@ -1,24 +1,16 @@
 // lib/rate-limit.ts
 // ─────────────────────────────────────────────────────────────
-// BC3 FIX : Rate limiting cross-instances via Upstash Redis.
-//
-// STRATÉGIE À DEUX NIVEAUX :
+// Rate limiting en deux niveaux :
 //
 //   Niveau 1 (IP) — Upstash Redis en production, Map en mémoire en dev.
-//     Redis permet une fenêtre glissante vraiment persistante entre
-//     les instances serverless Netlify/Vercel.
+//     S'applique UNIQUEMENT aux commandes client (/api/orders),
+//     JAMAIS à l'authentification boulanger.
 //
-//   Niveau 2 (email/Supabase) — Toujours actif, 24h glissantes.
-//     Reste la protection principale contre les abus multi-IP.
+//   Niveau 2 (email/Supabase) — 24h glissantes sur les commandes.
 //
-// INSTALLATION (une seule fois) :
-//   npm install @upstash/ratelimit @upstash/redis
-//
-// VARIABLES D'ENVIRONNEMENT à ajouter dans .env.local ET Netlify :
-//   UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
-//   UPSTASH_REDIS_REST_TOKEN=AXxx...
-//
-// Créer un compte gratuit sur upstash.com (10 000 req/jour gratuits).
+// IMPORTANT : l'auth Supabase (OTP) a son propre rate limiting géré
+// directement par Supabase (configurable dans Dashboard → Auth → Settings).
+// Ne pas ajouter de rate limit applicatif sur les routes d'auth.
 // ─────────────────────────────────────────────────────────────
 
 interface MemoryLimitConfig {
@@ -73,6 +65,7 @@ interface RateLimitEntry {
 
 const ipStore = new Map<string, RateLimitEntry>();
 
+// Nettoyage automatique des entrées expirées
 setInterval(() => {
   const now = Date.now();
   Array.from(ipStore.entries()).forEach(([key, entry]) => {
@@ -95,7 +88,8 @@ function isMemoryRateLimitedSync(key: string, config: MemoryLimitConfig): boolea
 }
 
 // ── Export principal ──────────────────────────────────────────
-// Sélectionne automatiquement la couche selon la config disponible.
+// À utiliser UNIQUEMENT pour les commandes (/api/orders).
+// Ne jamais appeler depuis les routes d'authentification.
 
 export async function isMemoryRateLimited(
   key: string,
@@ -121,6 +115,7 @@ export async function isMemoryRateLimited(
 }
 
 // ── Niveau 2 : Supabase (email, 24h glissantes) ───────────────
+// Pour limiter les commandes par email uniquement.
 
 export async function isSupabaseRateLimited(
   supabase: ReturnType<typeof import('@/lib/supabase').getSupabaseAdmin>,

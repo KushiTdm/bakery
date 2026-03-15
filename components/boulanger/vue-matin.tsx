@@ -1,27 +1,17 @@
 'use client';
 // components/boulanger/vue-matin.tsx
 // Vue du matin — saisie productions avec suggestions ML et CA estimé temps réel.
+// Connectée au BoulangerContext : todayStocks, productionSuggestions, updateProduction.
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Minus, Sparkles, TrendingUp, ChevronRight, Loader2 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
-
-// ─── Types ────────────────────────────────────────────────────
-
-type Confidence = 'high' | 'medium' | 'low';
-
-interface ProduitMatin {
-  id: string;
-  nom: string;
-  emoji: string;
-  prix: number;
-  quantite: number;
-  suggestion?: number;
-  confidence?: Confidence;
-}
+import type { StockEntry, ProductionSuggestion } from '@/context/boulanger-context';
 
 // ─── Couleurs confidence ──────────────────────────────────────
+
+type Confidence = 'high' | 'medium' | 'low';
 
 const CONFIDENCE_COLORS: Record<Confidence, string> = {
   high:   'text-green-400',
@@ -38,15 +28,19 @@ const CONFIDENCE_LABELS: Record<Confidence, string> = {
 // ─── Composant ligne produit ──────────────────────────────────
 
 interface ProduitRowProps {
-  produit: ProduitMatin;
+  stock:      StockEntry;
+  suggestion: ProductionSuggestion | undefined;
   onIncrement: (id: string) => void;
   onDecrement: (id: string) => void;
   onApplySuggestion: (id: string) => void;
   isFirst: boolean;
 }
 
-function ProduitRow({ produit, onIncrement, onDecrement, onApplySuggestion, isFirst }: ProduitRowProps) {
-  const hasSuggestion = produit.suggestion !== undefined && produit.suggestion !== produit.quantite;
+function ProduitRow({ stock, suggestion, onIncrement, onDecrement, onApplySuggestion, isFirst }: ProduitRowProps) {
+  const hasSuggestion =
+    suggestion !== undefined &&
+    suggestion.suggestedQty !== stock.production &&
+    suggestion.dataPoints > 0;
 
   return (
     <motion.div
@@ -54,30 +48,29 @@ function ProduitRow({ produit, onIncrement, onDecrement, onApplySuggestion, isFi
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex items-center gap-3 py-3 border-b border-white/5 last:border-0"
-      // data-tour sur la première ligne uniquement
       {...(isFirst ? { 'data-tour': 'matin-produit-row' } : {})}
     >
       {/* Emoji + nom */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-lg">{produit.emoji}</span>
+          <span className="text-lg">{stock.emoji}</span>
           <div>
-            <p className="text-white text-sm font-medium leading-none">{produit.nom}</p>
-            <p className="text-white/30 text-[10px] mt-0.5">{produit.prix.toFixed(2)} €</p>
+            <p className="text-white text-sm font-medium leading-none">{stock.name}</p>
+            <p className="text-white/30 text-[10px] mt-0.5">{stock.prixVente.toFixed(2)} €</p>
           </div>
         </div>
         {/* Badge suggestion */}
-        {hasSuggestion && produit.confidence && (
+        {hasSuggestion && suggestion && (
           <button
-            onClick={() => onApplySuggestion(produit.id)}
+            onClick={() => onApplySuggestion(stock.id)}
             className="mt-1.5 flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#C19A6B]/10 border border-[#C19A6B]/15 hover:bg-[#C19A6B]/20 transition-all"
           >
             <Sparkles size={10} className="text-[#C19A6B]/70" />
             <span className="text-[10px] text-[#C19A6B]/80">
-              Suggéré : {produit.suggestion}
+              Suggéré : {suggestion.suggestedQty}
             </span>
-            <span className={`text-[9px] ${CONFIDENCE_COLORS[produit.confidence]}`}>
-              · {CONFIDENCE_LABELS[produit.confidence]}
+            <span className={`text-[9px] ${CONFIDENCE_COLORS[suggestion.confidence]}`}>
+              · {CONFIDENCE_LABELS[suggestion.confidence]}
             </span>
           </button>
         )}
@@ -86,22 +79,22 @@ function ProduitRow({ produit, onIncrement, onDecrement, onApplySuggestion, isFi
       {/* Contrôles +/− */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={() => onDecrement(produit.id)}
-          disabled={produit.quantite === 0}
+          onClick={() => onDecrement(stock.id)}
+          disabled={stock.production === 0}
           className="w-8 h-8 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
         >
           <Minus size={13} />
         </button>
         <motion.span
-          key={produit.quantite}
+          key={stock.production}
           initial={{ scale: 1.3 }}
           animate={{ scale: 1 }}
           className="w-8 text-center text-white font-bold text-sm tabular-nums"
         >
-          {produit.quantite}
+          {stock.production}
         </motion.span>
         <button
-          onClick={() => onIncrement(produit.id)}
+          onClick={() => onIncrement(stock.id)}
           className="w-8 h-8 rounded-xl bg-[#C19A6B]/15 border border-[#C19A6B]/20 flex items-center justify-center text-[#C19A6B] hover:bg-[#C19A6B]/25 transition-all"
         >
           <Plus size={13} />
@@ -114,70 +107,63 @@ function ProduitRow({ produit, onIncrement, onDecrement, onApplySuggestion, isFi
 // ─── Vue Matin principale ─────────────────────────────────────
 
 export default function VueMatin() {
-  const { boulangerie, syncStatus } = useBoulanger();
-  const [produits, setProduits] = useState<ProduitMatin[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Initialiser avec données de démo (les vraies données arrivent via l'API journee)
-  useEffect(() => {
-    // TODO: fetch depuis /api/boulanger/journee pour pré-remplir les quantités
-    setProduits([
-      { id: '1', nom: 'Baguette tradition', emoji: '🥖', prix: 1.30, quantite: 0, suggestion: 80, confidence: 'high' },
-      { id: '2', nom: 'Croissant',          emoji: '🥐', prix: 1.20, quantite: 0, suggestion: 40, confidence: 'high' },
-      { id: '3', nom: 'Pain de campagne',   emoji: '🍞', prix: 4.50, quantite: 0, suggestion: 12, confidence: 'medium' },
-      { id: '4', nom: 'Pain au chocolat',   emoji: '🍫', prix: 1.30, quantite: 0, suggestion: 35, confidence: 'high' },
-      { id: '5', nom: 'Ficelle',            emoji: '🫓', prix: 0.90, quantite: 0, suggestion: 20, confidence: 'medium' },
-      { id: '6', nom: 'Chausson pommes',    emoji: '🍏', prix: 1.50, quantite: 0, suggestion: 15, confidence: 'low' },
-    ]);
-    setLoading(false);
-  }, []);
+  const {
+    todayStocks,
+    productionSuggestions,
+    updateProduction,
+    syncStatus,
+    authLoading,
+  } = useBoulanger();
 
   const handleIncrement = (id: string) => {
-    setProduits(prev => prev.map(p =>
-      p.id === id ? { ...p, quantite: p.quantite + 1 } : p
-    ));
-    debouncedSync(id, 1);
+    const stock = todayStocks.find(s => s.id === id);
+    if (stock) updateProduction(id, stock.production + 1);
   };
 
   const handleDecrement = (id: string) => {
-    setProduits(prev => prev.map(p =>
-      p.id === id && p.quantite > 0 ? { ...p, quantite: p.quantite - 1 } : p
-    ));
-    debouncedSync(id, -1);
+    const stock = todayStocks.find(s => s.id === id);
+    if (stock && stock.production > 0) updateProduction(id, stock.production - 1);
   };
 
   const handleApplySuggestion = (id: string) => {
-    setProduits(prev => prev.map(p =>
-      p.id === id && p.suggestion !== undefined
-        ? { ...p, quantite: p.suggestion }
-        : p
-    ));
+    const suggestion = productionSuggestions.find(s => s.id === id);
+    if (suggestion) updateProduction(id, suggestion.suggestedQty);
   };
 
   const handleApplyAll = () => {
-    setProduits(prev => prev.map(p =>
-      p.suggestion !== undefined ? { ...p, quantite: p.suggestion } : p
-    ));
+    productionSuggestions.forEach(s => {
+      if (s.dataPoints > 0) updateProduction(s.id, s.suggestedQty);
+    });
   };
 
-  // Debounce minimal — la sync réelle est gérée par boulanger-context
-  const debouncedSync = (id: string, delta: number) => {
-    // updateProduction est appelé via useEffect sur `produits`
-    // pour regrouper les appels
-  };
+  // CA estimé temps réel
+  const caEstime = todayStocks.reduce((acc, s) => acc + s.production * s.prixVente, 0);
+  const totalPieces = todayStocks.reduce((acc, s) => acc + s.production, 0);
 
-  // CA estimé
-  const caEstime = produits.reduce((acc, p) => acc + p.quantite * p.prix, 0);
-  const hasSuggestions = produits.some(p => p.suggestion !== undefined && p.suggestion !== p.quantite);
-  const totalPieces = produits.reduce((acc, p) => acc + p.quantite, 0);
+  const hasSuggestions = productionSuggestions.some(
+    s => s.dataPoints > 0 && s.suggestedQty !== todayStocks.find(t => t.id === s.id)?.production
+  );
 
   const jourSemaine = new Date().toLocaleDateString('fr-FR', { weekday: 'long' });
   const dateFr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#C19A6B]/50 animate-spin" />
+      </div>
+    );
+  }
+
+  // État vide : aucun stock chargé (pas encore de produits créés)
+  if (todayStocks.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <span className="text-5xl mb-4">🥖</span>
+        <p className="text-white/50 font-medium">Aucun produit configuré</p>
+        <p className="text-white/25 text-sm mt-1">
+          Ajoutez vos produits dans l'onglet <span className="text-[#C19A6B]">Produits</span> pour commencer
+        </p>
       </div>
     );
   }
@@ -218,10 +204,15 @@ export default function VueMatin() {
               <span className="text-[10px] text-white/30">Sync...</span>
             </div>
           )}
+          {syncStatus === 'saved' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10">
+              <span className="text-[10px] text-green-400">Sauvegardé</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Bouton "Tout appliquer" ── */}
+      {/* ── Bouton "Tout appliquer" les suggestions ── */}
       <AnimatePresence>
         {hasSuggestions && (
           <motion.div
@@ -249,6 +240,16 @@ export default function VueMatin() {
         )}
       </AnimatePresence>
 
+      {/* ── Note si pas encore d'historique ── */}
+      {productionSuggestions.length > 0 && productionSuggestions.every(s => s.dataPoints === 0) && (
+        <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3 flex items-start gap-2">
+          <Sparkles size={13} className="text-[#C19A6B]/50 flex-shrink-0 mt-0.5" />
+          <p className="text-white/30 text-xs leading-relaxed">
+            Les suggestions ML apparaîtront après quelques clôtures de journée.
+          </p>
+        </div>
+      )}
+
       {/* ── Liste produits ── */}
       <div
         className="rounded-2xl border overflow-hidden"
@@ -258,16 +259,20 @@ export default function VueMatin() {
         }}
       >
         <div className="px-4">
-          {produits.map((p, index) => (
-            <ProduitRow
-              key={p.id}
-              produit={p}
-              onIncrement={handleIncrement}
-              onDecrement={handleDecrement}
-              onApplySuggestion={handleApplySuggestion}
-              isFirst={index === 0}
-            />
-          ))}
+          {todayStocks.map((stock, index) => {
+            const suggestion = productionSuggestions.find(s => s.id === stock.id);
+            return (
+              <ProduitRow
+                key={stock.id}
+                stock={stock}
+                suggestion={suggestion}
+                onIncrement={handleIncrement}
+                onDecrement={handleDecrement}
+                onApplySuggestion={handleApplySuggestion}
+                isFirst={index === 0}
+              />
+            );
+          })}
         </div>
       </div>
 

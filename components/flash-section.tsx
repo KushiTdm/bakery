@@ -37,10 +37,8 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
         className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
         onClick={onClose}
       >
-        {/* Backdrop */}
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-        {/* Panneau */}
         <motion.div
           initial={{ y: 60, opacity: 0, scale: 0.97 }}
           animate={{ y: 0,  opacity: 1, scale: 1 }}
@@ -148,12 +146,12 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
 }
 
 // ── Hook countdown ────────────────────────────────────────────
+// FIX B5 : utilise heureDebut dynamique (depuis l'API) au lieu de 18h hardcodé
 
-function useCountdown(heureFin: number) {
+function useCountdown(heureDebut: number, heureFin: number) {
   const [timeLeft, setTimeLeft] = useState('');
   const [isLive, setIsLive]     = useState(false);
-
-    const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted]   = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -164,7 +162,8 @@ function useCountdown(heureFin: number) {
     const tick = () => {
       const now  = new Date();
       const hour = now.getHours();
-      setIsLive(hour >= 18 && hour < heureFin);
+      // FIX : utilise heureDebut depuis les props (dynamique depuis l'API)
+      setIsLive(hour >= heureDebut && hour < heureFin);
       const end = new Date();
       end.setHours(heureFin, 0, 0, 0);
       const diff = Math.max(0, end.getTime() - now.getTime());
@@ -176,7 +175,7 @@ function useCountdown(heureFin: number) {
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [heureFin, mounted]);
+  }, [heureDebut, heureFin, mounted]);
 
   return { timeLeft, isLive };
 }
@@ -184,14 +183,14 @@ function useCountdown(heureFin: number) {
 // ── Composant principal ───────────────────────────────────────
 
 export default function FlashSection() {
-  const { data, loading }    = useFlashPaniers();
-  const { addItem, user, setIsAuthOpen } = useCart();
-  const [modaleOuverte, setModaleOuverte] = useState(false);
+  const { data, loading }                   = useFlashPaniers();
+  const { addItem, user, setIsAuthOpen }    = useCart();
+  const [modaleOuverte, setModaleOuverte]   = useState(false);
 
   const { flashActif, heureDebut, heureFin, remise, nbPaniers, invendus } = data;
-  const { timeLeft, isLive } = useCountdown(heureFin);
+  // FIX B5 : passe heureDebut dynamique au hook countdown
+  const { timeLeft, isLive } = useCountdown(heureDebut, heureFin);
 
-  // Ajoute le "panier" comme un produit virtuel dans le cart
   const handleAddToCart = () => {
     if (!user) {
       setIsAuthOpen(true);
@@ -213,7 +212,7 @@ export default function FlashSection() {
     setModaleOuverte(false);
   };
 
-  // ── État chargement ─────────────────────────────────────────
+  // État chargement
   if (loading) {
     return (
       <div className="bg-[#2C1810] rounded-3xl p-8 animate-pulse">
@@ -223,7 +222,7 @@ export default function FlashSection() {
     );
   }
 
-  // ── Flash inactif (hors horaire) ────────────────────────────
+  // Flash inactif (hors horaire)
   if (!isLive) {
     return (
       <div className="bg-[#2C1810] rounded-3xl p-8 text-center">
@@ -245,7 +244,7 @@ export default function FlashSection() {
     );
   }
 
-  // ── Flash actif, aucun invendu ──────────────────────────────
+  // Flash actif, aucun invendu
   if (nbPaniers === 0 || invendus.length === 0) {
     return (
       <div className="bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-8 text-center">
@@ -260,14 +259,13 @@ export default function FlashSection() {
     );
   }
 
-  // ── Flash actif, invendus disponibles ───────────────────────
+  // Flash actif, invendus disponibles
   return (
     <>
       <section
         aria-label="Flash Invendus — paniers anti-gaspi à prix réduit"
         className="relative overflow-hidden bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-6"
       >
-        {/* Shimmer animé */}
         <motion.div
           className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none"
           animate={{ x: ['-100%', '100%'] }}
@@ -276,7 +274,6 @@ export default function FlashSection() {
         />
 
         <div className="relative">
-          {/* En-tête */}
           <div className="flex items-start justify-between mb-5">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -305,7 +302,7 @@ export default function FlashSection() {
             </div>
           </div>
 
-          {/* Grille produits — aperçu (emoji + nom seulement, pas les qtés) */}
+          {/* Aperçu produits */}
           <div className="flex flex-wrap gap-2 mb-5">
             {invendus.map(produit => (
               <div
@@ -319,7 +316,6 @@ export default function FlashSection() {
             ))}
           </div>
 
-          {/* CTA → ouvre la modale */}
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
@@ -333,7 +329,6 @@ export default function FlashSection() {
         </div>
       </section>
 
-      {/* Modale détail */}
       {modaleOuverte && (
         <ModalePanier
           invendus={invendus}

@@ -1,26 +1,19 @@
 'use client';
 // components/boulanger/vue-snapshot.tsx
 // Vue snapshot étagère — saisie ce qui reste en rayon (10h et 14h).
-// Les ventes sont calculées automatiquement par différence.
+// Connectée au BoulangerContext : todayStocks, updateSnapshot, validateSnapshot.
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Camera, AlertTriangle, TrendingDown, Check, Loader2 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
+import type { StockEntry } from '@/context/boulanger-context';
 
 // ─── Types ────────────────────────────────────────────────────
 
 type Slot = '10h' | '14h';
 
-interface ProduitSnapshot {
-  id:            string;
-  nom:           string;
-  emoji:         string;
-  produit:       number;  // ce qui a été produit ce matin
-  reste10h?:     number;  // saisie 10h
-  reste14h?:     number;  // saisie 14h
-  seuilAlerte:   number;  // % restant au-delà duquel on alerte
-}
+const SEUIL_ALERTE_PCT = 30; // % restant au-delà duquel on alerte
 
 // ─── Cellule de saisie ────────────────────────────────────────
 
@@ -28,18 +21,16 @@ function SnapshotCell({
   value,
   max,
   onChange,
-  seuilAlerte,
 }: {
-  value: number | undefined;
-  max: number;
+  value:    number | undefined;
+  max:      number;
   onChange: (v: number) => void;
-  seuilAlerte: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [input, setInput]     = useState(value?.toString() ?? '');
 
-  const pct     = max > 0 && value !== undefined ? (value / max) * 100 : null;
-  const alerte  = pct !== null && pct > seuilAlerte;
+  const pct    = max > 0 && value !== undefined ? (value / max) * 100 : null;
+  const alerte = pct !== null && pct > SEUIL_ALERTE_PCT;
 
   const commit = () => {
     const n = parseInt(input, 10);
@@ -92,51 +83,53 @@ function SnapshotCell({
 // ─── Vue Snapshot principale ──────────────────────────────────
 
 export default function VueSnapshot() {
-  const { } = useBoulanger(); // contexte disponible si besoin futur
-  const [produits, setProduits]   = useState<ProduitSnapshot[]>([]);
+  const {
+    todayStocks,
+    updateSnapshot,
+    validateSnapshot,
+    syncStatus,
+    authLoading,
+  } = useBoulanger();
+
   const [slotActif, setSlotActif] = useState<Slot>('10h');
-  const [loading, setLoading]     = useState(true);
   const [saved, setSaved]         = useState(false);
 
-  useEffect(() => {
-    // TODO: fetch depuis /api/boulanger/journee pour les quantités produites ce matin
-    setProduits([
-      { id: '1', nom: 'Baguette tradition', emoji: '🥖', produit: 80, seuilAlerte: 30 },
-      { id: '2', nom: 'Croissant',          emoji: '🥐', produit: 40, seuilAlerte: 30 },
-      { id: '3', nom: 'Pain de campagne',   emoji: '🍞', produit: 12, seuilAlerte: 30 },
-      { id: '4', nom: 'Pain au chocolat',   emoji: '🍫', produit: 35, seuilAlerte: 30 },
-      { id: '5', nom: 'Ficelle',            emoji: '🫓', produit: 20, seuilAlerte: 30 },
-    ]);
-    setLoading(false);
-  }, []);
-
-  const handleChange = (id: string, slot: Slot, val: number) => {
-    setProduits(prev => prev.map(p => {
-      if (p.id !== id) return p;
-      return slot === '10h' ? { ...p, reste10h: val } : { ...p, reste14h: val };
-    }));
+  const handleChange = (stock: StockEntry, slot: Slot, val: number) => {
+    updateSnapshot(stock.id, val, slot);
   };
 
   const handleSave = () => {
+    validateSnapshot(slotActif);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    // updateSnapshot(produits) — via context
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  // Produits en alerte pour le slot actif
-  const alertes = produits.filter(p => {
-    const reste = slotActif === '10h' ? p.reste10h : p.reste14h;
-    if (reste === undefined || p.produit === 0) return false;
-    return (reste / p.produit) * 100 > p.seuilAlerte;
+  // Stocks avec invendus potentiels pour le slot actif
+  const alertes = todayStocks.filter(s => {
+    const reste = slotActif === '10h' ? s.snapshot10h : s.snapshot14h;
+    if (s.production === 0) return false;
+    return (reste / s.production) * 100 > SEUIL_ALERTE_PCT;
   });
 
   const heure = new Date().getHours();
   const slotSuggere: Slot = heure < 12 ? '10h' : '14h';
 
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={20} className="text-[#C19A6B]/50 animate-spin" />
+      </div>
+    );
+  }
+
+  if (todayStocks.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <span className="text-5xl mb-4">📸</span>
+        <p className="text-white/50 font-medium">Aucune production saisie</p>
+        <p className="text-white/25 text-sm mt-1">
+          Saisissez d'abord votre production dans l'onglet <span className="text-[#C19A6B]">Matin</span>
+        </p>
       </div>
     );
   }
@@ -169,22 +162,27 @@ export default function VueSnapshot() {
 
       {/* ── Sélecteur de slot ── */}
       <div className="flex gap-2">
-        {(['10h', '14h'] as Slot[]).map(slot => (
-          <button
-            key={slot}
-            onClick={() => setSlotActif(slot)}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
-              slotActif === slot
-                ? 'bg-[#C19A6B]/15 border-[#C19A6B]/25 text-[#C19A6B]'
-                : 'bg-white/3 border-white/8 text-white/40 hover:text-white/60'
-            }`}
-          >
-            📸 {slot}
-            {slot === slotSuggere && (
-              <span className="ml-1.5 text-[9px] text-[#C19A6B]/60">maintenant</span>
-            )}
-          </button>
-        ))}
+        {(['10h', '14h'] as Slot[]).map(slot => {
+          const isDone = slot === '10h'
+            ? todayStocks.some(s => s.snapshot10hDone)
+            : todayStocks.some(s => s.snapshot14hDone);
+          return (
+            <button
+              key={slot}
+              onClick={() => setSlotActif(slot)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                slotActif === slot
+                  ? 'bg-[#C19A6B]/15 border-[#C19A6B]/25 text-[#C19A6B]'
+                  : 'bg-white/3 border-white/8 text-white/40 hover:text-white/60'
+              }`}
+            >
+              {isDone ? '✅' : '📸'} {slot}
+              {slot === slotSuggere && !isDone && (
+                <span className="ml-1.5 text-[9px] text-[#C19A6B]/60">maintenant</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Alerte invendus ── */}
@@ -203,7 +201,7 @@ export default function VueSnapshot() {
               {alertes.length} produit{alertes.length > 1 ? 's' : ''} à risque d'invendu
             </p>
             <p className="text-amber-400/60 text-[11px] mt-0.5">
-              {alertes.map(a => a.nom).join(', ')}
+              {alertes.map(a => a.name).join(', ')}
             </p>
           </div>
         </div>
@@ -221,43 +219,51 @@ export default function VueSnapshot() {
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5">
           <p className="flex-1 text-white/30 text-[10px] uppercase tracking-widest">Produit</p>
           <p className="w-14 text-center text-white/30 text-[10px]">Produit</p>
-          <p className="w-14 text-center text-[#C19A6B]/60 text-[10px] font-semibold">Reste {slotActif}</p>
+          <p className="w-14 text-center text-[#C19A6B]/60 text-[10px] font-semibold">
+            Reste {slotActif}
+          </p>
           <p className="w-14 text-center text-white/30 text-[10px]">Vendus</p>
         </div>
 
         {/* Lignes */}
-        {produits.map(p => {
-          const reste = slotActif === '10h' ? p.reste10h : p.reste14h;
-          const vendus = reste !== undefined ? Math.max(0, p.produit - reste) : undefined;
+        {todayStocks.map(stock => {
+          const isDone   = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
+          const reste    = slotActif === '10h' ? stock.snapshot10h     : stock.snapshot14h;
+          const base     = slotActif === '10h' ? stock.production       : stock.snapshot10h;
+          const vendus   = base - reste;
 
           return (
-            <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-white/4 last:border-0">
+            <div
+              key={stock.id}
+              className={`flex items-center gap-3 px-4 py-2.5 border-b border-white/4 last:border-0 ${isDone ? 'opacity-50' : ''}`}
+            >
               <div className="flex-1 flex items-center gap-2 min-w-0">
-                <span className="text-base">{p.emoji}</span>
-                <span className="text-white text-sm truncate">{p.nom}</span>
+                <span className="text-base">{stock.emoji}</span>
+                <span className="text-white text-sm truncate">{stock.name}</span>
               </div>
-              {/* Produit (readonly) */}
+              {/* Base (readonly) */}
               <div className="w-14 text-center text-white/40 text-sm font-mono tabular-nums">
-                {p.produit}
+                {slotActif === '10h' ? stock.production : stock.snapshot10h}
               </div>
               {/* Saisie reste */}
               <div className="w-14 flex justify-center">
-                <SnapshotCell
-                  value={reste}
-                  max={p.produit}
-                  onChange={val => handleChange(p.id, slotActif, val)}
-                  seuilAlerte={p.seuilAlerte}
-                />
+                {isDone ? (
+                  <div className="w-14 h-9 rounded-xl bg-white/3 border border-white/5 flex items-center justify-center">
+                    <span className="text-white/40 text-sm font-mono">{reste}</span>
+                  </div>
+                ) : (
+                  <SnapshotCell
+                    value={reste}
+                    max={base}
+                    onChange={val => handleChange(stock, slotActif, val)}
+                  />
+                )}
               </div>
               {/* Vendus calculés */}
               <div className="w-14 text-center">
-                {vendus !== undefined ? (
-                  <span className="text-green-400/70 text-sm font-mono tabular-nums">
-                    {vendus}
-                  </span>
-                ) : (
-                  <span className="text-white/15 text-sm">—</span>
-                )}
+                <span className="text-green-400/70 text-sm font-mono tabular-nums">
+                  {vendus > 0 ? vendus : '—'}
+                </span>
               </div>
             </div>
           );
@@ -267,7 +273,8 @@ export default function VueSnapshot() {
       {/* ── Bouton sauvegarder ── */}
       <button
         onClick={handleSave}
-        className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all font-semibold text-sm"
+        disabled={syncStatus === 'saving'}
+        className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all font-semibold text-sm disabled:opacity-50"
         style={{
           background: saved
             ? 'rgba(74,222,128,0.15)'
@@ -276,10 +283,12 @@ export default function VueSnapshot() {
           color: saved ? 'rgb(74,222,128)' : '#C19A6B',
         }}
       >
-        {saved ? (
-          <><Check size={15} /> Snapshot enregistré</>
+        {syncStatus === 'saving' ? (
+          <><Loader2 size={15} className="animate-spin" /> Synchronisation...</>
+        ) : saved ? (
+          <><Check size={15} /> Snapshot {slotActif} enregistré</>
         ) : (
-          <><Camera size={15} /> Enregistrer le snapshot {slotActif}</>
+          <><Camera size={15} /> Valider le snapshot {slotActif}</>
         )}
       </button>
 
@@ -287,7 +296,7 @@ export default function VueSnapshot() {
       <div className="flex items-center gap-2 justify-center">
         <TrendingDown size={11} className="text-amber-400/50" />
         <p className="text-white/20 text-[10px]">
-          Fond orange = risque d'invendu (reste &gt; {produits[0]?.seuilAlerte ?? 30}% du produit)
+          Fond orange = risque d'invendu (reste &gt; {SEUIL_ALERTE_PCT}% du produit)
         </p>
       </div>
     </div>

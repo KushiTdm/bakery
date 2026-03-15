@@ -1,401 +1,204 @@
 # Roadmap BakeryOS 🥖
-*Mis à jour après audit complet du code — 14 mars 2026*
+*Mis à jour — 14 mars 2026*
 
 ---
 
-## RAPPORT D'AUDIT — Notes actuelles
+## ANALYSE DE RÉUSSITE À 12 MOIS — Score objectif
 
-| Critère | Note | Δ session | Justification |
-|---|---|---|---|
-| Présentation | 76/100 | = | Landing premium, dark theme soigné, animations Framer Motion. Manque : micro-interactions compteurs, onboarding guidé. |
-| Service / Produit | 76/100 | +8 | Catalogue natif Supabase livré. Flash anti-gaspi end-to-end fonctionnel. Airtable devient optionnel. |
-| Fonctionnalités | 78/100 | +12 | Paniers anti-gaspi avec modale détail. FlashBanner lue depuis Supabase (vrais invendus). Page commandes avec section flash. Multi-tenant sous-domaines. |
-| SEO | 74/100 | = | sitemap, robots, JSON-LD, H1/H2 sémantiques, Open Graph complet. Manque : Search Console soumission. |
-| Sécurité | 88/100 | +14 | RLS hermétique sur stocks_journaliers. Fonctions SQL SECURITY DEFINER. Route /api/products remplacée. Slug resolver multi-tenant. |
-| Qualité code | 72/100 | -4 | resolve-slug.ts centralisé. useSlug hook propre. **MAIS : déconnexion data flow vues/context, données hardcodées, TODO non résolus.** |
-| Attractivité investisseur | 64/100 | +4 | Architecture multi-tenant documentée. Sécurité niveau production. Manque traction prouvée. |
+### Méthodologie
+7 dimensions évaluées indépendamment, pondérées selon leur impact sur la survie à 12 mois.
 
-**Moyenne : 75/100** *(−1 vs session précédente 76/100 après audit approfondi)*
+| Dimension | Score | Poids | Contribution | Commentaire |
+|---|---|---|---|---|
+| **Développement** | 68/100 | 20% | 13.6 | Stack solide, bugs critiques corrigés, mais flux de données encore fragile |
+| **Fonctionnel** | 72/100 | 20% | 14.4 | Core loop complet, flash anti-gaspi end-to-end, mais catalogue/vues encore partiels |
+| **Marché** | 55/100 | 15% | 8.25 | Marché réel mais fragmenté, adoption tech lente dans la boulangerie artisanale |
+| **Use case** | 78/100 | 15% | 11.7 | Problème réel (gaspillage = perte sèche), solution claire, ROI démontrable |
+| **Offre & Demande** | 60/100 | 15% | 9.0 | Demande latente forte, mais l'offre doit être prouvée avant de scaler |
+| **Économique** | 45/100 | 10% | 4.5 | MRR cible atteignable mais sous-estimé en effort d'acquisition |
+| **Concurrence** | 62/100 | 5% | 3.1 | Peu de concurrents directs sur le segment artisanal FR, mais inertie forte |
+| **TOTAL** | | 100% | **64.5 / 100** | |
 
----
+### 🎯 Score de réussite estimé à 12 mois : **64 %**
 
-## 🚨 NOUVEAUX BUGS IDENTIFIÉS — Audit 14/03/2026
+> "Réussite" définie comme : atteindre 50+ boulangers payants, MRR > 2 500€, produit stable en production.
 
-### B1 — Déconnexion data flow vues boulanger/context 🔴 CRITIQUE
-**Fichiers concernés :** `components/boulanger/vue-matin.tsx`, `vue-soir.tsx`, `vue-snapshot.tsx`
+### Explication par dimension
 
-**Problème :** Les 3 vues boulanger utilisent des états locaux avec données hardcodées au lieu d'utiliser le `BoulangerContext`.
+**Développement (68/100)**
+Le projet a une architecture réelle et propre (Next.js 13, Supabase, multi-tenant, RLS hermétique). Les bugs critiques B1/B2/B3 ont été corrigés — le data flow vues/context est maintenant connecté aux vraies données. L'auth est passée en email+password pour éviter les limites Supabase Free. Ce qui reste à faire : drag & drop catalogue, quelques routes API encore avec données hardcodées dans les vues, TypeScript strict à finir. Pas insurmontable pour un dev solo en 2-3 semaines.
 
-```typescript
-// vue-matin.tsx — lignes 63-70
-useEffect(() => {
-  // TODO: fetch depuis /api/boulanger/journee pour pré-remplir les quantités
-  setProduits([
-    { id: '1', nom: 'Baguette tradition', ... },  // ❌ Hardcodé
-  ]);
-}, []);
+**Fonctionnel (72/100)**
+Le core loop boulanger (Matin → Snapshot → Soir → Clôture) est connecté aux données réelles Supabase. Le flash anti-gaspi fonctionne end-to-end avec la vraie fenêtre horaire dynamique. Le click & collect avec OTP client est opérationnel. Ce qui manque : l'onboarding wizard complet, la configuration flash depuis l'interface (heures et remise editables), les créneaux de retrait configurables.
 
-// Pourtant le context fournit :
-const { todayStocks, productionSuggestions, updateProduction } = useBoulanger();
-```
+**Marché (55/100)**
+La France compte ~35 000 boulangeries artisanales. Seulement ~20% sont digitalisées. La cible réelle (boulangeries artisanales indépendantes, CA 150-500k€/an, patron tech-friendly) représente environ 5 000-8 000 établissements. C'est un marché de niche narrow — suffisant pour un SaaS rentable, insuffisant pour une licorne. Le frein majeur : la boulangerie artisanale est un milieu conservateur où l'adoption tech est lente et souvent portée par la seconde génération.
 
-**Conséquence :**
-- `productionSuggestions` du context n'est jamais utilisé
-- Les modifications dans vue-matin ne sync pas avec `todayStocks`
-- Double source de vérité → incohérences
+**Use case (78/100)**
+C'est le point fort. Le taux d'invendu moyen en boulangerie artisanale est de 8-15% du chiffre d'affaires. Sur 300k€ de CA, ça représente 24-45k€ de pertes annuelles. BakeryOS propose un ROI démontrable en moins de 30 jours, ce qui est rare dans le SaaS B2B artisanal. Le flash anti-gaspi est une différenciation forte (réduction déchets + revenus supplémentaires). Le click & collect réduit les pertes de ventes. Le dashboard ML réduit la surproduction.
 
-**Correction :** Utiliser `todayStocks` et `productionSuggestions` du context.
+**Offre & Demande (60/100)**
+La demande est latente : les boulangers savent qu'ils gaspillent, mais peu ont formalisé le problème en coût. BakeryOS doit créer la demande autant que la satisfaire. Le ticket mensuel (19-49€) est psychologiquement acceptable — moins d'une heure de travail — mais l'argument ROI doit être montré concrètement, pas promis. Le mode freemium ou essai gratuit 30 jours est indispensable.
 
----
+**Économique (45/100)**
+Le modèle est viable à partir de ~180 clients (seuil rentabilité estimé). Le CAC en milieu artisanal est élevé (salon professionnel, démarchage direct, partenariat meunier) et le cycle de vente est long (2-4 mois). Le MRR à 12 mois sera probablement 1 500-4 000€ pour un fondateur seul sans budget marketing, pas les 8 000€+ du scénario optimiste. Ce n'est pas une raison d'abandonner — c'est une raison de ne pas lever trop tôt.
 
-### B2 — vue-soir.tsx : context non utilisé 🔴 CRITIQUE
-**Fichier :** `components/boulanger/vue-soir.tsx`
-
-```typescript
-// Ligne 82
-const { } = useBoulanger(); // contexte disponible si besoin futur
-```
-
-**Problème :** Le context est importé mais déstructuré vide. La vue utilise son propre état local `produits` hardcodé au lieu de `todayStocks`.
-
-**Conséquence :**
-- Paniers flash calculés sur des données fictives
-- Clôture de journée non connectée à `closeDayAndSave`
+**Concurrence (62/100)**
+Pas de concurrent direct fort sur le segment artisanal français. Melba (gestion boulangerie) existe mais est positionné sur la comptabilité/caisse, pas sur l'anti-gaspillage ni le click & collect. Yokitup, Dishop sont sur la restauration. Too Good To Go est complémentaire (pas concurrent — pas de gestion de production). Le risque vient des grandes caisses (Lightspeed, Zelty) qui pourraient ajouter des modules similaires, mais leur cycle produit est lent et leur prix est 10x plus élevé.
 
 ---
 
-### B3 — vue-snapshot.tsx : même problème 🔴 CRITIQUE
-**Fichier :** `components/boulanger/vue-snapshot.tsx`
+## ÉTAT ACTUEL DU PROJET — Mars 2026
 
-```typescript
-// Ligne 75
-const { } = useBoulanger(); // contexte disponible si besoin futur
-```
+### Architecture
 
-**Problème :** Identique à vue-soir. Le snapshot utilise des données locales au lieu de `todayStocks`.
-
-**Conséquence :**
-- Snapshots non persistés via le context
-- `updateSnapshot` et `validateSnapshot` du context non appelés
-
----
-
-### B4 — debouncedSync vide dans vue-matin.tsx 🟡 MOYEN
-**Fichier :** `components/boulanger/vue-matin.tsx`
-
-```typescript
-// Lignes 95-98
-const debouncedSync = (id: string, delta: number) => {
-  // updateProduction est appelé via useEffect sur `produits`
-  // pour regrouper les appels
-};
-```
-
-**Problème :** Fonction vide avec commentaire indiquant que la sync devrait se faire... mais il n'y a pas de useEffect qui appelle `updateProduction`.
-
----
-
-### B5 — flash-section.tsx : heure de début hardcodée 🟡 MOYEN
-**Fichier :** `components/flash-section.tsx`
-
-```typescript
-// Ligne 180 dans useCountdown
-setIsLive(hour >= 18 && hour < heureFin);  // ❌ 18h hardcodé
-```
-
-**Problème :** L'heure de début du flash est hardcodée à 18h au lieu d'utiliser `heureDebut` de l'API.
-
-**Correction :**
-```typescript
-setIsLive(hour >= heureDebut && hour < heureFin);
-```
-
----
-
-### B6 — catalogue.tsx : drag & drop non fonctionnel 🟡 MOYEN
-**Fichier :** `components/boulanger/catalogue.tsx`
-
-```typescript
-// Ligne 122
-<ProduitCard
-  isDragging={false}           // ❌ Toujours false
-  dragHandleProps={{}}         // ❌ Objet vide
-/>
-```
-
-**Problème :** Les props de drag & drop sont passés vides. Le drag n'est pas réellement implémenté malgré la présence de `reordonner` dans le hook.
-
-**Conséquence :** La fonction `reordonner` existe mais n'est jamais appelée.
-
----
-
-### B7 — migration-7 : jointure fragile par nom 🟡 MOYEN
-**Fichier :** `migrations/migration-7-produits-complet.sql`
-
-```sql
--- Ligne 229
-LEFT JOIN produits p ON p.boulangerie_id = v_boulangerie_id
-                     AND p.nom = sj.produit_nom -- join approximatif par nom
-```
-
-**Problème :** Jointure par nom de produit au lieu de `produit_id`. Si deux produits ont le même nom ou si un produit est renommé, la jointure échoue.
-
-**Correction :** Utiliser `produit_id` stocké dans `stocks_journaliers`.
-
----
-
-### B8 — migration-7 : heures flash hardcodées 🟡 MOYEN
-**Fichier :** `migrations/migration-7-produits-complet.sql`
-
-```sql
--- Lignes 195-197
-v_heure_debut    INT  := 18;
-v_heure_fin      INT  := 20;
-v_remise         INT  := 40;
-```
-
-**Problème :** Les heures et la remise flash sont hardcodées dans la fonction SQL au lieu d'être lues depuis la table `boulangeries`.
-
----
-
-### B9 — api/products/route.ts : typo potentiel 🟢 MINEUR
-**Fichier :** `app/api/products/route.ts`
-
-```typescript
-// Ligne 91
-estInvendu:   record.fields?.est_invende ?? false,  // ⚠️ "est_invende" au lieu de "est_invendu" ?
-```
-
-**Problème :** Possible typo dans le nom du champ Airtable. À vérifier selon le schéma Airtable.
-
----
-
-### B10 — DEFAULT_STOCKS duplique la table produits 🟡 MOYEN
-**Fichier :** `context/boulanger-context.tsx`
-
-```typescript
-// Lignes 38-48
-const DEFAULT_STOCKS: StockEntry[] = [
-  { id: 'b1', name: 'Baguette Tradition', ... },
-  // ... 9 produits hardcodés
-];
-```
-
-**Problème :** Double source de vérité :
-1. `DEFAULT_STOCKS` dans le context (hardcodé)
-2. Table `produits` dans Supabase
-
-**Conséquence :** Les produits créés via le catalogue ne sont pas synchronisés avec `DEFAULT_STOCKS`.
-
-**Correction :** Charger les produits depuis l'API au lieu d'avoir des données par défaut.
-
----
-
-### B11 — any dans api/products/route.ts 🔴 OUVERT
-**Fichier :** `app/api/products/route.ts`
-
-```typescript
-// Lignes 76-77, 85
-function getAirtableImageUrl(record: any): string { ... }
-function parseProduct(record: any): AirtableProduct { ... }
-```
-
-**Problème :** Utilisation de `any` au lieu de types Airtable explicites.
-
----
-
-## BUGS DÉJÀ DOCUMENTÉS (confirmés)
-
-| ID | Description | Statut | Fichier |
-|---|---|---|---|
-| I2 | Adresse hardcodée `42 Rue de la Boulangerie, Paris` | 🔴 OUVERT | `cart-sidebar.tsx` |
-| I3 | Heure de retrait fixe `08:00` | 🔴 OUVERT | `cart-sidebar.tsx` |
-| I5 | Email expéditeur multi-tenant sans fallback | 🟡 PARTIEL | - |
-| I6 | `/api/products` toujours accessible | 🔴 OUVERT | `app/api/products/route.ts` |
-
----
-
-## INCOHÉRENCES ARCHITECTURALES
-
-### IA1 — Flux de données non connecté
-```
-┌─────────────────┐     ┌──────────────────┐
-│ BoulangerContext│     │ VueMatin/VueSoir │
-│ ─────────────── │     │ ──────────────── │
-│ todayStocks     │ ❌  │ produits (local) │
-│ productionSugg. │ ❌  │ suggestions (loc)│
-│ updateProduction│ ❌  │ setProduits      │
-└─────────────────┘     └──────────────────┘
-```
-
-**Solution :** Les vues doivent consommer et modifier l'état du context, pas gérer leur propre état local.
-
-### IA2 — Double source produits
-```
-DEFAULT_STOCKS (context) ←→ Table produits (Supabase)
-        ↑                          ↑
-   Non synchronisés         Catalogue CRUD
-```
-
----
-
-## QUALITÉ CODE — Checklist mise à jour
-
-| Point | Statut |
+| Composant | Statut |
 |---|---|
-| any dans boulanger-context.tsx | ✅ CORRIGÉ |
-| any dans commandes/page.tsx | ✅ CORRIGÉ |
-| Rate limit async (Upstash) | ✅ CORRIGÉ |
-| DbCommande.statut type | ✅ CORRIGÉ |
-| Suggestions ML hardcodées | 🔴 PARTIEL (context OK, vue-matin non connecté) |
-| Realtime commandes (setInterval) | ✅ CORRIGÉ |
-| FlashBanner dynamique (Supabase) | ✅ CORRIGÉ |
-| Slug boulangerie multi-tenant | ✅ CORRIGÉ |
-| TypeScript null safety use-flash-paniers | ✅ CORRIGÉ |
-| resolve-slug centralisé | ✅ OK |
-| useSlug hook propre | ✅ OK |
-| any dans api/products/route.ts | 🔴 OUVERT |
-| **Data flow vues/context** | 🔴 **NOUVEAU** |
-| **Données hardcodées vues** | 🔴 **NOUVEAU** |
-| **Drag & drop catalogue** | 🔴 **NOUVEAU** |
+| Stack Next.js 13 / Supabase / Netlify | ✅ Opérationnel |
+| Auth boulanger (email + password) | ✅ Migré depuis OTP |
+| Auth client (OTP Magic Link) | ✅ Inchangé — correct |
+| Multi-tenant sous-domaines | ✅ `resolve-slug.ts` centralisé |
+| RLS Supabase hermétique | ✅ `stocks_journaliers` jamais exposé |
+| Fonctions SQL SECURITY DEFINER | ✅ `get_catalogue_public`, `get_paniers_flash` |
+| Rate limiting commandes (Upstash) | ✅ Séparé de l'auth |
+| Migration DB consolidée (v1.0) | ✅ Idempotente, triggers DROP IF EXISTS |
+| SMTP custom (prod) | ⚠️ À configurer avec Resend dans Supabase |
 
----
+### Fonctionnalités boulanger
 
-## VARIABLES D'ENVIRONNEMENT — État complet
-
-### Requises (bloquantes en prod)
-```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
-
-# Multi-tenant
-NEXT_PUBLIC_ROOT_DOMAIN=bakeryos.fr
-# NEXT_PUBLIC_BAKERY_SLUG=artisan-dore  # optionnel, override du sous-domaine
-
-# Sécurité
-INTERNAL_API_SECRET=<openssl rand -hex 32>
-AIRTABLE_ENCRYPTION_KEY=<openssl rand -hex 32>
-AIRTABLE_ENCRYPTION_SECRET=<même valeur>
-```
-
-### Optionnelles (fonctionnalités additionnelles)
-```env
-# Email
-RESEND_API_KEY=re_xxx
-RESEND_FROM_EMAIL=commandes@votredomaine.fr
-
-# Push notifications
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_CONTACT_EMAIL=mailto:contact@bakeryos.fr
-
-# Rate limiting (recommandé en prod)
-UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
-UPSTASH_REDIS_REST_TOKEN=AXxx...
-```
-
----
-
-## SÉCURITÉ — État actuel
-
-| Problème | Statut |
+| Fonctionnalité | Statut |
 |---|---|
-| S1. Variables Supabase null as any | ✅ CORRIGÉ |
-| S2. Clés VAPID manquantes | ⚠️ À CONFIGURER |
-| S3. INTERNAL_API_SECRET optionnel prod | ✅ CORRIGÉ |
-| S4. Clés Airtable chiffrées pgcrypto | ✅ OK |
-| S5. Rate limiting IP cross-instances | ✅ CORRIGÉ |
-| S6. RLS Supabase de base | ✅ OK |
-| S7. RLS stocks_journaliers hermétique | ✅ CORRIGÉ |
-| S8. Route /api/products publique | ⚠️ TOUJOURS ACCESSIBLE |
-| S9. Données flash depuis Airtable | ✅ CORRIGÉ |
-| S10. Résolution slug non validée | ✅ CORRIGÉ |
+| Vue Matin — connectée au context réel | ✅ Corrigé (B1) |
+| Vue Snapshot — connectée au context réel | ✅ Corrigé (B3) |
+| Vue Soir — connectée au context réel | ✅ Corrigé (B2) |
+| Suggestions ML production | ✅ Context OK, vue connectée |
+| Clôture journée → historique | ✅ `closeDayAndSave` |
+| Dashboard stats (données réelles) | ✅ Depuis historique clôturé |
+| Catalogue CRUD produits | ✅ API complète |
+| Drag & drop réordonnancement | 🔴 Code mort, non fonctionnel |
+| Upload photos produits (Storage) | ✅ Route `/api/boulanger/produits/upload` |
+| Notifications push commandes | ⚠️ Clés VAPID à configurer |
+| Page commandes Realtime | ✅ Supabase Realtime |
+| Configuration flash (heures/remise) | 🔴 Hardcodé dans l'UI — à exposer dans /parametres |
+| Créneaux de retrait configurables | 🔴 Hardcodé à 08:00 dans cart-sidebar |
+| Tour guidé onboarding | ✅ TourWizard complet |
+
+### Fonctionnalités client
+
+| Fonctionnalité | Statut |
+|---|---|
+| Landing SEO + JSON-LD | ✅ |
+| Click & Collect catalogue Supabase | ✅ |
+| Auth OTP Magic Link | ✅ (limite 2/h en dev — OK en prod avec SMTP custom) |
+| Flash invendus temps réel | ✅ Heures dynamiques depuis DB |
+| FlashBanner countdown | ✅ |
+| Panier + checkout | ✅ |
+| Email confirmation commande (Resend) | ✅ |
+| PWA installable | ✅ |
+
+### Base de données
+
+| Élément | Statut |
+|---|---|
+| Migration v1.0 consolidée | ✅ Remplace migrations 1-9 |
+| Triggers idempotents (DROP IF EXISTS) | ✅ Corrigé |
+| Colonnes ADD COLUMN IF NOT EXISTS | ✅ Corrigé |
+| Contraintes EXCEPTION WHEN duplicate | ✅ Corrigé |
+| Statut `retiree` → `recuperee` | ✅ Corrigé (B-migration-5) |
+| Jointure `get_paniers_flash` par produit_id | ✅ Corrigé (B7) |
+| Heures flash depuis `boulangeries` table | ✅ Corrigé (B8) |
+| Seed séparé | ✅ `seed.sql` indépendant |
+| Script set-boulanger-password.sql | ✅ Pour comptes OTP existants |
 
 ---
 
-## COURT TERME — Actions prioritaires
+## BUGS CORRIGÉS (session actuelle)
 
-### 🔴 BLOQUANT — Corriger le data flow (2-3j)
-- [ ] **B1** : Connecter vue-matin.tsx à `todayStocks` et `productionSuggestions` du context
-- [ ] **B2** : Connecter vue-soir.tsx à `todayStocks` et `closeDayAndSave` du context
-- [ ] **B3** : Connecter vue-snapshot.tsx à `todayStocks` et `updateSnapshot` du context
-- [ ] **B10** : Remplacer DEFAULT_STOCKS par un chargement depuis l'API
+| ID | Sévérité | Description | Fichier | Statut |
+|---|---|---|---|---|
+| B1 | 🔴 | Déconnexion data flow vue-matin/context | `vue-matin.tsx` | ✅ CORRIGÉ |
+| B2 | 🔴 | Context non utilisé dans vue-soir | `vue-soir.tsx` | ✅ CORRIGÉ |
+| B3 | 🔴 | Context non utilisé dans vue-snapshot | `vue-snapshot.tsx` | ✅ CORRIGÉ |
+| B4 | 🟡 | debouncedSync vide | `vue-matin.tsx` | ✅ CORRIGÉ (supprimé) |
+| B5 | 🟡 | Heure début flash hardcodée 18h | `flash-section.tsx` | ✅ CORRIGÉ |
+| B7 | 🟡 | Jointure fragile par nom SQL | `migration` | ✅ CORRIGÉ |
+| B8 | 🟡 | Heures flash hardcodées SQL | `migration` | ✅ CORRIGÉ |
+| B10 | 🟡 | DEFAULT_STOCKS duplique produits | `boulanger-context.tsx` | ✅ CORRIGÉ |
+| AUTH | 🔴 | Rate limit OTP bloquant (2 emails/h Supabase Free) | `login-form.tsx` | ✅ CORRIGÉ → email+password |
 
-### 🟡 IMPORTANT — Qualité (1-2j)
-- [ ] **B5** : Utiliser `heureDebut` au lieu de 18h hardcodé dans flash-section
-- [ ] **B6** : Implémenter le drag & drop dans catalogue.tsx ou supprimer le code mort
-- [ ] **B7** : Corriger la jointure par nom dans get_paniers_flash()
-- [ ] **B4** : Implémenter ou supprimer `debouncedSync` vide
+## BUGS OUVERTS
 
-### Priorité 1 — Actions immédiates (< 1h chacune)
-- [ ] Exécuter `migration-6-produits-securite.sql` et `migration-7-produits-complet.sql`
-- [ ] Décommenter et adapter le bloc seed avec votre slug
-- [ ] Ajouter `NEXT_PUBLIC_ROOT_DOMAIN=bakeryos.fr` dans Netlify
-- [ ] `npx web-push generate-vapid-keys` → ajouter VAPID keys
-- [ ] Soumettre sitemap.xml dans Google Search Console
+| ID | Sévérité | Description | Fichier |
+|---|---|---|---|
+| B6 | 🟡 | Drag & drop catalogue non fonctionnel | `catalogue.tsx` |
+| B9 | 🟢 | Typo potentiel `est_invende` | `api/products/route.ts` |
+| I2 | 🔴 | Adresse hardcodée dans cart-sidebar | `cart-sidebar.tsx` |
+| I3 | 🔴 | Heure retrait fixe `08:00` | `cart-sidebar.tsx` |
+| I6 | 🟡 | `/api/products` (Airtable legacy) toujours accessible | `app/api/products/route.ts` |
+| CFG1 | 🟡 | Heures/remise flash non configurables depuis l'UI | `parametres.tsx` |
+| CFG2 | 🟡 | SMTP custom Resend non branché dans Supabase | Dashboard config |
+| CFG3 | 🟢 | Clés VAPID push notifications à configurer | `.env.local` |
 
-### Priorité 2 — Bugs client
-- [ ] **I2** : Adresse dynamique depuis `boulangerie.adresse` dans cart-sidebar
-- [ ] **I3** : Créneaux de retrait configurables dans /boulanger/parametres
-- [ ] **I6** : Déprécier `/api/products` → rediriger vers `/api/catalogue/:slug`
+---
+
+## COURT TERME — Priorités immédiates (< 2 semaines)
+
+### 🔴 Bloquant production
+- [ ] **I2/I3** : Adresse et créneaux de retrait dynamiques depuis `boulangeries`
+- [ ] **CFG2** : Brancher Resend comme SMTP custom dans Supabase Dashboard (Auth → SMTP Settings) — débloque l'OTP client sans limite
+- [ ] Tester le flux complet sur une vraie journée : Matin → Snapshot → Soir → Clôture → Stats
+
+### 🟡 Qualité
+- [ ] **CFG1** : Ajouter champs `flash_heure_debut`, `flash_heure_fin`, `flash_remise_pct` dans `/boulanger/parametres`
+- [ ] **B6** : Implémenter drag & drop réel ou supprimer le `GripVertical` trompeur
+- [ ] **I6** : Supprimer ou rediriger `/api/products` vers `/api/catalogue/:slug`
 
 ---
 
 ## MOYEN TERME — 30 à 90 jours
 
-### Catalogue natif (priorité commerciale n°1)
-La `migration-6` et `migration-7` créent la table `produits` complète. Interface CRUD à finaliser :
-- ✅ Page `/boulanger/catalogue` : liste, ajout, modification, suppression
-- ⚠️ Upload photo (Storage) — code présent mais à tester
-- 🔴 Drag & drop réordonnancement — non fonctionnel
-- Limites par plan (20 produits Starter / illimité Pro+)
+### Produit
+- Configuration flash dynamique depuis l'interface (heures, remise, jours actifs)
+- Créneaux de retrait configurables (ex: 7h-13h par tranche de 30min)
+- Onboarding wizard amélioré avec CatalogueStarter (déjà codé, à brancher)
+- Export PDF rapport hebdomadaire (@react-pdf/renderer)
+- Rapport CO₂ mensuel (invendus évités × 0.6 kg/kg)
 
-### Configuration flash dynamique
-Actuellement hardcodé à 18h–20h / −40%. Rendre configurable :
-- Champs `flash_heure_debut`, `flash_heure_fin`, `flash_remise` dans `boulangeries`
-- Interface dans `/boulanger/parametres`
-- Mettre à jour `get_paniers_flash()` pour lire ces valeurs
+### Acquisition
+- Landing page dédiée BakeryOS.fr (séparée de la vitrine démo)
+- Témoignages vidéo boulangers beta
+- Programme referral : 2 mois offerts par boulangerie parrainée
+- Contacter Confédération Nationale de la Boulangerie
 
-### Multi-utilisateurs par boulangerie
-- Table `boulangerie_membres(boulangerie_id, user_id, role)`
-- Rôles : owner, manager, vendeuse
-- RLS ajustée pour permettre l'accès en lecture aux membres
-
-### Améliorations ML production
-- Pondération exponentielle (jours récents > jours anciens)
-- Prise en compte météo OpenMeteo (pluie → moins de fréquentation)
-- Prise en compte des événements (jours fériés, vacances scolaires)
+### Technique
+- Passer sur Supabase Pro ($25/mois) dès 20+ boulangers : rate limits disparaissent, backups quotidiens, custom domain
+- Ajouter monitoring Sentry (erreurs front + API)
+- Tests E2E Playwright sur le flux de commande
 
 ---
 
 ## LONG TERME — 90+ jours
 
-- Export PDF rapport hebdomadaire (@react-pdf/renderer)
-- QR code retrait (npm qrcode) — scanné en boutique
-- Rapport CO₂ mensuel — invendus évités × 0.6 kg CO₂/kg + certificat PDF
+- Multi-utilisateurs par boulangerie (owner, manager, vendeuse)
 - Intégration caisse Lightspeed/Zelty (webhook → supprime saisie manuelle)
-- Mode fermeture exceptionnelle (toggle dans /parametres)
-- Messagerie push clients ("Croissant sorti du four")
-- Export FEC comptable
 - API publique + webhooks (plan Multi)
 - Dashboard multi-sites consolidé (plan Multi)
+- Mode fermeture exceptionnelle
+- QR code retrait scanné en boutique
+- Application mobile native (React Native) pour le boulanger
 
 ---
 
-## TARIFICATION — Stratégie et justification
-
-### Packs
+## TARIFICATION
 
 | Fonctionnalité | Starter 19€/mois | Pro 49€/mois | Multi 99€/mois |
 |---|---|---|---|
-| Gestion journée + Dashboard | ✓ | ✓ | ✓ |
+| Core loop Matin/Snapshot/Soir | ✓ | ✓ | ✓ |
 | Flash invendus automatique | ✓ | ✓ | ✓ |
 | Suggestions ML production | ✓ | ✓ | ✓ |
 | Notifications push commandes | ✓ | ✓ | ✓ |
 | Click & Collect | 50 cmd/mois | Illimité | Illimité |
-| Catalogue produits natifs | 20 produits | Illimité | Illimité |
+| Catalogue produits | 20 produits | Illimité | Illimité |
 | Utilisateurs | 1 | 3 | Illimité |
 | Email confirmation Resend | ✓ | ✓ | ✓ |
 | Rapport PDF hebdomadaire | — | ✓ | ✓ |
@@ -407,78 +210,40 @@ Actuellement hardcodé à 18h–20h / −40%. Rendre configurable :
 
 ---
 
-## PROJECTION MRR À 12 MOIS
+## PROJECTION MRR RÉALISTE À 12 MOIS
 
-| Pack | Clients conserv. | MRR | Clients optim. | MRR |
-|---|---|---|---|---|
-| Starter | 200 | 3 800€ | 400 | 7 600€ |
-| Pro | 60 | 2 940€ | 120 | 5 880€ |
-| Multi | 15 | 1 485€ | 30 | 2 970€ |
-| **Total** | **275** | **8 225€/mois** | **550** | **16 450€/mois** |
-
-ARR conservateur : ~99 000€ · Seuil de rentabilité : ~180 clients
-
----
-
-## GTM
-
-**M1–M3 : Beta fermée (0 → 10 boulangers)**
-Recrutement Instagram #boulangerie. Beta gratuite 3 mois contre feedback + témoignage. Objectif : valider le catalogue natif et les suggestions ML avec de vraies données.
-
-**M3–M6 : Croissance organique (10 → 50)**
-Confédération Nationale Boulangerie. SEO longue traîne. Programme referral 2 mois offerts.
-
-**M6–M12 : Accélération (50 → 275)**
-Europain/SIRHA. Partenariat meuniers (Viron, Épi de France). Webinaires "Réduire ses invendus de 30% en 30 jours".
-
----
-
-## ÉTAT DES FONCTIONNALITÉS
-
-| Fonctionnalité | Statut |
-|---|---|
-| Auth boulanger OTP | ✅ OK |
-| Gestion journée Matin/Snapshot/Soir | ⚠️ **Data flow cassé** |
-| Suggestions production ML | ⚠️ **Context OK, vues non connectées** |
-| Dashboard statistiques | ✅ OK |
-| Click & Collect + checkout | ✅ OK |
-| Gestion commandes Realtime | ✅ OK |
-| Email confirmation Resend | ✅ OK |
-| Rate limiting Upstash Redis | ✅ OK (à configurer) |
-| Landing SEO complète | ✅ OK |
-| Structured data JSON-LD | ✅ OK |
-| Flash invendus depuis Supabase | ✅ OK |
-| Paniers anti-gaspi avec modale | ✅ OK |
-| RLS hermétique stocks | ✅ OK |
-| Fonctions SQL SECURITY DEFINER | ✅ OK |
-| Multi-tenant sous-domaines | ✅ OK |
-| Table produits native | ✅ OK (migration à exécuter) |
-| Notifications push | ⚠️ Partiel — clés VAPID à configurer |
-| PWA installable | ✅ OK |
-| Page /boulanger/catalogue CRUD | ⚠️ **Drag & drop HS** |
-| Onboarding wizard | 🔴 Non |
-| Export PDF | 🔴 Non |
-| Rapport CO₂ | 🔴 Non |
-
----
-
-## RÉSUMÉ DES NOUVEAUX BUGS
-
-| ID | Sévérité | Description | Fichier |
+| Scénario | Clients | MRR | Probabilité |
 |---|---|---|---|
-| B1 | 🔴 CRITIQUE | Déconnexion data flow vue-matin/context | `vue-matin.tsx` |
-| B2 | 🔴 CRITIQUE | Context non utilisé dans vue-soir | `vue-soir.tsx` |
-| B3 | 🔴 CRITIQUE | Context non utilisé dans vue-snapshot | `vue-snapshot.tsx` |
-| B4 | 🟡 MOYEN | debouncedSync vide | `vue-matin.tsx` |
-| B5 | 🟡 MOYEN | Heure début flash hardcodée 18h | `flash-section.tsx` |
-| B6 | 🟡 MOYEN | Drag & drop catalogue non fonctionnel | `catalogue.tsx` |
-| B7 | 🟡 MOYEN | Jointure fragile par nom | `migration-7` |
-| B8 | 🟡 MOYEN | Heures flash hardcodées SQL | `migration-7` |
-| B9 | 🟢 MINEUR | Typo potentiel est_invende | `api/products/route.ts` |
-| B10 | 🟡 MOYEN | DEFAULT_STOCKS duplique produits | `boulanger-context.tsx` |
-| B11 | 🔴 OUVERT | any dans parseProduct | `api/products/route.ts` |
+| Pessimiste (fondateur seul, 0 budget) | 15-30 | 400-800€ | 25% |
+| **Réaliste (referral + 1 salon)** | **40-80** | **1 000-2 500€** | **50%** |
+| Optimiste (partenariat meunier ou distributeur) | 150-250 | 4 000-8 000€ | 25% |
+
+Seuil de rentabilité (infra + Supabase Pro + domaines) : ~15 clients Starter ou ~6 clients Pro.
+Seuil d'intérêt investisseur seed : ~100 clients, MRR > 3 000€, churn < 5%/mois.
 
 ---
 
-*Mis à jour le 14/03/2026 — Audit complet du code*
-*Prochain audit recommandé : après correction des bugs critiques B1, B2, B3*
+## NOTES TECHNIQUES IMPORTANTES
+
+### Auth strategy
+- **Boulangers** → email + password (`signInWithPassword`). Pas de quota email consommé à la connexion. Reset password uniquement sur demande (1 email).
+- **Clients** → OTP Magic Link (`signInWithOtp`). Quota 2/h en dev (Supabase Free). En prod : brancher SMTP custom Resend dans Supabase Dashboard pour lever la limite.
+- **Comptes OTP existants** → exécuter `set-boulanger-password.sql` pour leur définir un mot de passe.
+
+### Migration DB
+- Un seul fichier : `migration-complete-v1.sql` — remplace toutes les migrations 1-9
+- Idempotent : `DROP TRIGGER IF EXISTS`, `ADD COLUMN IF NOT EXISTS`, `EXCEPTION WHEN duplicate_object`
+- Seed séparé : `seed.sql` — adapter le slug avant d'exécuter
+
+### Limites Supabase Free à anticiper
+| Limite | Impact | Solution |
+|---|---|---|
+| 2 emails/h | Auth client bloquée en dev | SMTP Resend en prod |
+| 500 MB DB | ~50 000 commandes | Passer Pro dès 20 boulangers |
+| 5 GB bandwidth | ~200 boulangers actifs | Pro à partir de 50 |
+| 50 000 MAU auth | Pas de problème avant 2 ans | — |
+
+---
+
+*Mis à jour le 14/03/2026 — Score objectif 12 mois : 64%*
+*Prochaine révision recommandée : après premier boulanger en production réelle*
