@@ -1,20 +1,19 @@
 'use client';
 // components/boulanger/catalogue.tsx
-// Liste des produits avec toggles actif/flash, drag & drop,
-// et accès au formulaire de création/édition.
+// Drag & drop via HTML5 DragEvent natif sur <div> (pas motion.div)
+// pour éviter le conflit de types Framer Motion sur dataTransfer.
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, Search, Filter, GripVertical,
+  Plus, Search, GripVertical,
   Eye, EyeOff, Zap, ZapOff, Pencil, Trash2,
-  AlertTriangle, ChevronDown, Package
+  AlertTriangle, ChevronDown, Package,
 } from 'lucide-react';
 import {
   useProduitsBoulanger,
   type Produit,
   CATEGORIE_LABELS,
-  ALLERGENES_LABELS,
 } from '@/hooks/use-produits-boulanger';
 import ProduitFormModal from './produit-form-modal';
 
@@ -22,38 +21,57 @@ import ProduitFormModal from './produit-form-modal';
 
 function ProduitCard({
   produit,
+  index,
   onEdit,
   onDelete,
   onToggle,
-  isDragging,
-  dragHandleProps,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
+  isDraggingOver,
 }: {
-  produit:         Produit;
-  onEdit:          () => void;
-  onDelete:        () => void;
-  onToggle:        (champ: 'actif_catalogue' | 'actif_flash') => void;
-  isDragging:      boolean;
-  dragHandleProps: React.HTMLAttributes<HTMLDivElement>;
+  produit:        Produit;
+  index:          number;
+  onEdit:         () => void;
+  onDelete:       () => void;
+  onToggle:       (champ: 'actif_catalogue' | 'actif_flash') => void;
+  onDragStart:    (index: number) => void;
+  onDragEnter:    (index: number) => void;
+  onDragEnd:      () => void;
+  isDraggingOver: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dragging, setDragging]           = useState(false);
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: isDragging ? 0.5 : 1, y: 0 }}
-      exit={{ opacity: 0, height: 0 }}
-      className={`bg-white/5 border rounded-2xl overflow-hidden transition-colors ${
-        isDragging ? 'border-[#C19A6B]/50 shadow-lg shadow-[#C19A6B]/10' : 'border-white/8'
-      } ${!produit.actif_catalogue ? 'opacity-50' : ''}`}
+    // div natif (pas motion.div) → React.DragEvent<HTMLDivElement> typé correctement
+    <div
+      draggable
+      onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
+        setDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart(index);
+      }}
+      onDragEnter={(e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        onDragEnter(index);
+      }}
+      onDragEnd={() => {
+        setDragging(false);
+        onDragEnd();
+      }}
+      onDragOver={(e: React.DragEvent<HTMLDivElement>) => e.preventDefault()}
+      className={[
+        'border rounded-2xl overflow-hidden transition-all select-none',
+        dragging        ? 'opacity-40 scale-[0.98]' : '',
+        isDraggingOver  ? 'border-[#C19A6B]/60 bg-[#C19A6B]/5' : 'bg-white/5 border-white/8',
+        !produit.actif_catalogue ? 'opacity-50' : '',
+      ].join(' ')}
     >
       <div className="flex items-center gap-3 p-3">
 
         {/* Drag handle */}
-        <div
-          {...dragHandleProps}
-          className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-1"
-        >
+        <div className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-1 touch-none">
           <GripVertical size={16} />
         </div>
 
@@ -64,6 +82,7 @@ function ProduitCard({
               src={produit.image_public_url}
               alt={produit.nom}
               className="w-full h-full object-cover"
+              draggable={false}
             />
           ) : (
             <span className="text-2xl">{produit.emoji}</span>
@@ -99,7 +118,6 @@ function ProduitCard({
 
         {/* Toggles + actions */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Toggle catalogue */}
           <button
             onClick={() => onToggle('actif_catalogue')}
             title={produit.actif_catalogue ? 'Masquer du catalogue' : 'Afficher dans le catalogue'}
@@ -112,7 +130,6 @@ function ProduitCard({
             {produit.actif_catalogue ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
 
-          {/* Toggle flash */}
           <button
             onClick={() => onToggle('actif_flash')}
             title={produit.actif_flash ? 'Exclure du flash' : 'Inclure dans le flash'}
@@ -125,7 +142,6 @@ function ProduitCard({
             {produit.actif_flash ? <Zap size={14} /> : <ZapOff size={14} />}
           </button>
 
-          {/* Éditer */}
           <button
             onClick={onEdit}
             className="w-8 h-8 rounded-lg bg-white/5 text-white/40 hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] flex items-center justify-center transition-all"
@@ -133,7 +149,6 @@ function ProduitCard({
             <Pencil size={14} />
           </button>
 
-          {/* Supprimer */}
           {confirmDelete ? (
             <div className="flex items-center gap-1">
               <button
@@ -159,27 +174,59 @@ function ProduitCard({
           )}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
+}
+
+// ── Hook drag & drop ──────────────────────────────────────────
+
+function useDragDrop(
+  items: Produit[],
+  onReorder: (ids: string[]) => Promise<void>
+) {
+  const dragIndex = useRef<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = (index: number) => { dragIndex.current = index; };
+
+  const handleDragEnter = (index: number) => {
+    if (dragIndex.current === null || dragIndex.current === index) return;
+    setOverIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIndex.current !== null && overIndex !== null && dragIndex.current !== overIndex) {
+      const reordered = [...items];
+      const [moved]   = reordered.splice(dragIndex.current, 1);
+      reordered.splice(overIndex, 0, moved);
+      onReorder(reordered.map(p => p.id));
+    }
+    dragIndex.current = null;
+    setOverIndex(null);
+  };
+
+  return { overIndex, handleDragStart, handleDragEnter, handleDragEnd };
 }
 
 // ── Groupe par catégorie ──────────────────────────────────────
 
 function CategorieSection({
-  categorie,
-  produits,
-  onEdit,
-  onDelete,
-  onToggle,
+  categorie, produits, globalOffset, overIndex,
+  onEdit, onDelete, onToggle, onDragStart, onDragEnter, onDragEnd,
 }: {
-  categorie: Produit['categorie'];
-  produits:  Produit[];
-  onEdit:    (p: Produit) => void;
-  onDelete:  (id: string) => void;
-  onToggle:  (id: string, champ: 'actif_catalogue' | 'actif_flash') => void;
+  categorie:    Produit['categorie'];
+  produits:     Produit[];
+  globalOffset: number;
+  overIndex:    number | null;
+  onEdit:       (p: Produit) => void;
+  onDelete:     (id: string) => void;
+  onToggle:     (id: string, champ: 'actif_catalogue' | 'actif_flash') => void;
+  onDragStart:  (index: number) => void;
+  onDragEnter:  (index: number) => void;
+  onDragEnd:    () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const actifs  = produits.filter(p => p.actif_catalogue).length;
+  const actifs = produits.filter(p => p.actif_catalogue).length;
   const flashs  = produits.filter(p => p.actif_flash).length;
 
   return (
@@ -191,7 +238,9 @@ function CategorieSection({
         <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">
           {CATEGORIE_LABELS[categorie]}
         </p>
-        <span className="text-white/20 text-xs">{produits.length} produit{produits.length > 1 ? 's' : ''}</span>
+        <span className="text-white/20 text-xs">
+          {produits.length} produit{produits.length > 1 ? 's' : ''}
+        </span>
         <div className="flex gap-1 ml-auto">
           <span className="bg-green-500/15 text-green-400 text-[10px] px-1.5 py-0.5 rounded-full">
             {actifs} actif{actifs > 1 ? 's' : ''}
@@ -214,17 +263,23 @@ function CategorieSection({
             exit={{ height: 0, opacity: 0 }}
             className="space-y-2 overflow-hidden"
           >
-            {produits.map(p => (
-              <ProduitCard
-                key={p.id}
-                produit={p}
-                onEdit={() => onEdit(p)}
-                onDelete={() => onDelete(p.id)}
-                onToggle={champ => onToggle(p.id, champ)}
-                isDragging={false}
-                dragHandleProps={{}}
-              />
-            ))}
+            {produits.map((p, localIdx) => {
+              const globalIdx = globalOffset + localIdx;
+              return (
+                <ProduitCard
+                  key={p.id}
+                  produit={p}
+                  index={globalIdx}
+                  onEdit={() => onEdit(p)}
+                  onDelete={() => onDelete(p.id)}
+                  onToggle={champ => onToggle(p.id, champ)}
+                  onDragStart={onDragStart}
+                  onDragEnter={onDragEnter}
+                  onDragEnd={onDragEnd}
+                  isDraggingOver={overIndex === globalIdx}
+                />
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>
@@ -236,17 +291,16 @@ function CategorieSection({
 
 export default function Catalogue() {
   const {
-    produits, loading, error, saving,
-    creer, modifier, supprimer, toggleActif, uploaderPhoto,
+    produits, loading, error,
+    creer, modifier, supprimer, toggleActif, uploaderPhoto, reordonner,
   } = useProduitsBoulanger();
 
-  const [search, setSearch]         = useState('');
+  const [search, setSearch]           = useState('');
   const [filterActif, setFilterActif] = useState<'all' | 'actif' | 'inactif'>('all');
   const [filterFlash, setFilterFlash] = useState(false);
-  const [modalOpen, setModalOpen]   = useState(false);
+  const [modalOpen, setModalOpen]     = useState(false);
   const [editingProduit, setEditingProduit] = useState<Produit | null>(null);
 
-  // Filtre + recherche
   const filtered = produits.filter(p => {
     if (search && !p.nom.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterActif === 'actif'   && !p.actif_catalogue) return false;
@@ -255,35 +309,32 @@ export default function Catalogue() {
     return true;
   });
 
-  // Groupement par catégorie
+  const categories = ['boulangerie', 'viennoiserie', 'patisserie'] as const;
   const grouped = {
     boulangerie:  filtered.filter(p => p.categorie === 'boulangerie'),
     viennoiserie: filtered.filter(p => p.categorie === 'viennoiserie'),
     patisserie:   filtered.filter(p => p.categorie === 'patisserie'),
   };
 
-  const handleEdit = (p: Produit) => { setEditingProduit(p); setModalOpen(true); };
-  const handleNew  = () => { setEditingProduit(null); setModalOpen(true); };
-  const handleCloseModal = () => { setModalOpen(false); setEditingProduit(null); };
+  const { overIndex, handleDragStart, handleDragEnter, handleDragEnd } =
+    useDragDrop(filtered, reordonner);
+
+  const offsets = {
+    boulangerie:  0,
+    viennoiserie: grouped.boulangerie.length,
+    patisserie:   grouped.boulangerie.length + grouped.viennoiserie.length,
+  };
+
+  const handleEdit  = (p: Produit) => { setEditingProduit(p); setModalOpen(true); };
+  const handleNew   = ()           => { setEditingProduit(null); setModalOpen(true); };
+  const handleClose = ()           => { setModalOpen(false); setEditingProduit(null); };
 
   const handleSave = async (draft: Parameters<typeof creer>[0]) => {
-    if (editingProduit) {
-      await modifier(editingProduit.id, draft);
-    } else {
-      await creer(draft);
-    }
-    handleCloseModal();
+    if (editingProduit) await modifier(editingProduit.id, draft);
+    else                await creer(draft);
+    handleClose();
   };
 
-  const handleDelete = async (id: string) => {
-    await supprimer(id);
-  };
-
-  const handleToggle = async (id: string, champ: 'actif_catalogue' | 'actif_flash') => {
-    await toggleActif(id, champ);
-  };
-
-  // Stats rapides
   const nbTotal  = produits.length;
   const nbActifs = produits.filter(p => p.actif_catalogue).length;
   const nbFlash  = produits.filter(p => p.actif_flash).length;
@@ -292,9 +343,7 @@ export default function Catalogue() {
     <div className="pb-24">
       {/* Header */}
       <div className="mb-6" data-tour="catalogue-header">
-        <p className="text-[#C19A6B] text-xs font-medium tracking-widest uppercase mb-1">
-          Catalogue
-        </p>
+        <p className="text-[#C19A6B] text-xs font-medium tracking-widest uppercase mb-1">Catalogue</p>
         <div className="flex items-end justify-between">
           <h2 className="text-white text-2xl font-bold" style={{ fontFamily: 'Playfair Display, serif' }}>
             Mes produits
@@ -313,11 +362,11 @@ export default function Catalogue() {
 
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-3 mb-5">
-        {[
-          { label: 'Total',   value: nbTotal,  color: 'text-white' },
-          { label: 'Actifs',  value: nbActifs, color: 'text-green-400', icon: <Eye size={12} /> },
-          { label: 'Flash',   value: nbFlash,  color: 'text-yellow-400', icon: <Zap size={12} /> },
-        ].map(kpi => (
+        {([
+          { label: 'Total',  value: nbTotal,  color: 'text-white',      icon: null },
+          { label: 'Actifs', value: nbActifs, color: 'text-green-400',  icon: <Eye size={12} /> },
+          { label: 'Flash',  value: nbFlash,  color: 'text-yellow-400', icon: <Zap size={12} /> },
+        ] as const).map(kpi => (
           <div key={kpi.label} className="bg-white/5 border border-white/8 rounded-xl p-3 text-center">
             <div className={`flex items-center justify-center gap-1 ${kpi.color}`}>
               {kpi.icon}
@@ -328,8 +377,8 @@ export default function Catalogue() {
         ))}
       </div>
 
-      {/* Barre de recherche + filtres */}
-      <div className="flex gap-2 mb-5">
+      {/* Recherche + filtres */}
+      <div className="flex gap-2 mb-4">
         <div className="relative flex-1">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
           <input
@@ -340,7 +389,6 @@ export default function Catalogue() {
             className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/40 transition-colors"
           />
         </div>
-
         <button
           onClick={() => setFilterFlash(v => !v)}
           className={`px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 ${
@@ -349,10 +397,8 @@ export default function Catalogue() {
               : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'
           }`}
         >
-          <Zap size={12} />
-          Flash
+          <Zap size={12} /> Flash
         </button>
-
         <select
           value={filterActif}
           onChange={e => setFilterActif(e.target.value as typeof filterActif)}
@@ -363,6 +409,14 @@ export default function Catalogue() {
           <option value="inactif">Inactifs</option>
         </select>
       </div>
+
+      {/* Hint drag & drop */}
+      {!loading && produits.length > 1 && (
+        <div className="flex items-center gap-2 mb-4 px-1">
+          <GripVertical size={12} className="text-white/20" />
+          <p className="text-white/25 text-xs">Glissez les lignes pour réordonner</p>
+        </div>
+      )}
 
       {/* Erreur */}
       {error && (
@@ -381,7 +435,7 @@ export default function Catalogue() {
         </div>
       )}
 
-      {/* État vide */}
+      {/* Vide */}
       {!loading && produits.length === 0 && (
         <div className="text-center py-16">
           <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -391,10 +445,7 @@ export default function Catalogue() {
           <p className="text-white/25 text-sm mb-6">
             Ajoutez vos premiers produits pour les proposer en click & collect
           </p>
-          <button
-            onClick={handleNew}
-            className="bg-[#C19A6B] text-[#1A0F0A] px-5 py-2.5 rounded-xl font-bold text-sm"
-          >
+          <button onClick={handleNew} className="bg-[#C19A6B] text-[#1A0F0A] px-5 py-2.5 rounded-xl font-bold text-sm">
             Ajouter mon premier produit
           </button>
         </div>
@@ -403,19 +454,23 @@ export default function Catalogue() {
       {/* Liste groupée */}
       {!loading && (
         <>
-          {(['boulangerie', 'viennoiserie', 'patisserie'] as const).map(cat => (
-            grouped[cat].length > 0 && (
+          {categories.map(cat =>
+            grouped[cat].length > 0 ? (
               <CategorieSection
                 key={cat}
                 categorie={cat}
                 produits={grouped[cat]}
+                globalOffset={offsets[cat]}
+                overIndex={overIndex}
                 onEdit={handleEdit}
-                onDelete={handleDelete}
-                onToggle={handleToggle}
+                onDelete={id => supprimer(id)}
+                onToggle={(id, champ) => toggleActif(id, champ)}
+                onDragStart={handleDragStart}
+                onDragEnter={handleDragEnter}
+                onDragEnd={handleDragEnd}
               />
-            )
-          ))}
-
+            ) : null
+          )}
           {filtered.length === 0 && produits.length > 0 && (
             <p className="text-white/30 text-sm text-center py-8">
               Aucun produit ne correspond à votre recherche
@@ -426,36 +481,24 @@ export default function Catalogue() {
 
       {/* Légende */}
       {!loading && produits.length > 0 && (
-        <div className="mt-6 bg-white/3 border border-white/6 rounded-xl p-4 space-y-2">
+        <div className="mt-6 bg-white/3 border border-white/6 rounded-xl p-4">
           <p className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">Légende</p>
           <div className="grid grid-cols-2 gap-2 text-xs text-white/40">
-            <div className="flex items-center gap-2">
-              <Eye size={12} className="text-green-400" />
-              Visible dans le catalogue
-            </div>
-            <div className="flex items-center gap-2">
-              <EyeOff size={12} className="text-white/25" />
-              Masqué du catalogue
-            </div>
-            <div className="flex items-center gap-2">
-              <Zap size={12} className="text-yellow-400" />
-              Inclus dans le flash soir
-            </div>
-            <div className="flex items-center gap-2">
-              <ZapOff size={12} className="text-white/25" />
-              Exclu du flash soir
-            </div>
+            <div className="flex items-center gap-2"><Eye size={12} className="text-green-400" /> Visible catalogue</div>
+            <div className="flex items-center gap-2"><EyeOff size={12} className="text-white/25" /> Masqué catalogue</div>
+            <div className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" /> Inclus flash soir</div>
+            <div className="flex items-center gap-2"><ZapOff size={12} className="text-white/25" /> Exclu flash soir</div>
           </div>
         </div>
       )}
 
-      {/* Modal formulaire */}
+      {/* Modal */}
       <AnimatePresence>
         {modalOpen && (
           <ProduitFormModal
             produit={editingProduit}
             onSave={handleSave}
-            onClose={handleCloseModal}
+            onClose={handleClose}
             onUploadPhoto={uploaderPhoto}
           />
         )}
