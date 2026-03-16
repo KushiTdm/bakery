@@ -9,12 +9,13 @@ import { FaqJsonLd }        from '@/components/seo/json-ld';
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://artisandore.fr';
 
-// Charge les infos publiques de la boulangerie (SSR)
+// Charge les infos publiques de la boulangerie (SSR, sans cache)
+// no-store : on veut toujours les données fraîches (adresse, téléphone, flash…)
 async function getBoulangerieInfo(slug: string) {
   try {
     const res = await fetch(
       `${BASE_URL}/api/boulangerie/${slug}`,
-      { next: { revalidate: 300 } } // cache 5 min
+      { cache: 'no-store' }
     );
     if (!res.ok) return null;
     return res.json();
@@ -38,7 +39,6 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  // Slug par défaut ou depuis env
   const slug = process.env.NEXT_PUBLIC_BAKERY_SLUG ?? 'artisan-dore';
   const boulangerieInfo = await getBoulangerieInfo(slug).catch(() => null);
 

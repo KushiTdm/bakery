@@ -1,21 +1,11 @@
 // app/api/paniers/[slug]/route.ts
-// ─────────────────────────────────────────────────────────────
-// GET /api/paniers/:slug
-//
-// Retourne les paniers anti-gaspi du soir pour une boulangerie.
-// Appelle get_paniers_flash() — fonction SQL SECURITY DEFINER.
-//
-// SÉCURITÉ :
-//   - Anon key uniquement — la fonction SQL contrôle l'accès
-//   - Ne retourne jamais stock_final ni données de production
-//   - Retourne uniquement : nb paniers + prix + liste produits (sans qtés)
-//   - Si flash inactif (hors horaire) : retourne flashActif=false, liste vide
-// ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
 export interface PanierFlashResponse {
   flashActif:  boolean;
@@ -32,10 +22,27 @@ export interface PanierFlashResponse {
   }[];
 }
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control':             'no-store, no-cache, must-revalidate',
+  'Pragma':                    'no-cache',
+  'Netlify-CDN-Cache-Control': 'no-store',
+};
+
+const FALLBACK: PanierFlashResponse = {
+  flashActif: false,
+  heureDebut: 18,
+  heureFin:   20,
+  remise:     40,
+  nbPaniers:  0,
+  invendus:   [],
+};
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { slug: string } }
 ) {
+  noStore();
+
   const slug = params.slug?.trim().toLowerCase();
 
   if (!slug || slug.length > 60) {
@@ -51,43 +58,22 @@ export async function GET(
 
   const supabase = createClient(supabaseUrl, supabaseAnon, {
     auth: { persistSession: false },
+    global: {
+      fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }),
+    },
   });
 
   try {
-    const { data, error } = await supabase.rpc('get_paniers_flash', {
-      p_slug: slug,
-    });
+    const { data, error } = await supabase.rpc('get_paniers_flash', { p_slug: slug });
 
     if (error) {
       console.error('[GET /api/paniers/[slug]]', error);
-      // Fail gracefully — la banner reste en mode teaser
-      return NextResponse.json({
-        flashActif: false,
-        heureDebut: 18,
-        heureFin:   20,
-        remise:     40,
-        nbPaniers:  0,
-        invendus:   [],
-      } satisfies PanierFlashResponse);
+      return NextResponse.json(FALLBACK, { headers: NO_CACHE_HEADERS });
     }
 
-    const result = data as PanierFlashResponse;
-
-    return NextResponse.json(result, {
-      headers: {
-        // Pas de cache sur les paniers — données en temps réel
-        'Cache-Control': 'no-store',
-      },
-    });
+    return NextResponse.json(data as PanierFlashResponse, { headers: NO_CACHE_HEADERS });
   } catch (err) {
     console.error('[GET /api/paniers/[slug]] unexpected:', err);
-    return NextResponse.json({
-      flashActif: false,
-      heureDebut: 18,
-      heureFin:   20,
-      remise:     40,
-      nbPaniers:  0,
-      invendus:   [],
-    } satisfies PanierFlashResponse);
+    return NextResponse.json(FALLBACK, { headers: NO_CACHE_HEADERS });
   }
 }

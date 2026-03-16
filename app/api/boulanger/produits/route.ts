@@ -1,6 +1,7 @@
 // app/api/boulanger/produits/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { z } from 'zod';
 import {
@@ -9,7 +10,6 @@ import {
   sanitizeProductName,
   sanitizeDescription,
   sanitizeEmoji,
-  sanitizePositiveNumber,
   sanitizeStringArray,
   sanitizeUrl,
   sanitizeDate,
@@ -49,7 +49,7 @@ const ALLERGENES_VALIDES = [
 
 const CATEGORIES_VALIDES = ['boulangerie', 'viennoiserie', 'patisserie'] as const;
 
-// ── Schémas Zod (validation de structure) ────────────────────
+// ── Schémas Zod ────────────────────────────────────────────────
 
 const ProduitSchema = z.object({
   nom:                  z.string().min(1).max(100),
@@ -75,10 +75,6 @@ const ProduitUpdateSchema = ProduitSchema.partial().extend({
   id: z.string().uuid(),
 });
 
-/**
- * Applique la sanitization métier sur les données validées par Zod.
- * Zod valide la structure, sanitize nettoie le contenu.
- */
 function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
   return {
     ...data,
@@ -98,7 +94,9 @@ function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
   };
 }
 
-// ── GET — Liste tous les produits ─────────────────────────────
+// ── GET ───────────────────────────────────────────────────────
+// Passe actif=false pour récupérer TOUS les produits (actifs + inactifs)
+// depuis l'espace boulanger.
 
 export async function GET(req: NextRequest) {
   try {
@@ -108,12 +106,11 @@ export async function GET(req: NextRequest) {
     const { boulangerieId, admin } = auth;
     const { searchParams }         = new URL(req.url);
 
-    // Sanitise les query params (utilisés uniquement dans des .eq() paramétrés)
-    const categorie  = searchParams.get('categorie');
-    const actifOnly  = searchParams.get('actif') !== 'false';
-    const flashOnly  = searchParams.get('flash') === 'true';
+    const categorie = searchParams.get('categorie');
+    // actif=false signifie "ne pas filtrer" → on retourne tous les produits
+    const actifOnly = searchParams.get('actif') !== 'false';
+    const flashOnly = searchParams.get('flash') === 'true';
 
-    // Validation catégorie si fournie
     if (categorie && !CATEGORIES_VALIDES.includes(categorie as typeof CATEGORIES_VALIDES[number])) {
       return NextResponse.json({ error: 'Catégorie invalide' }, { status: 400 });
     }
@@ -121,14 +118,14 @@ export async function GET(req: NextRequest) {
     let query = admin
       .from('produits')
       .select('*')
-      .eq('boulangerie_id', boulangerieId) // UUID paramétré — pas d'injection possible
+      .eq('boulangerie_id', boulangerieId)
       .order('categorie')
       .order('ordre')
       .order('nom');
 
     if (actifOnly) query = query.eq('actif_catalogue', true);
-    if (flashOnly) query = query.eq('actif_flash', true);
-    if (categorie) query = query.eq('categorie', categorie);
+    if (flashOnly)  query = query.eq('actif_flash', true);
+    if (categorie)  query = query.eq('categorie', categorie);
 
     const { data, error } = await query;
 
@@ -153,7 +150,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── POST — Créer un produit ───────────────────────────────────
+// ── POST ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
@@ -163,11 +160,8 @@ export async function POST(req: NextRequest) {
     const { boulangerieId, admin } = auth;
 
     let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: 'Corps de requête JSON invalide' }, { status: 400 });
-    }
+    try { body = await req.json(); }
+    catch { return NextResponse.json({ error: 'Corps de requête JSON invalide' }, { status: 400 }); }
 
     const parsed = ProduitSchema.safeParse(body);
     if (!parsed.success) {
@@ -177,10 +171,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Sanitization après validation structurelle
     const sanitized = sanitizeProduitData(parsed.data);
 
-    // Vérification limite plan Starter
     const { count } = await admin
       .from('produits')
       .select('*', { count: 'exact', head: true })
@@ -211,6 +203,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Invalide le catalogue côté client
+    revalidatePath('/');
+
     return NextResponse.json({ produit: data }, { status: 201 });
 
   } catch (err) {
@@ -219,7 +214,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PATCH — Modifier un produit ───────────────────────────────
+// ── PATCH ─────────────────────────────────────────────────────
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -229,11 +224,8 @@ export async function PATCH(req: NextRequest) {
     const { boulangerieId, admin } = auth;
 
     let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: 'Corps de requête JSON invalide' }, { status: 400 });
-    }
+    try { body = await req.json(); }
+    catch { return NextResponse.json({ error: 'Corps de requête JSON invalide' }, { status: 400 }); }
 
     const parsed = ProduitUpdateSchema.safeParse(body);
     if (!parsed.success) {
@@ -245,12 +237,10 @@ export async function PATCH(req: NextRequest) {
 
     const { id, ...rest } = parsed.data;
 
-    // Validation UUID explicite (défense en profondeur)
     if (!isValidUUID(id)) {
       return NextResponse.json({ error: 'ID produit invalide' }, { status: 400 });
     }
 
-    // Sanitize uniquement les champs présents dans la mise à jour partielle
     const updates: Record<string, unknown> = {};
     if (rest.nom              !== undefined) updates.nom              = sanitizeProductName(rest.nom);
     if (rest.description      !== undefined) updates.description      = rest.description ? sanitizeDescription(rest.description) : null;
@@ -263,7 +253,6 @@ export async function PATCH(req: NextRequest) {
     if (rest.prix_vente       !== undefined) updates.prix_vente       = Math.round((rest.prix_vente ?? 0) * 100) / 100;
     if (rest.cout_production  !== undefined) updates.cout_production  = Math.round((rest.cout_production ?? 0) * 100) / 100;
     if (rest.prix_flash_override !== undefined) updates.prix_flash_override = rest.prix_flash_override ? Math.round(rest.prix_flash_override * 100) / 100 : null;
-    // Champs booléens et entiers — pas de sanitization textuelle nécessaire
     if (rest.actif_catalogue  !== undefined) updates.actif_catalogue  = rest.actif_catalogue;
     if (rest.actif_flash      !== undefined) updates.actif_flash      = rest.actif_flash;
     if (rest.ordre            !== undefined) updates.ordre            = Math.max(0, Math.floor(rest.ordre ?? 0));
@@ -275,7 +264,7 @@ export async function PATCH(req: NextRequest) {
       .from('produits')
       .update(updates)
       .eq('id', id)
-      .eq('boulangerie_id', boulangerieId) // ownership — pas d'accès croisé
+      .eq('boulangerie_id', boulangerieId)
       .select()
       .single();
 
@@ -286,6 +275,9 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
+    // Invalide le catalogue côté client (visibilité, prix, flash…)
+    revalidatePath('/');
+
     return NextResponse.json({ produit: data });
 
   } catch (err) {
@@ -294,7 +286,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// ── DELETE — Supprimer un produit + photo Storage ─────────────
+// ── DELETE ────────────────────────────────────────────────────
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -309,7 +301,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'id requis' }, { status: 400 });
     }
 
-    // Validation UUID (évite tout path traversal ou injection)
     if (!isValidUUID(id)) {
       return NextResponse.json({ error: 'ID produit invalide' }, { status: 400 });
     }
@@ -318,14 +309,13 @@ export async function DELETE(req: NextRequest) {
       .from('produits')
       .select('id, image_storage_path')
       .eq('id', id)
-      .eq('boulangerie_id', boulangerieId) // ownership
+      .eq('boulangerie_id', boulangerieId)
       .single();
 
     if (!produit) {
       return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
     }
 
-    // Supprime la photo Storage si elle existe
     if (produit.image_storage_path) {
       const { error: storageErr } = await admin.storage
         .from('produits-photos')
@@ -340,11 +330,14 @@ export async function DELETE(req: NextRequest) {
       .from('produits')
       .delete()
       .eq('id', id)
-      .eq('boulangerie_id', boulangerieId); // ownership
+      .eq('boulangerie_id', boulangerieId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Invalide le catalogue côté client
+    revalidatePath('/');
 
     return NextResponse.json({ success: true });
 

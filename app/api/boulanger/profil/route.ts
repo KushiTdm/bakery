@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { sanitizeText } from '@/lib/sanitize';
 
@@ -147,6 +148,10 @@ export async function PATCH(req: NextRequest) {
       .eq('id', boulangerie.id);
 
     if (updateError) return errorResponse(updateError.message, 500);
+
+    // Invalide le cache Next.js de la page vitrine pour que les changements
+    // (adresse, créneaux, flash) soient visibles immédiatement côté client
+    revalidatePath('/');
 
     return NextResponse.json({ success: true });
   } catch (e) {

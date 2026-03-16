@@ -1,11 +1,13 @@
 // app/api/catalogue/[slug]/route.ts
-// 🆕 Expose aussi les infos publiques de la boulangerie (adresse, créneaux)
-//    pour le CartSidebar et la vitrine cliente
 
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
+// Désactive le Data Cache Next.js pour tous les fetch internes (Supabase inclus)
+export const fetchCache = 'force-no-store';
 
 interface ProduitPublic {
   id:          string;
@@ -33,13 +35,22 @@ function toProduct(p: ProduitPublic) {
   };
 }
 
-// Regex slug valide
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$|^[a-z0-9]{2}$/;
+
+// Headers qui désactivent TOUS les caches : Next.js, Netlify CDN, navigateur
+const NO_CACHE_HEADERS = {
+  'Cache-Control':          'no-store, no-cache, must-revalidate',
+  'Pragma':                 'no-cache',
+  'Netlify-CDN-Cache-Control': 'no-store',
+};
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: { slug: string } }
 ) {
+  // Opt-out du Data Cache Next.js (intercepte fetch() en interne)
+  noStore();
+
   const slug = params.slug?.trim().toLowerCase();
 
   if (!slug || !SLUG_REGEX.test(slug)) {
@@ -55,13 +66,18 @@ export async function GET(
 
   const supabase = createClient(supabaseUrl, supabaseAnon, {
     auth: { persistSession: false },
+    global: {
+      // Force no-store sur chaque fetch que le client Supabase émet
+      fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }),
+    },
   });
 
+  const admin = getSupabaseAdmin();
+
   try {
-    // Récupère le catalogue + les infos publiques de la boulangerie en parallèle
     const [catalogueResult, boulangerieResult] = await Promise.all([
       supabase.rpc('get_catalogue_public', { p_slug: slug }),
-      supabase
+      admin
         .from('boulangeries')
         .select('nom, adresse, ville, code_postal, telephone, creneaux_retrait, flash_heure_debut, flash_heure_fin, flash_remise_pct')
         .eq('slug', slug)
@@ -76,24 +92,19 @@ export async function GET(
 
     const products = (catalogueResult.data as ProduitPublic[] ?? []).map(toProduct);
 
-    // Infos boulangerie — null si erreur (ne bloque pas le catalogue)
-    const boulangerieData = boulangerieResult.data;
-    const boulangeriePublic = boulangerieData ? {
-      nom:              boulangerieData.nom,
-      adresse:          boulangerieData.adresse ?? null,
-      ville:            boulangerieData.ville ?? null,
-      code_postal:      boulangerieData.code_postal ?? null,
-      telephone:        boulangerieData.telephone ?? null,
-      creneaux_retrait: boulangerieData.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
+    const d = boulangerieResult.data;
+    const boulangeriePublic = d ? {
+      nom:              d.nom,
+      adresse:          d.adresse ?? null,
+      ville:            d.ville ?? null,
+      code_postal:      d.code_postal ?? null,
+      telephone:        d.telephone ?? null,
+      creneaux_retrait: d.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
     } : null;
 
     return NextResponse.json(
       { success: true, source: 'supabase', products, boulangerie: boulangeriePublic },
-      {
-        headers: {
-          'Cache-Control': 'public, s-maxage=300, max-age=60, stale-while-revalidate=60',
-        },
-      }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch (err) {
     console.error('[GET /api/catalogue/[slug]] unexpected:', err);

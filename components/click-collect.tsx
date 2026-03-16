@@ -31,8 +31,12 @@ function useCatalogue(slug: string | null) {
     let cancelled = false;
 
     async function load() {
+      setLoading(true);
       try {
-        const res = await fetch(`/api/catalogue/${slug}`);
+        // cache: 'no-store' → empêche le navigateur ET Next.js de mettre en cache
+        const res = await fetch(`/api/catalogue/${slug}`, {
+          cache: 'no-store',
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as {
           products:     Product[];
@@ -42,7 +46,6 @@ function useCatalogue(slug: string | null) {
         if (!cancelled) {
           setProducts(data.products ?? []);
           setSource(data.source === 'supabase' ? 'supabase' : 'local');
-          // 🆕 Infos boulangerie pour l'adresse dynamique
           if (data.boulangerie) setBoulangerie(data.boulangerie);
         }
       } catch {
@@ -140,7 +143,6 @@ export default function ClickCollect() {
   const adresseRetrait  = formatAdresseRetrait(boulangerie);
   const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '09:00', '10:00'];
 
-  // Formate "08:00, 09:00, 10:00" → "8h, 9h, 10h"
   const creneauxLabel = creneauxRetrait
     .map(c => {
       const [h, m] = c.split(':');
@@ -148,7 +150,6 @@ export default function ClickCollect() {
     })
     .join(', ');
 
-  // Dernier créneau pour "Commande conservée jusqu'à Xh"
   const dernierCreneau = creneauxRetrait.length > 0
     ? creneauxRetrait[creneauxRetrait.length - 1]
     : '10:00';
@@ -182,7 +183,6 @@ export default function ClickCollect() {
         <div className="grid lg:grid-cols-3 gap-8">
 
           <main className="lg:col-span-2">
-            {/* Filtres catégorie */}
             <nav aria-label="Filtrer par catégorie" className="flex flex-wrap gap-2 mb-7">
               {categories.map(cat => (
                 <button
@@ -200,7 +200,6 @@ export default function ClickCollect() {
               ))}
             </nav>
 
-            {/* Grille produits */}
             {loading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4" aria-busy="true">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -236,16 +235,13 @@ export default function ClickCollect() {
 
           <aside className="lg:col-span-1">
             <div className="sticky top-28 space-y-5">
-              {/* Flash section autonome */}
               <FlashSection />
 
-              {/* 🆕 Informations retrait dynamiques */}
               <section className="bg-white rounded-2xl p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
                 <h2 className="text-[#2C1810] font-semibold text-sm mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
                   Informations retrait
                 </h2>
                 <ul className="space-y-2.5 text-xs text-[#2C1810]/60">
-                  {/* Adresse dynamique */}
                   <li className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
                     <p className="flex items-start gap-1">
@@ -253,7 +249,6 @@ export default function ClickCollect() {
                       <span><strong>{adresseRetrait}</strong></span>
                     </p>
                   </li>
-                  {/* Créneaux dynamiques */}
                   <li className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
                     <p className="flex items-start gap-1">

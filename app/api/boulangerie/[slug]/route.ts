@@ -1,41 +1,42 @@
+// app/api/boulangerie/[slug]/route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { unstable_noStore as noStore } from 'next/cache';
+import { getSupabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
-// Regex slug valide
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$|^[a-z0-9]{2}$/;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control':             'no-store, no-cache, must-revalidate',
+  'Pragma':                    'no-cache',
+  'Netlify-CDN-Cache-Control': 'no-store',
+};
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: { slug: string } }
 ) {
+  noStore();
+
   const slug = params.slug?.trim().toLowerCase();
 
   if (!slug || !SLUG_REGEX.test(slug)) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });
   }
 
-  const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnon) {
-    return NextResponse.json({ error: 'Configuration serveur manquante' }, { status: 503 });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseAnon, {
-    auth: { persistSession: false },
-  });
+  const admin = getSupabaseAdmin();
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from('boulangeries')
       .select('nom, adresse, ville, code_postal, telephone, creneaux_retrait, flash_heure_debut, flash_heure_fin, flash_remise_pct, actif')
       .eq('slug', slug)
       .single();
 
     if (error || !data) {
-      // Ne pas révéler si la boulangerie existe ou non
       return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
     }
 
@@ -57,12 +58,7 @@ export async function GET(
           remise_pct:  data.flash_remise_pct ?? 40,
         },
       },
-      {
-        headers: {
-          // Cache 5 min — les configs changent rarement
-          'Cache-Control': 'public, s-maxage=300, max-age=60, stale-while-revalidate=60',
-        },
-      }
+      { headers: NO_CACHE_HEADERS }
     );
   } catch (err) {
     console.error('[GET /api/boulangerie/[slug]]', err);

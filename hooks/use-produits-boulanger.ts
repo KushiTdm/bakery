@@ -25,7 +25,7 @@ export interface Produit {
   note_interne:         string | null;
   image_url:            string | null;
   image_storage_path:   string | null;
-  image_public_url:     string | null; // calculé côté API
+  image_public_url:     string | null;
   created_at:           string;
   updated_at:           string;
 }
@@ -67,7 +67,6 @@ interface UseProduitsBoulangerReturn {
   error:           string | null;
   saving:          boolean;
   uploading:       boolean;
-  // Actions
   creer:           (draft: ProduitDraft) => Promise<Produit | null>;
   modifier:        (id: string, updates: Partial<ProduitDraft>) => Promise<boolean>;
   supprimer:       (id: string) => Promise<boolean>;
@@ -85,7 +84,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
   const [uploading, setUploading] = useState(false);
   const [tick, setTick]           = useState(0);
 
-  // ── Récupère le token ──────────────────────────────────────
   const getToken = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ?? null;
@@ -100,7 +98,10 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     };
   };
 
-  // ── Chargement ─────────────────────────────────────────────
+  // ── Chargement — récupère TOUS les produits (actifs ET inactifs) ───────
+  // On passe actif=false pour désactiver le filtre côté API.
+  // C'est l'espace boulanger : il doit voir et gérer tous ses produits,
+  // y compris ceux désactivés (pour pouvoir les réactiver).
   useEffect(() => {
     let cancelled = false;
 
@@ -111,7 +112,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
         const token = await getToken();
         if (!token) { setError('Non authentifié'); return; }
 
-        const res = await fetch('/api/boulanger/produits', {
+        const res = await fetch('/api/boulanger/produits?actif=false', {
           headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store',
         });
@@ -151,7 +152,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       const j = await res.json() as { produit?: Produit; error?: string };
       if (!res.ok) { setError(j.error ?? 'Erreur création'); return null; }
 
-      // Mise à jour optimiste
       setProduits(prev => [...prev, j.produit!]);
       return j.produit ?? null;
     } finally {
@@ -164,7 +164,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     id: string,
     updates: Partial<ProduitDraft>
   ): Promise<boolean> => {
-    // Optimiste : mise à jour locale immédiate
+    // Mise à jour optimiste locale
     setProduits(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     setSaving(true);
     try {
@@ -178,7 +178,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       });
 
       if (!res.ok) {
-        // Rollback
+        // Rollback — refetch pour retrouver l'état serveur
         setTick(t => t + 1);
         const j = await res.json().catch(() => ({})) as { error?: string };
         setError(j.error ?? 'Erreur modification');
@@ -186,6 +186,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       }
 
       const { produit } = await res.json() as { produit: Produit };
+      // Mise à jour locale avec les données serveur (sans refetch complet)
       setProduits(prev => prev.map(p => p.id === id ? { ...p, ...produit } : p));
       return true;
     } finally {
@@ -195,8 +196,8 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
 
   // ── Supprimer ──────────────────────────────────────────────
   const supprimer = useCallback(async (id: string): Promise<boolean> => {
-    // Optimiste
     const backup = produits.find(p => p.id === id);
+    // Optimiste : retrait immédiat de la liste
     setProduits(prev => prev.filter(p => p.id !== id));
     setSaving(true);
     try {
@@ -210,7 +211,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
 
       if (!res.ok) {
         // Rollback
-        if (backup) setProduits(prev => [...prev, backup]);
+        if (backup) setProduits(prev => [...prev, backup].sort((a, b) => a.ordre - b.ordre));
         return false;
       }
       return true;
@@ -219,7 +220,9 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     }
   }, [produits]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Toggle actif ───────────────────────────────────────────
+  // ── Toggle actif catalogue / flash ─────────────────────────
+  // Bascule la valeur booléenne sans supprimer le produit.
+  // Le produit reste visible dans l'espace boulanger (inactif ≠ supprimé).
   const toggleActif = useCallback(async (
     id: string,
     champ: 'actif_catalogue' | 'actif_flash'
@@ -229,16 +232,14 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     return modifier(id, { [champ]: !produit[champ] });
   }, [produits, modifier]);
 
-  // ── Réordonner (drag & drop) ───────────────────────────────
+  // ── Réordonner ─────────────────────────────────────────────
   const reordonner = useCallback(async (ids: string[]): Promise<void> => {
-    // Mise à jour optimiste de l'ordre
     setProduits(prev => {
       const map = new Map(prev.map(p => [p.id, p]));
       return ids.map((id, i) => ({ ...map.get(id)!, ordre: i }))
                 .concat(prev.filter(p => !ids.includes(p.id)));
     });
 
-    // Persiste chaque ordre en parallèle
     const token = await getToken();
     if (!token) return;
 
@@ -284,7 +285,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
         image_storage_path: string;
       };
 
-      // Met à jour localement
       setProduits(prev => prev.map(p =>
         p.id === produitId
           ? { ...p, image_storage_path, image_public_url, image_url: null }
