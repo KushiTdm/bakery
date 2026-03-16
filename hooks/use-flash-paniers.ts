@@ -1,5 +1,4 @@
 'use client';
-// hooks/use-flash-paniers.ts
 
 import { useState, useEffect } from 'react';
 import { useSlug } from '@/hooks/use-slug';
@@ -9,7 +8,7 @@ export type { PanierFlashResponse };
 
 export const DEFAULT_FLASH: PanierFlashResponse = {
   flashActif: false,
-  heureDebut: 18,
+  heureDebut: 18,   // valeur par défaut tant que l'API n'a pas répondu
   heureFin:   20,
   remise:     40,
   nbPaniers:  0,
@@ -29,9 +28,10 @@ export function useFlashPaniers(): UseFlashPaniersReturn {
   const [tick, setTick]       = useState(0);
 
   useEffect(() => {
-    if (!resolution?.slug) return; // attendre montage client + résolution slug
+    // Attend le montage côté client + résolution du slug
+    if (!resolution?.slug) return;
 
-    const slug = resolution.slug; // capture pour la closure — TypeScript sait que c'est string
+    const slug = resolution.slug;
     let cancelled = false;
 
     async function load() {
@@ -50,6 +50,7 @@ export function useFlashPaniers(): UseFlashPaniersReturn {
     }
 
     load();
+    // Rafraîchissement toutes les 2 minutes
     const interval = setInterval(load, 2 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [resolution?.slug, tick]);

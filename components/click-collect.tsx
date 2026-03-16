@@ -2,19 +2,29 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingBag } from 'lucide-react';
+import { ShoppingBag, MapPin, Clock } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
 import { useSlug } from '@/hooks/use-slug';
 import { categories } from '@/lib/products';
 import type { Product } from '@/lib/products';
 import FlashSection from '@/components/flash-section';
 
-// ── Hook catalogue Supabase ───────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────
+
+interface BoulangeriePublicInfo {
+  adresse:          string | null;
+  ville:            string | null;
+  code_postal:      string | null;
+  creneaux_retrait: string[];
+}
+
+// ── Hook catalogue ─────────────────────────────────────────────
 
 function useCatalogue(slug: string | null) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [source, setSource]     = useState<'supabase' | 'local'>('local');
+  const [products,    setProducts]    = useState<Product[]>([]);
+  const [boulangerie, setBoulangerie] = useState<BoulangeriePublicInfo | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [source,      setSource]      = useState<'supabase' | 'local'>('local');
 
   useEffect(() => {
     if (!slug) return;
@@ -24,10 +34,16 @@ function useCatalogue(slug: string | null) {
       try {
         const res = await fetch(`/api/catalogue/${slug}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { products: Product[]; source: string };
+        const data = await res.json() as {
+          products:     Product[];
+          source:       string;
+          boulangerie?: BoulangeriePublicInfo;
+        };
         if (!cancelled) {
           setProducts(data.products ?? []);
           setSource(data.source === 'supabase' ? 'supabase' : 'local');
+          // 🆕 Infos boulangerie pour l'adresse dynamique
+          if (data.boulangerie) setBoulangerie(data.boulangerie);
         }
       } catch {
         if (!cancelled) {
@@ -44,10 +60,21 @@ function useCatalogue(slug: string | null) {
     return () => { cancelled = true; };
   }, [slug]);
 
-  return { products, loading, source };
+  return { products, boulangerie, loading, source };
 }
 
-// ── Card produit ──────────────────────────────────────────────
+// ── Formatage adresse ──────────────────────────────────────────
+
+function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
+  if (!info) return '42 Rue de la Boulangerie, 75001 Paris';
+  const parts = [
+    info.adresse,
+    [info.code_postal, info.ville].filter(Boolean).join(' '),
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
+}
+
+// ── Card produit ───────────────────────────────────────────────
 
 function ProductCard({ product, index }: { product: Product; index: number }) {
   const { addItem, user, setIsAuthOpen, setPendingProduct } = useCart();
@@ -67,7 +94,7 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
       <div className="relative overflow-hidden aspect-[4/3]">
         <img
           src={product.image}
-          alt={`${product.name} — ${product.category} artisanal L'Artisan Doré Paris`}
+          alt={`${product.name} — ${product.category} artisanal`}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           loading="lazy"
           width={400}
@@ -99,16 +126,36 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
   );
 }
 
-// ── Page principale ───────────────────────────────────────────
+// ── Page principale ────────────────────────────────────────────
 
 export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
   const resolution = useSlug();
-  const { products, loading, source } = useCatalogue(resolution?.slug ?? null);
+  const { products, boulangerie, loading, source } = useCatalogue(resolution?.slug ?? null);
 
   const filteredProducts = activeCategory === 'all'
     ? products
     : products.filter(p => p.category === activeCategory);
+
+  const adresseRetrait  = formatAdresseRetrait(boulangerie);
+  const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '09:00', '10:00'];
+
+  // Formate "08:00, 09:00, 10:00" → "8h, 9h, 10h"
+  const creneauxLabel = creneauxRetrait
+    .map(c => {
+      const [h, m] = c.split(':');
+      return m === '00' ? `${parseInt(h)}h` : `${parseInt(h)}h${m}`;
+    })
+    .join(', ');
+
+  // Dernier créneau pour "Commande conservée jusqu'à Xh"
+  const dernierCreneau = creneauxRetrait.length > 0
+    ? creneauxRetrait[creneauxRetrait.length - 1]
+    : '10:00';
+  const dernierCreneauLabel = (() => {
+    const [h, m] = dernierCreneau.split(':');
+    return m === '00' ? `${parseInt(h)}h` : `${parseInt(h)}h${m}`;
+  })();
 
   return (
     <div className="pt-20 min-h-screen bg-[#FDFBF7]">
@@ -121,7 +168,7 @@ export default function ClickCollect() {
             </h1>
             <p className="text-[#2C1810]/55 mt-2 text-sm max-w-xl">
               Commandez en ligne nos pains artisanaux, viennoiseries et pâtisseries.
-              Retrait en boutique le lendemain dès 7h — paiement sur place.
+              Retrait en boutique — paiement sur place.
             </p>
             {!loading && source === 'supabase' && (
               <div className="flex items-center gap-1.5 mt-3">
@@ -135,6 +182,7 @@ export default function ClickCollect() {
         <div className="grid lg:grid-cols-3 gap-8">
 
           <main className="lg:col-span-2">
+            {/* Filtres catégorie */}
             <nav aria-label="Filtrer par catégorie" className="flex flex-wrap gap-2 mb-7">
               {categories.map(cat => (
                 <button
@@ -152,6 +200,7 @@ export default function ClickCollect() {
               ))}
             </nav>
 
+            {/* Grille produits */}
             {loading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4" aria-busy="true">
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -187,25 +236,43 @@ export default function ClickCollect() {
 
           <aside className="lg:col-span-1">
             <div className="sticky top-28 space-y-5">
-              {/* FlashSection est autonome : résout son propre slug */}
+              {/* Flash section autonome */}
               <FlashSection />
 
+              {/* 🆕 Informations retrait dynamiques */}
               <section className="bg-white rounded-2xl p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
                 <h2 className="text-[#2C1810] font-semibold text-sm mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
                   Informations retrait
                 </h2>
                 <ul className="space-y-2.5 text-xs text-[#2C1810]/60">
-                  {[
-                    { text: 'Commande disponible <strong>dès le lendemain</strong> à partir de 7h' },
-                    { text: 'Paiement <strong>sur place uniquement</strong> — espèces ou carte' },
-                    { text: 'Commande conservée <strong>jusqu\'à 10h</strong>, puis libérée' },
-                    { text: 'Click & Collect <strong>100% gratuit</strong>', green: true },
-                  ].map((item, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${item.green ? 'bg-green-500' : 'bg-[#C19A6B]'}`} />
-                      <p dangerouslySetInnerHTML={{ __html: item.text }} />
-                    </li>
-                  ))}
+                  {/* Adresse dynamique */}
+                  <li className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
+                    <p className="flex items-start gap-1">
+                      <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                      <span><strong>{adresseRetrait}</strong></span>
+                    </p>
+                  </li>
+                  {/* Créneaux dynamiques */}
+                  <li className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
+                    <p className="flex items-start gap-1">
+                      <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                      <span>Retrait disponible à <strong>{creneauxLabel}</strong></span>
+                    </p>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
+                    <p>Paiement <strong>sur place uniquement</strong> — espèces ou carte</p>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
+                    <p>Commande conservée <strong>jusqu'à {dernierCreneauLabel}</strong>, puis libérée</p>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
+                    <p>Click & Collect <strong className="text-green-600">100% gratuit</strong></p>
+                  </li>
                 </ul>
               </section>
             </div>

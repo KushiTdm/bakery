@@ -1,7 +1,3 @@
-// app/page.tsx
-// Server Component shell avec metadata SEO par page
-// et injection des Server Components déjà optimisés pour le crawl.
-
 import type { Metadata } from 'next';
 import { CartProvider }     from '@/context/cart-context';
 import { ActiveTabProvider } from '@/context/active-tab-context';
@@ -13,17 +9,27 @@ import { FaqJsonLd }        from '@/components/seo/json-ld';
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://artisandore.fr';
 
-// ── Metadata spécifique à la page d'accueil ────────────────────
-// Surcharge les valeurs par défaut de layout.tsx
+// Charge les infos publiques de la boulangerie (SSR)
+async function getBoulangerieInfo(slug: string) {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/api/boulangerie/${slug}`,
+      { next: { revalidate: 300 } } // cache 5 min
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 export const metadata: Metadata = {
   title: "L'Artisan Doré — Boulangerie Artisanale Paris depuis 1952",
   description:
     'Boulangerie artisanale au cœur de Paris depuis 1952. ' +
     'Pains au levain, viennoiseries pur beurre AOP, pâtisseries créatives. ' +
     'Click & collect — commandez en ligne, retirez dès 7h.',
-  alternates: {
-    canonical: BASE_URL,
-  },
+  alternates: { canonical: BASE_URL },
   openGraph: {
     title:       "L'Artisan Doré — Boulangerie Artisanale Paris depuis 1952",
     description: 'Pains au levain naturel, viennoiseries pur beurre AOP. Click & collect disponible.',
@@ -31,28 +37,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function Home() {
+export default async function Home() {
+  // Slug par défaut ou depuis env
+  const slug = process.env.NEXT_PUBLIC_BAKERY_SLUG ?? 'artisan-dore';
+  const boulangerieInfo = await getBoulangerieInfo(slug).catch(() => null);
+
   return (
     <CartProvider>
       <ActiveTabProvider>
-        {/* FAQ Schema — enrichit les résultats Google */}
         <FaqJsonLd />
-
-        {/*
-          LandingClient gère (client islands) :
-          - LoadingScreen, FlashBanner, Navbar
-          - Hero (animations + CTA interactif)
-          - Galerie (hover animations)
-          - ClickCollect, CartSidebar, AuthModal
-
-          Server Components injectés en props :
-          - SavoirFaire, Ingredients, Footer
-          → Rendus côté serveur, indexés par Google sans JS
-        */}
         <LandingClient
           savoirFaire={<SavoirFaire />}
           ingredients={<Ingredients />}
-          footer={<Footer />}
+          footer={<Footer boulangerie={boulangerieInfo} />}
         />
       </ActiveTabProvider>
     </CartProvider>

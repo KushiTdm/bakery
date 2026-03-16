@@ -9,7 +9,8 @@ import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
 
-export type ViewType = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard';
+// 🆕 'parametres' ajouté
+export type ViewType = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard' | 'parametres';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface StockEntry {
@@ -45,7 +46,6 @@ interface Boulangerie {
   airtable_base_id: string | null;
 }
 
-// ── Helper : mappe un DbStockJournalier → StockEntry ──────────
 function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
   return {
     id:              s.produit_id,
@@ -63,7 +63,6 @@ function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
   };
 }
 
-// ── Helper : mappe les produits Supabase → StockEntry vierge ──
 interface ProduitDb {
   id: string;
   nom: string;
@@ -90,7 +89,6 @@ function produitToStockEntry(p: ProduitDb): StockEntry {
   };
 }
 
-// ── Helper : mappe une DbJournee → HistoryEntry ───────────────
 function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
   return {
     date:            j.date,
@@ -101,7 +99,6 @@ function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
   };
 }
 
-// ── Type suggestion de production ────────────────────────────
 export interface ProductionSuggestion {
   id:            string;
   name:          string;
@@ -113,7 +110,6 @@ export interface ProductionSuggestion {
   confidence:    'high' | 'medium' | 'low';
 }
 
-// ── Helper : calcule les suggestions depuis l'historique ──────
 function computeProductionSuggestions(
   history: HistoryEntry[],
   todayStocks: StockEntry[],
@@ -132,21 +128,15 @@ function computeProductionSuggestions(
   return todayStocks.map(stock => {
     const relevant = sameDayHistory.length >= 1 ? sameDayHistory : history;
     const dataPoints = relevant.length;
-
     const productions = relevant
       .map(d => d.stocks.find(s => s.id === stock.id)?.production ?? 0)
       .filter(v => v > 0);
 
     if (productions.length === 0) {
       return {
-        id:            stock.id,
-        name:          stock.name,
-        emoji:         stock.emoji,
-        avgProduction: stock.production,
-        suggestedQty:  stock.production,
-        dataPoints:    0,
-        changePercent: 0,
-        confidence:    'low' as const,
+        id: stock.id, name: stock.name, emoji: stock.emoji,
+        avgProduction: stock.production, suggestedQty: stock.production,
+        dataPoints: 0, changePercent: 0, confidence: 'low' as const,
       };
     }
 
@@ -155,20 +145,14 @@ function computeProductionSuggestions(
     const changePercent = stock.production > 0
       ? Math.round(((suggestedQty - stock.production) / stock.production) * 100)
       : 0;
-
     const confidence: ProductionSuggestion['confidence'] =
       productions.length >= 4 ? 'high' :
       productions.length >= 2 ? 'medium' : 'low';
 
     return {
-      id:            stock.id,
-      name:          stock.name,
-      emoji:         stock.emoji,
-      avgProduction: Math.round(avg),
-      suggestedQty,
-      dataPoints,
-      changePercent,
-      confidence,
+      id: stock.id, name: stock.name, emoji: stock.emoji,
+      avgProduction: Math.round(avg), suggestedQty,
+      dataPoints, changePercent, confidence,
     };
   });
 }
@@ -209,7 +193,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView]   = useState<ViewType>('matin');
   const [syncStatus, setSyncStatus]   = useState<SyncStatus>('idle');
-  // todayStocks vide par défaut — chargé depuis Supabase
   const [todayStocks, setTodayStocks] = useState<StockEntry[]>([]);
   const [commandesOnline, _setCommandesOnline] = useState(0);
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
@@ -261,7 +244,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       setBoulangerie(data as Boulangerie);
-
       await Promise.all([loadTodayData(data.id), loadHistory()]);
     } catch (err) {
       console.error('[BoulangerContext]', err);
@@ -276,23 +258,19 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const token = await getToken();
       if (!token) return;
 
-      // 1. Tente de charger la journée du jour
       const res = await fetch('/api/boulanger/journee', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        // Pas de journée → charge les produits depuis le catalogue
         await loadProduitsAsList(token);
         return;
       }
       const { journee } = await res.json() as { journee: DbJournee | null };
 
       if (journee?.stocks_journaliers?.length) {
-        // Journée existante avec stocks
         setTodayStocks(journee.stocks_journaliers.map(mapDbStockToEntry));
         _setCommandesOnline(journee.commandes_online ?? 0);
       } else {
-        // Journée sans stocks → charge les produits du catalogue
         await loadProduitsAsList(token);
       }
     } catch (err) {
@@ -408,20 +386,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getToken();
       if (!token) { setSyncStatus('error'); return; }
-      // Sauvegarde finale
       await fetch('/api/boulanger/journee', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ stocks: todayStocks, commandesOnline: online }),
       });
-      // Clôture
       await fetch('/api/boulanger/journee', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 3000);
-      // Recharge l'historique pour avoir les nouvelles données
       await loadHistory();
     } catch {
       setSyncStatus('error');

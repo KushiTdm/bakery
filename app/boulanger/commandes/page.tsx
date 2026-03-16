@@ -6,13 +6,9 @@ import { supabase } from '@/lib/supabase';
 import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
 import { Zap } from 'lucide-react';
 
-// ── Types UI (front-end) ──────────────────────────────────────
+// ── Types UI ──────────────────────────────────────────────────
 
-interface OrderItem {
-  name:  string;
-  qty:   number;
-  price: number;
-}
+interface OrderItem { name: string; qty: number; price: number; }
 
 interface Order {
   id:          string;
@@ -24,16 +20,11 @@ interface Order {
   pickup_time: string | null;
   status:      'pending' | 'confirmed' | 'ready' | 'done';
   created_at:  string;
-  isFlash:     boolean; // commande contenant des produits ⚡ anti-gaspi
+  isFlash:     boolean;
 }
 
-// ── Constantes ────────────────────────────────────────────────
-
 const STATUS_LABELS: Record<Order['status'], string> = {
-  pending:   'En attente',
-  confirmed: 'Confirmée',
-  ready:     'Prête',
-  done:      'Récupérée',
+  pending: 'En attente', confirmed: 'Confirmée', ready: 'Prête', done: 'Récupérée',
 };
 
 const STATUS_COLORS: Record<Order['status'], string> = {
@@ -43,51 +34,35 @@ const STATUS_COLORS: Record<Order['status'], string> = {
   done:      'bg-white/5      text-white/30  border-white/10',
 };
 
-// Mapping front → DB
 const STATUS_TO_DB: Record<Order['status'], DbCommande['statut']> = {
-  pending:   'en_attente',
-  confirmed: 'confirmee',
-  ready:     'prete',
-  done:      'recuperee',
+  pending: 'en_attente', confirmed: 'confirmee', ready: 'prete', done: 'recuperee',
 };
 
-// Mapping DB → front
 function dbToStatus(s: DbCommande['statut']): Order['status'] {
   const map: Record<DbCommande['statut'], Order['status']> = {
-    en_attente: 'pending',
-    confirmee:  'confirmed',
-    prete:      'ready',
-    recuperee:  'done',
-    annulee:    'done',
+    en_attente: 'pending', confirmee: 'confirmed', prete: 'ready',
+    recuperee: 'done', annulee: 'done',
   };
   return map[s] ?? 'pending';
 }
 
-// Mappe une DbCommande vers Order (UI)
-// Une commande est "flash" si elle contient au moins un produit avec ⚡ dans le nom
 function mapDbCommande(c: DbCommande): Order {
   const items = (c.lignes ?? []).map((l: DbLigneCommande) => ({
-    name:  l.produit_nom,
-    qty:   l.quantite,
-    price: l.prix_unitaire,
+    name: l.produit_nom, qty: l.quantite, price: l.prix_unitaire,
   }));
-  const isFlash = items.some(i => i.name.includes('⚡'));
-
   return {
-    id:          c.id,
+    id: c.id,
     commande_id: c.id.slice(0, 8).toUpperCase(),
-    email:       c.client_email,
-    prenom:      c.client_prenom ?? null,
+    email: c.client_email,
+    prenom: c.client_prenom ?? null,
     items,
-    total:       c.montant_total,
+    total: c.montant_total,
     pickup_time: c.heure_retrait ? String(c.heure_retrait).slice(0, 5) : null,
-    status:      dbToStatus(c.statut),
-    created_at:  c.created_at,
-    isFlash,
+    status: dbToStatus(c.statut),
+    created_at: c.created_at,
+    isFlash: items.some(i => i.name.includes('⚡')),
   };
 }
-
-// ── Utilitaires ───────────────────────────────────────────────
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -97,20 +72,19 @@ function formatPrice(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-// ── Page principale ───────────────────────────────────────────
+// ── UUID helper (client-side) ─────────────────────────────────
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(v: string): boolean { return UUID_REGEX.test(v); }
 
 export default function CommandesPage() {
   const { isAuthenticated, authLoading } = useBoulanger();
-  const [orders, setOrders]             = useState<Order[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh]   = useState<Date | null>(null);
-  const [updating, setUpdating]         = useState<string | null>(null);
+  const [orders, setOrders]         = useState<Order[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [updating, setUpdating]     = useState<string | null>(null);
   const [boulangerieId, setBoulangerieId] = useState<string | null>(null);
-  // Filtre : 'all' | 'standard' | 'flash'
-  const [filter, setFilter]             = useState<'all' | 'standard' | 'flash'>('all');
-
-  // ── Chargement initial ────────────────────────────────────────
+  const [filter, setFilter]         = useState<'all' | 'standard' | 'flash'>('all');
 
   const loadOrders = useCallback(async () => {
     setError(null);
@@ -124,7 +98,12 @@ export default function CommandesPage() {
       if (!profileRes.ok) { setError('Impossible de charger le profil boulangerie'); return; }
 
       const profile = await profileRes.json() as { id?: string };
-      if (!profile.id) { setError('Boulangerie introuvable'); return; }
+
+      // 🆕 Validation UUID côté client avant d'utiliser l'id
+      if (!profile.id || !isValidUUID(profile.id)) {
+        setError('ID boulangerie invalide');
+        return;
+      }
 
       setBoulangerieId(profile.id);
 
@@ -150,80 +129,41 @@ export default function CommandesPage() {
     }
   }, []);
 
-  // ── Supabase Realtime ─────────────────────────────────────────
-
+  // Realtime Supabase
   useEffect(() => {
     if (!boulangerieId) return;
-
     const channel = supabase
       .channel(`commandes-${boulangerieId}`)
-      .on(
-        'postgres_changes',
-        {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'commandes',
-          filter: `boulangerie_id=eq.${boulangerieId}`,
-        },
-        (payload) => {
-          const nouvelle = mapDbCommande(payload.new as DbCommande);
-          setOrders(prev => [nouvelle, ...prev]);
-          setLastRefresh(new Date());
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event:  'UPDATE',
-          schema: 'public',
-          table:  'commandes',
-          filter: `boulangerie_id=eq.${boulangerieId}`,
-        },
-        (payload) => {
-          const updated = mapDbCommande(payload.new as DbCommande);
-          setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
-        }
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'commandes', filter: `boulangerie_id=eq.${boulangerieId}` },
+        (payload) => { setOrders(prev => [mapDbCommande(payload.new as DbCommande), ...prev]); setLastRefresh(new Date()); })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'commandes', filter: `boulangerie_id=eq.${boulangerieId}` },
+        (payload) => { const updated = mapDbCommande(payload.new as DbCommande); setOrders(prev => prev.map(o => o.id === updated.id ? updated : o)); })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [boulangerieId]);
-
-  // ── Déclenchement initial ─────────────────────────────────────
 
   useEffect(() => {
     if (!isAuthenticated) return;
     loadOrders();
   }, [isAuthenticated, loadOrders]);
 
-  // ── Action : changement de statut ────────────────────────────
-
   const updateStatus = useCallback(async (orderId: string, newStatus: Order['status']) => {
+    // 🆕 Validation UUID de l'orderId avant le fetch
+    if (!isValidUUID(orderId)) return;
     setUpdating(orderId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-
       const res = await fetch(`/api/orders/${orderId}`, {
-        method:  'PATCH',
-        headers: {
-          'Content-Type':  'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ status: STATUS_TO_DB[newStatus] }),
       });
-
-      if (res.ok) {
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-      }
+      if (res.ok) setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     } finally {
       setUpdating(null);
     }
   }, []);
-
-  // ── Render guards ─────────────────────────────────────────────
 
   if (authLoading) {
     return (
@@ -241,27 +181,17 @@ export default function CommandesPage() {
     );
   }
 
-  // ── Stats ─────────────────────────────────────────────────────
-
   const flashOrders    = orders.filter(o => o.isFlash);
   const standardOrders = orders.filter(o => !o.isFlash);
   const totalCA        = orders.reduce((s, o) => s + o.total, 0);
   const flashCA        = flashOrders.reduce((s, o) => s + o.total, 0);
-
   const byStatus = {
     pending:   orders.filter(o => o.status === 'pending').length,
     confirmed: orders.filter(o => o.status === 'confirmed').length,
     ready:     orders.filter(o => o.status === 'ready').length,
     done:      orders.filter(o => o.status === 'done').length,
   };
-
-  // Commandes filtrées selon l'onglet actif
-  const visibleOrders =
-    filter === 'flash'    ? flashOrders :
-    filter === 'standard' ? standardOrders :
-    orders;
-
-  // ── Render ────────────────────────────────────────────────────
+  const visibleOrders = filter === 'flash' ? flashOrders : filter === 'standard' ? standardOrders : orders;
 
   return (
     <div className="min-h-screen bg-[#1A0F0A] pb-20">
@@ -269,24 +199,15 @@ export default function CommandesPage() {
       <div className="sticky top-0 z-10 bg-[#1A0F0A]/95 backdrop-blur border-b border-white/8 px-4 py-4">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
           <div>
-            <h1 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
-              Commandes du jour
-            </h1>
+            <h1 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>Commandes du jour</h1>
             <p className="text-white/30 text-xs flex items-center gap-1.5">
               {lastRefresh
-                ? <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-                    Temps réel · {formatTime(lastRefresh.toISOString())}
-                  </>
+                ? <><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" /> Temps réel · {formatTime(lastRefresh.toISOString())}</>
                 : 'Chargement…'
               }
             </p>
           </div>
-          <button
-            onClick={loadOrders}
-            disabled={loading}
-            className="text-[#C19A6B] text-sm px-3 py-1.5 rounded-lg border border-[#C19A6B]/30 hover:bg-[#C19A6B]/10 transition-colors disabled:opacity-40"
-          >
+          <button onClick={loadOrders} disabled={loading} className="text-[#C19A6B] text-sm px-3 py-1.5 rounded-lg border border-[#C19A6B]/30 hover:bg-[#C19A6B]/10 transition-colors disabled:opacity-40">
             {loading ? '…' : '↻ Actualiser'}
           </button>
         </div>
@@ -305,16 +226,14 @@ export default function CommandesPage() {
           </div>
         </div>
 
-        {/* Bloc anti-gaspi — affiché seulement si des commandes flash existent */}
+        {/* Bloc anti-gaspi */}
         {flashOrders.length > 0 && (
           <div className="bg-yellow-400/8 border border-yellow-400/25 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="bg-yellow-400 rounded-lg p-1.5">
                 <Zap size={14} className="text-[#2C1810] fill-current" />
               </div>
-              <p className="text-yellow-300 font-semibold text-sm">
-                Paniers Anti-Gaspi
-              </p>
+              <p className="text-yellow-300 font-semibold text-sm">Paniers Anti-Gaspi</p>
               <span className="ml-auto bg-yellow-400/20 text-yellow-300 text-xs font-bold px-2 py-0.5 rounded-full border border-yellow-400/30">
                 {flashOrders.length} commande{flashOrders.length > 1 ? 's' : ''}
               </span>
@@ -326,9 +245,7 @@ export default function CommandesPage() {
               </div>
               <div className="bg-black/20 rounded-xl p-3">
                 <p className="text-white/35 text-xs mb-0.5">En attente</p>
-                <p className="text-yellow-300 font-bold font-mono">
-                  {flashOrders.filter(o => o.status === 'pending').length} / {flashOrders.length}
-                </p>
+                <p className="text-yellow-300 font-bold font-mono">{flashOrders.filter(o => o.status === 'pending').length} / {flashOrders.length}</p>
               </div>
             </div>
           </div>
@@ -337,10 +254,7 @@ export default function CommandesPage() {
         {/* Badges statut */}
         <div className="flex gap-2 overflow-x-auto pb-1">
           {(Object.keys(byStatus) as Order['status'][]).map(s => (
-            <div
-              key={s}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium ${STATUS_COLORS[s]}`}
-            >
+            <div key={s} className={`flex-shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium ${STATUS_COLORS[s]}`}>
               {STATUS_LABELS[s]} · {byStatus[s]}
             </div>
           ))}
@@ -354,40 +268,16 @@ export default function CommandesPage() {
               { key: 'standard', label: `Click & Collect (${standardOrders.length})` },
               { key: 'flash',    label: `⚡ Anti-Gaspi (${flashOrders.length})` },
             ] as const).map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                  filter === tab.key
-                    ? tab.key === 'flash'
-                      ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/40'
-                      : 'bg-[#C19A6B]/20 text-[#C19A6B] border border-[#C19A6B]/40'
-                    : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'
-                }`}
-              >
+              <button key={tab.key} onClick={() => setFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${filter === tab.key ? (tab.key === 'flash' ? 'bg-yellow-400/20 text-yellow-300 border border-yellow-400/40' : 'bg-[#C19A6B]/20 text-[#C19A6B] border border-[#C19A6B]/40') : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'}`}>
                 {tab.label}
               </button>
             ))}
           </div>
         )}
 
-        {/* Erreur */}
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 text-red-300 text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* Skeleton */}
-        {loading && !orders.length && (
-          <div className="flex flex-col gap-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-28 bg-white/4 rounded-2xl animate-pulse" />
-            ))}
-          </div>
-        )}
-
-        {/* État vide */}
+        {error && <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 text-red-300 text-sm">{error}</div>}
+        {loading && !orders.length && <div className="flex flex-col gap-3">{[1,2,3].map(i => <div key={i} className="h-28 bg-white/4 rounded-2xl animate-pulse" />)}</div>}
         {!loading && !error && orders.length === 0 && (
           <div className="text-center py-16">
             <span className="text-5xl block mb-4">🛒</span>
@@ -395,89 +285,58 @@ export default function CommandesPage() {
             <p className="text-white/25 text-sm mt-1">Elles apparaîtront ici en temps réel</p>
           </div>
         )}
-
-        {/* État vide sur filtre flash */}
         {!loading && !error && orders.length > 0 && visibleOrders.length === 0 && (
           <div className="text-center py-10">
-            <span className="text-4xl block mb-3">
-              {filter === 'flash' ? '⚡' : '🛒'}
-            </span>
-            <p className="text-white/40 text-sm">
-              {filter === 'flash'
-                ? 'Aucune commande anti-gaspi pour l\'instant'
-                : 'Aucune commande standard pour l\'instant'
-              }
-            </p>
+            <span className="text-4xl block mb-3">{filter === 'flash' ? '⚡' : '🛒'}</span>
+            <p className="text-white/40 text-sm">Aucune commande {filter === 'flash' ? 'anti-gaspi' : 'standard'} pour l'instant</p>
           </div>
         )}
 
         {/* Liste des commandes */}
         <div className="flex flex-col gap-3">
           {visibleOrders.map(order => (
-            <div
-              key={order.id}
-              className={`border rounded-2xl overflow-hidden transition-opacity ${
-                order.status === 'done' ? 'opacity-50' : ''
-              } ${
-                order.isFlash
-                  ? 'bg-yellow-400/5 border-yellow-400/20'
-                  : 'bg-white/4 border-white/8'
-              }`}
-            >
-              {/* Badge flash */}
+            <div key={order.id} className={`border rounded-2xl overflow-hidden transition-opacity ${order.status === 'done' ? 'opacity-50' : ''} ${order.isFlash ? 'bg-yellow-400/5 border-yellow-400/20' : 'bg-white/4 border-white/8'}`}>
               {order.isFlash && (
                 <div className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400/10 border-b border-yellow-400/15">
                   <Zap size={11} className="text-yellow-400 fill-current" />
                   <span className="text-yellow-400 text-xs font-semibold">Panier Anti-Gaspi</span>
                 </div>
               )}
-
               <div className="flex items-start justify-between p-4 pb-2">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-white font-semibold text-sm">
-                      {order.prenom || order.email.split('@')[0]}
-                    </span>
+                    <span className="text-white font-semibold text-sm">{order.prenom || order.email.split('@')[0]}</span>
                     <span className="text-white/25 text-xs">#{order.commande_id}</span>
                   </div>
                   <p className="text-white/30 text-xs">{order.email}</p>
                 </div>
                 <div className="text-right">
-                  <p className={`font-bold ${order.isFlash ? 'text-yellow-300' : 'text-[#C19A6B]'}`}>
-                    {formatPrice(order.total)}
-                  </p>
+                  <p className={`font-bold ${order.isFlash ? 'text-yellow-300' : 'text-[#C19A6B]'}`}>{formatPrice(order.total)}</p>
                   <p className="text-white/25 text-xs">{formatTime(order.created_at)}</p>
                 </div>
               </div>
-
               {order.pickup_time && (
                 <div className="px-4 py-1.5 bg-[#C19A6B]/6 flex items-center gap-2">
                   <span className="text-sm">🕐</span>
                   <p className="text-[#C19A6B]/80 text-xs">Retrait : {order.pickup_time}</p>
                 </div>
               )}
-
               <div className="px-4 pt-2 pb-3 space-y-1">
                 {order.items.map((item, i) => (
                   <div key={i} className="flex justify-between items-center">
-                    <span className="text-white/60 text-sm">
-                      <span className="text-white/35 mr-2">{item.qty}×</span>{item.name}
-                    </span>
+                    <span className="text-white/60 text-sm"><span className="text-white/35 mr-2">{item.qty}×</span>{item.name}</span>
                     <span className="text-white/35 text-xs">{formatPrice(item.price * item.qty)}</span>
                   </div>
                 ))}
               </div>
-
               <div className="px-4 pb-4 flex items-center gap-2">
-                <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_COLORS[order.status]}`}>
-                  {STATUS_LABELS[order.status]}
-                </span>
+                <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${STATUS_COLORS[order.status]}`}>{STATUS_LABELS[order.status]}</span>
                 <div className="flex-1" />
                 {order.status !== 'done' && (
                   <div className="flex gap-1.5">
-                    {order.status === 'pending'   && <ActionButton onClick={() => updateStatus(order.id, 'confirmed')} loading={updating === order.id} label="Confirmer"  emoji="✓"  color="blue"  />}
-                    {order.status === 'confirmed' && <ActionButton onClick={() => updateStatus(order.id, 'ready')}     loading={updating === order.id} label="Prête"       emoji="🟢" color="green" />}
-                    {order.status === 'ready'     && <ActionButton onClick={() => updateStatus(order.id, 'done')}      loading={updating === order.id} label="Récupérée"   emoji="✓✓" color="gray"  />}
+                    {order.status === 'pending'   && <ActionButton onClick={() => updateStatus(order.id, 'confirmed')} loading={updating === order.id} label="Confirmer" emoji="✓"  color="blue"  />}
+                    {order.status === 'confirmed' && <ActionButton onClick={() => updateStatus(order.id, 'ready')}     loading={updating === order.id} label="Prête"     emoji="🟢" color="green" />}
+                    {order.status === 'ready'     && <ActionButton onClick={() => updateStatus(order.id, 'done')}      loading={updating === order.id} label="Récupérée" emoji="✓✓" color="gray"  />}
                   </div>
                 )}
               </div>
@@ -489,33 +348,17 @@ export default function CommandesPage() {
   );
 }
 
-// ── Bouton action ─────────────────────────────────────────────
-
-function ActionButton({
-  onClick, loading, label, emoji, color,
-}: {
-  onClick: () => void;
-  loading: boolean;
-  label:   string;
-  emoji:   string;
-  color:   'blue' | 'green' | 'gray';
+function ActionButton({ onClick, loading, label, emoji, color }: {
+  onClick: () => void; loading: boolean; label: string; emoji: string; color: 'blue' | 'green' | 'gray';
 }) {
   const colors = {
     blue:  'bg-blue-500/15  border-blue-500/30  text-blue-300  hover:bg-blue-500/25',
     green: 'bg-green-500/15 border-green-500/30 text-green-300 hover:bg-green-500/25',
     gray:  'bg-white/8      border-white/15      text-white/50  hover:bg-white/15',
   };
-
   return (
-    <button
-      onClick={onClick}
-      disabled={loading}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-40 ${colors[color]}`}
-    >
-      {loading
-        ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-        : <span>{emoji}</span>
-      }
+    <button onClick={onClick} disabled={loading} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-40 ${colors[color]}`}>
+      {loading ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <span>{emoji}</span>}
       {label}
     </button>
   );

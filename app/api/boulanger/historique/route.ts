@@ -1,9 +1,3 @@
-// app/api/boulanger/historique/route.ts
-// ─────────────────────────────────────────────────────────────
-// GET → retourne les 30 dernières journées clôturées
-// Utilisé par le dashboard stats
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
@@ -11,7 +5,6 @@ export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
 
-    // Auth
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -33,17 +26,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
     }
 
-    // Paramètres optionnels
     const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get('limit') ?? '30');
-    const onlyClosed = searchParams.get('cloturee') !== 'false'; // true par défaut
+
+    // PATCH : parseInt + isNaN check + borne [1, 90]
+    const rawLimit = searchParams.get('limit');
+    const parsedLimit = rawLimit ? parseInt(rawLimit, 10) : 30;
+    const limit = !isNaN(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 90)
+      : 30;
+
+    const onlyClosed = searchParams.get('cloturee') !== 'false';
 
     const query = admin
       .from('journees')
       .select('*, stocks_journaliers(*)')
       .eq('boulangerie_id', boulangerie.id)
       .order('date', { ascending: false })
-      .limit(Math.min(limit, 90)); // max 90 jours
+      .limit(limit);
 
     if (onlyClosed) {
       query.eq('cloturee', true);
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      historique: (historique ?? []).reverse(), // Ordre chronologique pour les graphiques
+      historique: (historique ?? []).reverse(),
       count: historique?.length ?? 0,
     });
 

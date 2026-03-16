@@ -1,34 +1,26 @@
 'use client';
-// components/boulanger/catalogue.tsx
-// Drag & drop via HTML5 DragEvent natif sur <div> (pas motion.div)
-// pour éviter le conflit de types Framer Motion sur dataTransfer.
 
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Search, GripVertical,
   Eye, EyeOff, Zap, ZapOff, Pencil, Trash2,
-  AlertTriangle, ChevronDown, Package,
+  AlertTriangle, ChevronDown, Package, Sparkles,
 } from 'lucide-react';
 import {
   useProduitsBoulanger,
   type Produit,
+  type ProduitDraft,
   CATEGORIE_LABELS,
 } from '@/hooks/use-produits-boulanger';
 import ProduitFormModal from './produit-form-modal';
+import CatalogueStarter from './catalogue-starter';
 
 // ── Carte produit ─────────────────────────────────────────────
 
 function ProduitCard({
-  produit,
-  index,
-  onEdit,
-  onDelete,
-  onToggle,
-  onDragStart,
-  onDragEnter,
-  onDragEnd,
-  isDraggingOver,
+  produit, index, onEdit, onDelete, onToggle,
+  onDragStart, onDragEnter, onDragEnd, isDraggingOver,
 }: {
   produit:        Produit;
   index:          number;
@@ -44,7 +36,6 @@ function ProduitCard({
   const [dragging, setDragging]           = useState(false);
 
   return (
-    // div natif (pas motion.div) → React.DragEvent<HTMLDivElement> typé correctement
     <div
       draggable
       onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
@@ -56,10 +47,7 @@ function ProduitCard({
         e.preventDefault();
         onDragEnter(index);
       }}
-      onDragEnd={() => {
-        setDragging(false);
-        onDragEnd();
-      }}
+      onDragEnd={() => { setDragging(false); onDragEnd(); }}
       onDragOver={(e: React.DragEvent<HTMLDivElement>) => e.preventDefault()}
       className={[
         'border rounded-2xl overflow-hidden transition-all select-none',
@@ -69,100 +57,52 @@ function ProduitCard({
       ].join(' ')}
     >
       <div className="flex items-center gap-3 p-3">
-
-        {/* Drag handle */}
         <div className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-1 touch-none">
           <GripVertical size={16} />
         </div>
-
-        {/* Photo ou emoji */}
         <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
           {produit.image_public_url ? (
-            <img
-              src={produit.image_public_url}
-              alt={produit.nom}
-              className="w-full h-full object-cover"
-              draggable={false}
-            />
+            <img src={produit.image_public_url} alt={produit.nom} className="w-full h-full object-cover" draggable={false} />
           ) : (
             <span className="text-2xl">{produit.emoji}</span>
           )}
         </div>
-
-        {/* Infos */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-white font-medium text-sm truncate">{produit.nom}</p>
             {produit.allergenes.length > 0 && (
-              <span className="text-[10px] text-amber-400/60 flex-shrink-0">
-                ⚠ {produit.allergenes.length}
-              </span>
+              <span className="text-[10px] text-amber-400/60 flex-shrink-0">⚠ {produit.allergenes.length}</span>
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[#C19A6B] text-xs font-bold font-mono">
-              {produit.prix_vente.toFixed(2)}€
-            </span>
+            <span className="text-[#C19A6B] text-xs font-bold font-mono">{produit.prix_vente.toFixed(2)}€</span>
             <span className="text-white/20 text-xs">·</span>
             <span className="text-white/30 text-xs capitalize">{produit.categorie}</span>
-            {produit.prix_flash_override && (
-              <>
-                <span className="text-white/20 text-xs">·</span>
-                <span className="text-yellow-400/60 text-xs font-mono">
-                  flash: {produit.prix_flash_override.toFixed(2)}€
-                </span>
-              </>
-            )}
           </div>
         </div>
-
-        {/* Toggles + actions */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             onClick={() => onToggle('actif_catalogue')}
-            title={produit.actif_catalogue ? 'Masquer du catalogue' : 'Afficher dans le catalogue'}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-              produit.actif_catalogue
-                ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25'
-                : 'bg-white/5 text-white/25 hover:bg-white/10'
-            }`}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_catalogue ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
           >
             {produit.actif_catalogue ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
-
           <button
             onClick={() => onToggle('actif_flash')}
-            title={produit.actif_flash ? 'Exclure du flash' : 'Inclure dans le flash'}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-              produit.actif_flash
-                ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25'
-                : 'bg-white/5 text-white/25 hover:bg-white/10'
-            }`}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
           >
             {produit.actif_flash ? <Zap size={14} /> : <ZapOff size={14} />}
           </button>
-
           <button
             onClick={onEdit}
             className="w-8 h-8 rounded-lg bg-white/5 text-white/40 hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] flex items-center justify-center transition-all"
           >
             <Pencil size={14} />
           </button>
-
           {confirmDelete ? (
             <div className="flex items-center gap-1">
-              <button
-                onClick={onDelete}
-                className="px-2 py-1 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors"
-              >
-                Confirmer
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="px-2 py-1 text-[10px] text-white/30 hover:text-white/60 transition-colors"
-              >
-                Annuler
-              </button>
+              <button onClick={onDelete} className="px-2 py-1 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">Confirmer</button>
+              <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 text-[10px] text-white/30 hover:text-white/60 transition-colors">Annuler</button>
             </div>
           ) : (
             <button
@@ -180,24 +120,19 @@ function ProduitCard({
 
 // ── Hook drag & drop ──────────────────────────────────────────
 
-function useDragDrop(
-  items: Produit[],
-  onReorder: (ids: string[]) => Promise<void>
-) {
+function useDragDrop(items: Produit[], onReorder: (ids: string[]) => Promise<void>) {
   const dragIndex = useRef<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
   const handleDragStart = (index: number) => { dragIndex.current = index; };
-
   const handleDragEnter = (index: number) => {
     if (dragIndex.current === null || dragIndex.current === index) return;
     setOverIndex(index);
   };
-
   const handleDragEnd = () => {
     if (dragIndex.current !== null && overIndex !== null && dragIndex.current !== overIndex) {
       const reordered = [...items];
-      const [moved]   = reordered.splice(dragIndex.current, 1);
+      const [moved] = reordered.splice(dragIndex.current, 1);
       reordered.splice(overIndex, 0, moved);
       onReorder(reordered.map(p => p.id));
     }
@@ -208,7 +143,7 @@ function useDragDrop(
   return { overIndex, handleDragStart, handleDragEnter, handleDragEnd };
 }
 
-// ── Groupe par catégorie ──────────────────────────────────────
+// ── Section catégorie ─────────────────────────────────────────
 
 function CategorieSection({
   categorie, produits, globalOffset, overIndex,
@@ -227,42 +162,22 @@ function CategorieSection({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const actifs = produits.filter(p => p.actif_catalogue).length;
-  const flashs  = produits.filter(p => p.actif_flash).length;
+  const flashs = produits.filter(p => p.actif_flash).length;
 
   return (
     <div className="mb-4">
-      <button
-        onClick={() => setCollapsed(v => !v)}
-        className="flex items-center gap-2 w-full mb-2 group"
-      >
-        <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">
-          {CATEGORIE_LABELS[categorie]}
-        </p>
-        <span className="text-white/20 text-xs">
-          {produits.length} produit{produits.length > 1 ? 's' : ''}
-        </span>
+      <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 w-full mb-2 group">
+        <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">{CATEGORIE_LABELS[categorie]}</p>
+        <span className="text-white/20 text-xs">{produits.length} produit{produits.length > 1 ? 's' : ''}</span>
         <div className="flex gap-1 ml-auto">
-          <span className="bg-green-500/15 text-green-400 text-[10px] px-1.5 py-0.5 rounded-full">
-            {actifs} actif{actifs > 1 ? 's' : ''}
-          </span>
-          <span className="bg-yellow-400/15 text-yellow-400 text-[10px] px-1.5 py-0.5 rounded-full">
-            {flashs} flash
-          </span>
+          <span className="bg-green-500/15 text-green-400 text-[10px] px-1.5 py-0.5 rounded-full">{actifs} actif{actifs > 1 ? 's' : ''}</span>
+          <span className="bg-yellow-400/15 text-yellow-400 text-[10px] px-1.5 py-0.5 rounded-full">{flashs} flash</span>
         </div>
-        <ChevronDown
-          size={14}
-          className={`text-white/25 group-hover:text-white/50 transition-all ${collapsed ? '-rotate-90' : ''}`}
-        />
+        <ChevronDown size={14} className={`text-white/25 group-hover:text-white/50 transition-all ${collapsed ? '-rotate-90' : ''}`} />
       </button>
-
       <AnimatePresence>
         {!collapsed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="space-y-2 overflow-hidden"
-          >
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden">
             {produits.map((p, localIdx) => {
               const globalIdx = globalOffset + localIdx;
               return (
@@ -290,16 +205,19 @@ function CategorieSection({
 // ── Page principale ───────────────────────────────────────────
 
 export default function Catalogue() {
-  const {
-    produits, loading, error,
-    creer, modifier, supprimer, toggleActif, uploaderPhoto, reordonner,
-  } = useProduitsBoulanger();
+  const { produits, loading, error, creer, modifier, supprimer, toggleActif, uploaderPhoto, reordonner, refetch } = useProduitsBoulanger();
 
-  const [search, setSearch]           = useState('');
-  const [filterActif, setFilterActif] = useState<'all' | 'actif' | 'inactif'>('all');
-  const [filterFlash, setFilterFlash] = useState(false);
-  const [modalOpen, setModalOpen]     = useState(false);
-  const [editingProduit, setEditingProduit] = useState<Produit | null>(null);
+  const [search, setSearch]                     = useState('');
+  const [filterActif, setFilterActif]           = useState<'all' | 'actif' | 'inactif'>('all');
+  const [filterFlash, setFilterFlash]           = useState(false);
+  const [modalOpen, setModalOpen]               = useState(false);
+  const [editingProduit, setEditingProduit]     = useState<Produit | null>(null);
+  // 🆕 État wizard onboarding
+  const [showStarter, setShowStarter]           = useState(false);
+  const [starterDismissed, setStarterDismissed] = useState(false);
+
+  // 🆕 Déclenche CatalogueStarter si catalogue vide et non ignoré
+  const shouldShowStarter = !loading && produits.length === 0 && !starterDismissed && !showStarter;
 
   const filtered = produits.filter(p => {
     if (search && !p.nom.toLowerCase().includes(search.toLowerCase())) return false;
@@ -316,8 +234,7 @@ export default function Catalogue() {
     patisserie:   filtered.filter(p => p.categorie === 'patisserie'),
   };
 
-  const { overIndex, handleDragStart, handleDragEnter, handleDragEnd } =
-    useDragDrop(filtered, reordonner);
+  const { overIndex, handleDragStart, handleDragEnter, handleDragEnd } = useDragDrop(filtered, reordonner);
 
   const offsets = {
     boulangerie:  0,
@@ -329,15 +246,35 @@ export default function Catalogue() {
   const handleNew   = ()           => { setEditingProduit(null); setModalOpen(true); };
   const handleClose = ()           => { setModalOpen(false); setEditingProduit(null); };
 
-  const handleSave = async (draft: Parameters<typeof creer>[0]) => {
+  const handleSave = async (draft: ProduitDraft) => {
     if (editingProduit) await modifier(editingProduit.id, draft);
     else                await creer(draft);
     handleClose();
   };
 
+  // 🆕 Handler CatalogueStarter : crée tous les produits sélectionnés en batch
+  const handleStarterValider = async (drafts: ProduitDraft[]) => {
+    // Création en série pour préserver l'ordre
+    for (const draft of drafts) {
+      await creer(draft);
+    }
+    setStarterDismissed(true);
+    setShowStarter(false);
+  };
+
   const nbTotal  = produits.length;
   const nbActifs = produits.filter(p => p.actif_catalogue).length;
   const nbFlash  = produits.filter(p => p.actif_flash).length;
+
+  // ── 🆕 Affichage CatalogueStarter ────────────────────────────
+  if (shouldShowStarter || showStarter) {
+    return (
+      <CatalogueStarter
+        onValider={handleStarterValider}
+        onIgnorer={() => { setStarterDismissed(true); setShowStarter(false); }}
+      />
+    );
+  }
 
   return (
     <div className="pb-24">
@@ -348,15 +285,27 @@ export default function Catalogue() {
           <h2 className="text-white text-2xl font-bold" style={{ fontFamily: 'Playfair Display, serif' }}>
             Mes produits
           </h2>
-          <motion.button
-            data-tour="catalogue-add-btn"
-            whileTap={{ scale: 0.95 }}
-            onClick={handleNew}
-            className="flex items-center gap-2 bg-[#C19A6B] text-[#1A0F0A] px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-[#D4AE85] transition-colors"
-          >
-            <Plus size={16} />
-            Ajouter
-          </motion.button>
+          <div className="flex items-center gap-2">
+            {/* 🆕 Bouton pour re-déclencher le wizard */}
+            {produits.length === 0 && starterDismissed && (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={() => { setStarterDismissed(false); setShowStarter(true); }}
+                className="flex items-center gap-1.5 bg-white/8 border border-white/12 text-white/50 px-3 py-2 rounded-xl text-xs hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] transition-all"
+              >
+                <Sparkles size={13} /> Démarrage rapide
+              </motion.button>
+            )}
+            <motion.button
+              data-tour="catalogue-add-btn"
+              whileTap={{ scale: 0.95 }}
+              onClick={handleNew}
+              className="flex items-center gap-2 bg-[#C19A6B] text-[#1A0F0A] px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-[#D4AE85] transition-colors"
+            >
+              <Plus size={16} />
+              Ajouter
+            </motion.button>
+          </div>
         </div>
       </div>
 
@@ -391,11 +340,7 @@ export default function Catalogue() {
         </div>
         <button
           onClick={() => setFilterFlash(v => !v)}
-          className={`px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 ${
-            filterFlash
-              ? 'bg-yellow-400/20 text-yellow-400 border border-yellow-400/30'
-              : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'
-          }`}
+          className={`px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 ${filterFlash ? 'bg-yellow-400/20 text-yellow-400 border border-yellow-400/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'}`}
         >
           <Zap size={12} /> Flash
         </button>
@@ -410,15 +355,13 @@ export default function Catalogue() {
         </select>
       </div>
 
-      {/* Hint drag & drop */}
-      {!loading && produits.length > 1 && (
+      {produits.length > 1 && (
         <div className="flex items-center gap-2 mb-4 px-1">
           <GripVertical size={12} className="text-white/20" />
           <p className="text-white/25 text-xs">Glissez les lignes pour réordonner</p>
         </div>
       )}
 
-      {/* Erreur */}
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4 flex items-center gap-2">
           <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
@@ -426,16 +369,13 @@ export default function Catalogue() {
         </div>
       )}
 
-      {/* Skeleton */}
       {loading && (
         <div className="space-y-2">
-          {[1,2,3,4,5].map(i => (
-            <div key={i} className="h-16 bg-white/4 rounded-2xl animate-pulse" />
-          ))}
+          {[1,2,3,4,5].map(i => <div key={i} className="h-16 bg-white/4 rounded-2xl animate-pulse" />)}
         </div>
       )}
 
-      {/* Vide */}
+      {/* 🆕 État vide avec proposition CatalogueStarter */}
       {!loading && produits.length === 0 && (
         <div className="text-center py-16">
           <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -443,16 +383,27 @@ export default function Catalogue() {
           </div>
           <p className="text-white/50 font-medium mb-1">Aucun produit</p>
           <p className="text-white/25 text-sm mb-6">
-            Ajoutez vos premiers produits pour les proposer en click & collect
+            Commencez avec nos modèles pré-configurés ou créez manuellement.
           </p>
-          <button onClick={handleNew} className="bg-[#C19A6B] text-[#1A0F0A] px-5 py-2.5 rounded-xl font-bold text-sm">
-            Ajouter mon premier produit
-          </button>
+          <div className="flex flex-col gap-3 max-w-xs mx-auto">
+            <button
+              onClick={() => setShowStarter(true)}
+              className="flex items-center justify-center gap-2 bg-[#C19A6B] text-[#1A0F0A] px-5 py-3 rounded-xl font-bold text-sm"
+            >
+              <Sparkles size={16} /> Démarrage rapide (12 produits)
+            </button>
+            <button
+              onClick={handleNew}
+              className="flex items-center justify-center gap-2 bg-white/8 border border-white/12 text-white/60 px-5 py-3 rounded-xl text-sm"
+            >
+              <Plus size={14} /> Créer manuellement
+            </button>
+          </div>
         </div>
       )}
 
       {/* Liste groupée */}
-      {!loading && (
+      {!loading && produits.length > 0 && (
         <>
           {categories.map(cat =>
             grouped[cat].length > 0 ? (

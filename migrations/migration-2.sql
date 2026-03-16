@@ -1,72 +1,69 @@
--- migration-2-fix.sql
--- Correction de l'erreur "cannot change return type of existing function"
--- À exécuter à la place de migration-2.sql si vous avez déjà une version
--- des fonctions encrypt_text/decrypt_text en base.
+-- ═══════════════════════════════════════════════════════════════════════
+-- MIGRATION 10 — Adresse dynamique + Créneaux de retrait + Config flash UI
+-- Exécuter dans : Supabase Dashboard → SQL Editor
+-- Idempotent (ADD COLUMN IF NOT EXISTS)
+-- ═══════════════════════════════════════════════════════════════════════
 
--- ─── 1. Colonnes Stripe ──────────────────────────────────────────────────────
+BEGIN;
 
+-- ── 1. Adresse boulangerie ──────────────────────────────────────────────
 ALTER TABLE boulangeries
-  ADD COLUMN IF NOT EXISTS stripe_customer_id     TEXT,
-  ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
-  ADD COLUMN IF NOT EXISTS trial_ends_at          TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS stripe_status          TEXT NOT NULL DEFAULT 'inactive';
+  ADD COLUMN IF NOT EXISTS adresse     TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS ville       TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS code_postal TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS telephone   TEXT DEFAULT NULL;
 
+-- Contrainte : code postal français si fourni
+DO $$ BEGIN
+  ALTER TABLE boulangeries
+    ADD CONSTRAINT chk_code_postal
+      CHECK (code_postal IS NULL OR code_postal ~ '^\d{5}$');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ── 2. Créneaux de retrait (Click & Collect) ──────────────────────────
+-- Tableau de strings "HH:MM" — géré par l'UI Paramètres
+-- Valeurs par défaut : 08h, 09h, 10h
 ALTER TABLE boulangeries
-  DROP CONSTRAINT IF EXISTS chk_stripe_status;
-ALTER TABLE boulangeries
-  ADD CONSTRAINT chk_stripe_status CHECK (
-    stripe_status IN ('inactive','trialing','active','past_due','canceled','unpaid')
-  );
+  ADD COLUMN IF NOT EXISTS creneaux_retrait TEXT[] DEFAULT ARRAY['08:00', '09:00', '10:00'];
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_boulangeries_stripe_customer
-  ON boulangeries(stripe_customer_id)
-  WHERE stripe_customer_id IS NOT NULL;
+-- ── 3. Config flash déjà présente depuis migration-complete-v1 ─────────
+-- flash_heure_debut, flash_heure_fin, flash_remise_pct
+-- Ces colonnes existent déjà — on ajoute juste les valeurs par défaut
+-- pour les boulangeries créées avant cette migration
+UPDATE boulangeries
+   SET flash_heure_debut = 18
+ WHERE flash_heure_debut IS NULL;
 
--- ─── 2. Colonnes chiffrées Airtable ──────────────────────────────────────────
+UPDATE boulangeries
+   SET flash_heure_fin = 20
+ WHERE flash_heure_fin IS NULL;
 
-ALTER TABLE boulangeries
-  ADD COLUMN IF NOT EXISTS airtable_api_key_enc TEXT,
-  ADD COLUMN IF NOT EXISTS airtable_base_id_enc TEXT;
+UPDATE boulangeries
+   SET flash_remise_pct = 40
+ WHERE flash_remise_pct IS NULL;
 
--- ─── 3. Extension + fonctions chiffrement ────────────────────────────────────
+-- ── 4. Mise à jour get_paniers_flash() pour utiliser flash_heure_debut ─
+-- (déjà fait dans migration-complete-v1, ici pour les setups qui ont
+--  appliqué les migrations individuellement)
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- ── 5. Index pour la recherche par ville ───────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_boulangeries_ville
+  ON boulangeries(ville)
+  WHERE ville IS NOT NULL;
 
--- DROP obligatoire si la fonction existait avec un type de retour différent
-DROP FUNCTION IF EXISTS encrypt_text(TEXT, TEXT);
-DROP FUNCTION IF EXISTS decrypt_text(TEXT, TEXT);
-
-CREATE FUNCTION encrypt_text(plaintext TEXT, secret TEXT)
-RETURNS TEXT
-LANGUAGE plpgsql SECURITY DEFINER
-AS $$
+-- ── 6. Vérification ────────────────────────────────────────────────────
+DO $$
+DECLARE
+  n_cols INT;
 BEGIN
-  RETURN encode(
-    pgp_sym_encrypt(plaintext, secret, 'cipher-algo=aes256'),
-    'base64'
-  );
-END;
-$$;
+  SELECT COUNT(*) INTO n_cols
+    FROM information_schema.columns
+   WHERE table_name = 'boulangeries'
+     AND table_schema = 'public'
+     AND column_name IN ('adresse', 'ville', 'code_postal', 'telephone', 'creneaux_retrait');
 
-CREATE FUNCTION decrypt_text(ciphertext TEXT, secret TEXT)
-RETURNS TEXT
-LANGUAGE plpgsql SECURITY DEFINER
-AS $$
-BEGIN
-  RETURN pgp_sym_decrypt(decode(ciphertext, 'base64'), secret);
-EXCEPTION WHEN OTHERS THEN
-  RETURN NULL;
-END;
-$$;
+  RAISE NOTICE '✅ Migration 10 OK — % colonnes ajoutées à boulangeries', n_cols;
+END $$;
 
-REVOKE ALL ON FUNCTION encrypt_text(TEXT, TEXT) FROM PUBLIC;
-REVOKE ALL ON FUNCTION decrypt_text(TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION encrypt_text(TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION decrypt_text(TEXT, TEXT) TO service_role;
-
--- ─── 4. Vérification ─────────────────────────────────────────────────────────
-
-SELECT column_name, data_type, column_default
-FROM information_schema.columns
-WHERE table_name = 'boulangeries' AND table_schema = 'public'
-ORDER BY ordinal_position;
+COMMIT;

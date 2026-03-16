@@ -1,23 +1,66 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Minus, Plus, ShoppingBag, Trash2, ArrowRight,
   CheckCircle, MapPin, Clock, Mail, AlertCircle, Loader2,
 } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
+import { useSlug } from '@/hooks/use-slug';
+
+// ── Types ──────────────────────────────────────────────────────
+
+interface BoulangeriePublicInfo {
+  adresse:          string | null;
+  ville:            string | null;
+  code_postal:      string | null;
+  creneaux_retrait: string[];
+}
+
+// ── Hook : charge les infos publiques de la boulangerie ────────
+
+function useBoulangerieInfo(slug: string | null) {
+  const [info, setInfo] = useState<BoulangeriePublicInfo>({
+    adresse:          null,
+    ville:            null,
+    code_postal:      null,
+    creneaux_retrait: ['08:00', '09:00', '10:00'],
+  });
+
+  useEffect(() => {
+    if (!slug) return;
+    // On récupère les infos publiques via le catalogue (qui expose le profil public)
+    // Note : dans un projet complet, créer une route GET /api/boulangerie/:slug/info
+    // Pour l'instant, on utilise l'endpoint catalogue qui retourne les données publiques
+    fetch(`/api/catalogue/${slug}`)
+      .then(r => r.json())
+      .then((data: { boulangerie?: BoulangeriePublicInfo }) => {
+        if (data?.boulangerie) setInfo(data.boulangerie);
+      })
+      .catch(() => {/* fail silently, utilise les valeurs par défaut */});
+  }, [slug]);
+
+  return info;
+}
+
+// ── Formatage adresse ──────────────────────────────────────────
+
+function formatAdresse(info: BoulangeriePublicInfo): string {
+  const parts = [info.adresse, info.code_postal && info.ville ? `${info.code_postal} ${info.ville}` : info.ville].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
+}
 
 // ── Écran de confirmation ──────────────────────────────────────
 
 function OrderConfirmation({
-  orderNumber,
-  total,
-  onClose,
+  orderNumber, total, heureRetrait, adresse, onClose,
 }: {
-  orderNumber: string;
-  total:       number;
-  onClose:     () => void;
+  orderNumber:  string;
+  total:        number;
+  heureRetrait: string;
+  adresse:      string;
+  onClose:      () => void;
 }) {
   return (
     <motion.div
@@ -45,8 +88,8 @@ function OrderConfirmation({
         <div className="bg-[#F5F0E8] rounded-2xl p-4 mb-5 space-y-3 text-left">
           {[
             { icon: ShoppingBag, label: 'Numéro de commande', value: orderNumber, mono: true },
-            { icon: MapPin,      label: 'Retrait en boutique', value: '42 Rue de la Boulangerie, Paris' },
-            { icon: Clock,       label: 'Disponible dès demain', value: 'À partir de 7h · Jusqu\'à 10h' },
+            { icon: MapPin,      label: 'Retrait en boutique', value: adresse },
+            { icon: Clock,       label: 'Heure de retrait', value: heureRetrait },
             { icon: Mail,        label: 'Confirmation', value: 'Email envoyé à votre adresse' },
           ].map(({ icon: Icon, label, value, mono }) => (
             <div key={label} className="flex items-center gap-2.5">
@@ -84,18 +127,33 @@ export default function CartSidebar() {
     items, updateQuantity, removeItem, clearCart,
     totalItems, totalPrice,
     user, setIsAuthOpen,
-    boulangerieSlug,  // slug dynamique depuis le CartContext
+    boulangerieSlug,
   } = useCart();
+
+  const resolution = useSlug();
+  const boulangerieInfo = useBoulangerieInfo(resolution?.slug ?? boulangerieSlug ?? null);
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber]       = useState('');
+  const [heureRetrait, setHeureRetrait]     = useState('');
+  const [selectedHeure, setSelectedHeure]   = useState('');
   const [isSubmitting, setIsSubmitting]     = useState(false);
   const [submitError, setSubmitError]       = useState<string | null>(null);
 
-  // ── Checkout → POST /api/orders ──────────────────────────────
+  // Initialise le créneau sélectionné au premier créneau disponible
+  useEffect(() => {
+    if (boulangerieInfo.creneaux_retrait.length > 0 && !selectedHeure) {
+      setSelectedHeure(boulangerieInfo.creneaux_retrait[0]);
+    }
+  }, [boulangerieInfo.creneaux_retrait, selectedHeure]);
+
+  const adresseFormatted = formatAdresse(boulangerieInfo);
+
+  // ── Checkout ─────────────────────────────────────────────────
 
   const handleCheckout = async () => {
     if (!user) { setIsAuthOpen(true); return; }
+    if (!selectedHeure) { setSubmitError('Sélectionnez un créneau de retrait'); return; }
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -108,7 +166,7 @@ export default function CartSidebar() {
           boulangerie_slug: boulangerieSlug,
           client_prenom:    user.user_metadata?.prenom ?? user.email?.split('@')[0] ?? 'Client',
           client_email:     user.email!,
-          heure_retrait:    '08:00',
+          heure_retrait:    selectedHeure,
           lignes: items.map(({ product, quantity }) => ({
             produit_id:    product.id,
             produit_nom:   product.name,
@@ -126,6 +184,7 @@ export default function CartSidebar() {
       }
 
       setOrderNumber(json.commande_id ?? '');
+      setHeureRetrait(selectedHeure);
       setOrderConfirmed(true);
       clearCart();
     } catch {
@@ -179,10 +238,7 @@ export default function CartSidebar() {
               </div>
               <div className="flex items-center gap-3">
                 {!orderConfirmed && items.length > 0 && (
-                  <button
-                    onClick={clearCart}
-                    className="text-white/40 hover:text-white/80 transition-colors text-xs flex items-center gap-1"
-                  >
+                  <button onClick={clearCart} className="text-white/40 hover:text-white/80 transition-colors text-xs flex items-center gap-1">
                     <Trash2 size={12} /> Vider
                   </button>
                 )}
@@ -195,7 +251,13 @@ export default function CartSidebar() {
             {/* Corps */}
             <div className="flex-1 overflow-y-auto">
               {orderConfirmed ? (
-                <OrderConfirmation orderNumber={orderNumber} total={TOTAL_TTC} onClose={handleClose} />
+                <OrderConfirmation
+                  orderNumber={orderNumber}
+                  total={TOTAL_TTC}
+                  heureRetrait={heureRetrait}
+                  adresse={adresseFormatted}
+                  onClose={handleClose}
+                />
               ) : items.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -288,6 +350,42 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
+                {/* 🆕 Créneau de retrait dynamique */}
+                <div>
+                  <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
+                    <Clock size={12} />
+                    Heure de retrait
+                  </label>
+                  {boulangerieInfo.creneaux_retrait.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {boulangerieInfo.creneaux_retrait.map(c => (
+                        <button
+                          key={c}
+                          onClick={() => setSelectedHeure(c)}
+                          className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all border ${
+                            selectedHeure === c
+                              ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
+                              : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[#2C1810]/40 text-xs">Aucun créneau configuré</p>
+                  )}
+                </div>
+
+                {/* 🆕 Adresse dynamique */}
+                <div className="bg-[#F5F0E8] rounded-xl px-3 py-2.5 flex items-start gap-2">
+                  <MapPin size={13} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-[#2C1810]/50 text-xs">Retrait en boutique</p>
+                    <p className="text-[#2C1810] text-sm font-medium">{adresseFormatted}</p>
+                  </div>
+                </div>
+
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
@@ -314,7 +412,7 @@ export default function CartSidebar() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleCheckout}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !selectedHeure}
                   className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? (

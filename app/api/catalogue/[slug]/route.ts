@@ -1,26 +1,12 @@
 // app/api/catalogue/[slug]/route.ts
-// ─────────────────────────────────────────────────────────────
-// GET /api/catalogue/:slug
-//
-// Route PUBLIQUE (anon key uniquement) qui remplace /api/products.
-// Appelle la fonction SQL get_catalogue_public() via Supabase RPC.
-//
-// SÉCURITÉ :
-//   - Utilise le client anon (pas service_role) — ce qui est suffisant
-//     car la fonction SQL SECURITY DEFINER gère elle-même les contrôles
-//   - Ne retourne jamais les stocks, invendus, ou données internes
-//   - Isolation par slug : impossible d'accéder aux données d'une autre
-//     boulangerie même avec un UUID deviné
-//   - Cache 5 minutes côté CDN (Netlify Edge)
-// ─────────────────────────────────────────────────────────────
+// 🆕 Expose aussi les infos publiques de la boulangerie (adresse, créneaux)
+//    pour le CartSidebar et la vitrine cliente
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { resolveSlugServer } from '@/lib/resolve-slug';
 
 export const dynamic = 'force-dynamic';
 
-// Produit tel que retourné par get_catalogue_public()
 interface ProduitPublic {
   id:          string;
   nom:         string;
@@ -31,14 +17,12 @@ interface ProduitPublic {
   image_url:   string | null;
 }
 
-// Format compatible avec l'existant (lib/products.ts Product type)
 function toProduct(p: ProduitPublic) {
   const imageDefaults: Record<string, string> = {
     boulangerie:  'https://images.unsplash.com/photo-1568471173242-461f0a730452?w=800&q=80',
     viennoiserie: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&q=80',
     patisserie:   'https://images.unsplash.com/photo-1519915212116-7cfef71f1d3e?w=800&q=80',
   };
-
   return {
     id:          p.id,
     name:        p.nom,
@@ -49,13 +33,16 @@ function toProduct(p: ProduitPublic) {
   };
 }
 
+// Regex slug valide
+const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$|^[a-z0-9]{2}$/;
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { slug: string } }
 ) {
   const slug = params.slug?.trim().toLowerCase();
 
-  if (!slug || slug.length > 60) {
+  if (!slug || !SLUG_REGEX.test(slug)) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });
   }
 
@@ -66,29 +53,44 @@ export async function GET(
     return NextResponse.json({ error: 'Configuration serveur manquante' }, { status: 503 });
   }
 
-  // Client anon — volontairement pas service_role ici
-  // La fonction SQL SECURITY DEFINER gère la sécurité
   const supabase = createClient(supabaseUrl, supabaseAnon, {
     auth: { persistSession: false },
   });
 
   try {
-    const { data, error } = await supabase.rpc('get_catalogue_public', {
-      p_slug: slug,
-    });
+    // Récupère le catalogue + les infos publiques de la boulangerie en parallèle
+    const [catalogueResult, boulangerieResult] = await Promise.all([
+      supabase.rpc('get_catalogue_public', { p_slug: slug }),
+      supabase
+        .from('boulangeries')
+        .select('nom, adresse, ville, code_postal, telephone, creneaux_retrait, flash_heure_debut, flash_heure_fin, flash_remise_pct')
+        .eq('slug', slug)
+        .eq('actif', true)
+        .single(),
+    ]);
 
-    if (error) {
-      console.error('[GET /api/catalogue/[slug]]', error);
+    if (catalogueResult.error) {
+      console.error('[GET /api/catalogue/[slug]]', catalogueResult.error);
       return NextResponse.json({ error: 'Erreur catalogue' }, { status: 500 });
     }
 
-    const products = (data as ProduitPublic[] ?? []).map(toProduct);
+    const products = (catalogueResult.data as ProduitPublic[] ?? []).map(toProduct);
+
+    // Infos boulangerie — null si erreur (ne bloque pas le catalogue)
+    const boulangerieData = boulangerieResult.data;
+    const boulangeriePublic = boulangerieData ? {
+      nom:              boulangerieData.nom,
+      adresse:          boulangerieData.adresse ?? null,
+      ville:            boulangerieData.ville ?? null,
+      code_postal:      boulangerieData.code_postal ?? null,
+      telephone:        boulangerieData.telephone ?? null,
+      creneaux_retrait: boulangerieData.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
+    } : null;
 
     return NextResponse.json(
-      { success: true, source: 'supabase', products },
+      { success: true, source: 'supabase', products, boulangerie: boulangeriePublic },
       {
         headers: {
-          // Cache 5 min CDN, 1 min navigateur
           'Cache-Control': 'public, s-maxage=300, max-age=60, stale-while-revalidate=60',
         },
       }

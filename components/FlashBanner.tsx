@@ -13,10 +13,12 @@ interface FlashBannerProps {
 
 type BannerState = 'hidden' | 'teaser' | 'live';
 
-function useBannerState(heureDebut: number, heureFin: number, nbPaniers: number) {
+// 🆕 heureDebut et heureFin passés en props — proviennent de l'API
+function useBannerState(heureDebut: number, heureFin: number) {
   const [state, setState]       = useState<BannerState>('hidden');
   const [timeLeft, setTimeLeft] = useState('');
-  const warningHour             = heureDebut - 3;
+  // Affiche le teaser 3h avant le début
+  const warningHour = heureDebut - 3;
 
   useEffect(() => {
     const check = () => {
@@ -58,15 +60,17 @@ function useBannerState(heureDebut: number, heureFin: number, nbPaniers: number)
 }
 
 export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProps) {
-  const { data, loading }          = useFlashPaniers();
-  const { heureDebut, heureFin, nbPaniers, remise } = data;
-  const { state, timeLeft }        = useBannerState(heureDebut, heureFin, nbPaniers);
-  const [dismissed, setDismissed]  = useState(false);
+  const { data, loading } = useFlashPaniers();
 
-  // Reset dismissed à chaque changement d'état
+  // 🆕 Utilise les valeurs dynamiques de l'API (plus de hardcode)
+  const { heureDebut, heureFin, nbPaniers, remise } = data;
+  const { state, timeLeft } = useBannerState(heureDebut, heureFin);
+  const [dismissed, setDismissed] = useState(false);
+
+  // Reset dismissed à chaque changement d'état (teaser → live)
   useEffect(() => { setDismissed(false); }, [state]);
 
-  // Ne pas afficher pendant le chargement initial ou si dismissed
+  // Masqué pendant le chargement initial, si dismissed ou hors fenêtre horaire
   if (loading || state === 'hidden' || dismissed) return null;
 
   return (
@@ -80,6 +84,7 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
         className="fixed top-20 left-0 right-0 z-40 px-4 sm:px-8 lg:px-0 lg:max-w-3xl lg:mx-auto"
       >
         {state === 'teaser' ? (
+          /* ── TEASER ── */
           <div className="relative overflow-hidden rounded-2xl shadow-xl">
             <div className="absolute inset-0 bg-[#2C1810]" />
             <div
@@ -105,7 +110,7 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
             </div>
           </div>
         ) : (
-          /* ── LIVE ─────────────────────────────────────────── */
+          /* ── LIVE ── */
           <div className="relative overflow-hidden rounded-2xl shadow-2xl">
             <div className="absolute inset-0 bg-gradient-to-r from-[#8B4513] via-[#C19A6B] to-[#8B4513]" />
             <motion.div

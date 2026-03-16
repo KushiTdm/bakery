@@ -1,16 +1,7 @@
-// app/api/boulanger/journee/route.ts
-// ─────────────────────────────────────────────────────────────
-// Sauvegarde et chargement de la journée courante
-// GET  → charge la journée du jour (ou crée une vide)
-// POST → sauvegarde l'état courant (appelé avec debounce)
-// PUT  → clôture la journée
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import type { StockEntry } from '@/context/boulanger-context';
 
-// ── Helper : vérifie le token et retourne le boulangerie_id ──
 async function getBoulangerieId(req: NextRequest): Promise<string | null> {
   const admin = getSupabaseAdmin();
   const authHeader = req.headers.get('Authorization');
@@ -29,7 +20,7 @@ async function getBoulangerieId(req: NextRequest): Promise<string | null> {
   return boulangerie?.id ?? null;
 }
 
-// ── GET — Charge la journée du jour ──────────────────────────
+// ── GET ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
@@ -48,7 +39,6 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      // PGRST116 = "not found", c'est normal si pas encore de journée aujourd'hui
       console.error('[/api/boulanger/journee GET]', error);
       return NextResponse.json({ error: 'Erreur chargement journée' }, { status: 500 });
     }
@@ -61,7 +51,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── POST — Sauvegarde l'état courant (debounced depuis le context) ──
+// ── POST ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
@@ -70,22 +60,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Corps de requête invalide' }, { status: 400 });
+    }
+
     const { stocks, commandesOnline } = body as {
       stocks: StockEntry[];
       commandesOnline: number;
     };
 
     if (!stocks || !Array.isArray(stocks)) {
-      return NextResponse.json({ error: 'stocks requis' }, { status: 400 });
+      return NextResponse.json({ error: 'stocks requis (tableau)' }, { status: 400 });
     }
+
+    // Borne commandesOnline — évite des valeurs aberrantes
+    const commandesOnlineSafe = Math.max(0, Math.min(Math.floor(Number(commandesOnline) || 0), 9999));
+
+    // Borne les valeurs numériques des stocks
+    const stocksSafe = stocks.map(s => ({
+      ...s,
+      production:  Math.max(0, Math.min(Math.floor(Number(s.production)  || 0), 99999)),
+      snapshot10h: Math.max(0, Math.min(Math.floor(Number(s.snapshot10h) || 0), 99999)),
+      snapshot14h: Math.max(0, Math.min(Math.floor(Number(s.snapshot14h) || 0), 99999)),
+      stockFinal:  Math.max(0, Math.min(Math.floor(Number(s.stockFinal)  || 0), 99999)),
+      prixVente:   Math.max(0, Math.min(Math.round(Number(s.prixVente)   * 100) / 100, 9999.99)),
+      coutProduction: Math.max(0, Math.min(Math.round(Number(s.coutProduction) * 100) / 100, 9999.99)),
+    }));
 
     const today = new Date().toISOString().split('T')[0];
 
-    // Calculs agrégés
-    const totalProduit = stocks.reduce((s, p) => s + p.production, 0);
-    const totalInvendu = stocks.reduce((s, p) => s + p.stockFinal, 0);
-    const caEstime = stocks.reduce(
+    const totalProduit = stocksSafe.reduce((s, p) => s + p.production, 0);
+    const totalInvendu = stocksSafe.reduce((s, p) => s + p.stockFinal, 0);
+    const caEstime = stocksSafe.reduce(
       (s, p) => s + (p.production - p.stockFinal) * p.prixVente,
       0
     );
@@ -93,18 +102,17 @@ export async function POST(req: NextRequest) {
       ? parseFloat(((totalInvendu / totalProduit) * 100).toFixed(2))
       : 0;
 
-    // Upsert journée
     const { data: journee, error: journeeError } = await admin
       .from('journees')
       .upsert(
         {
-          boulangerie_id: boulangerieId,
-          date: today,
-          commandes_online: commandesOnline,
-          ca_estime: parseFloat(caEstime.toFixed(2)),
-          taux_invendu: tauxInvendu,
-          total_produit: totalProduit,
-          total_invendu: totalInvendu,
+          boulangerie_id:   boulangerieId,
+          date:             today,
+          commandes_online: commandesOnlineSafe,
+          ca_estime:        parseFloat(Math.min(caEstime, 999999.99).toFixed(2)),
+          taux_invendu:     tauxInvendu,
+          total_produit:    totalProduit,
+          total_invendu:    totalInvendu,
         },
         { onConflict: 'boulangerie_id,date' }
       )
@@ -116,22 +124,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Erreur sauvegarde journée' }, { status: 500 });
     }
 
-    // Upsert stocks (batch)
-    const stocksToUpsert = stocks.map((s) => ({
-      journee_id: journee.id,
-      boulangerie_id: boulangerieId,
-      produit_id: s.id,
-      produit_nom: s.name,
-      produit_emoji: s.emoji,
-      categorie: s.category,
-      prix_vente: s.prixVente,
-      cout_production: s.coutProduction,
-      production: s.production,
-      snapshot_10h: s.snapshot10h,
-      snapshot_10h_done: s.snapshot10hDone,
-      snapshot_14h: s.snapshot14h,
-      snapshot_14h_done: s.snapshot14hDone,
-      stock_final: s.stockFinal,
+    const stocksToUpsert = stocksSafe.map((s) => ({
+      journee_id:       journee.id,
+      boulangerie_id:   boulangerieId,
+      produit_id:       s.id,
+      produit_nom:      String(s.name).slice(0, 150),
+      produit_emoji:    String(s.emoji).slice(0, 4),
+      categorie:        ['boulangerie', 'viennoiserie', 'patisserie'].includes(s.category) ? s.category : 'boulangerie',
+      prix_vente:       s.prixVente,
+      cout_production:  s.coutProduction,
+      production:       s.production,
+      snapshot_10h:     s.snapshot10h,
+      snapshot_10h_done: !!s.snapshot10hDone,
+      snapshot_14h:     s.snapshot14h,
+      snapshot_14h_done: !!s.snapshot14hDone,
+      stock_final:      s.stockFinal,
     }));
 
     const { error: stocksError } = await admin
@@ -151,7 +158,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PUT — Clôture la journée ──────────────────────────────────
+// ── PUT — Clôture ────────────────────────────────────────────
 export async function PUT(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();

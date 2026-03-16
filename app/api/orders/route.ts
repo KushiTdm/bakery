@@ -1,24 +1,25 @@
-// app/api/orders/route.ts
-
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { isMemoryRateLimited, isSupabaseRateLimited } from '@/lib/rate-limit';
+import { sanitizeText, isValidUUID } from '@/lib/sanitize';
+
+// ── Schémas Zod renforcés ──────────────────────────────────────
 
 const LigneCommandeSchema = z.object({
-  produit_id:    z.string().min(1),
-  produit_nom:   z.string().min(1),
+  produit_id:    z.string().min(1).max(100),
+  produit_nom:   z.string().min(1).max(150),
   quantite:      z.number().int().positive().max(99),
-  prix_unitaire: z.number().positive(),
+  prix_unitaire: z.number().positive().max(9999), // max 9999€ par unité
 });
 
 const CommandeSchema = z.object({
-  boulangerie_slug: z.string().min(1),
+  boulangerie_slug: z.string().min(2).max(60).regex(/^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$|^[a-z0-9]{2}$/),
   client_prenom:    z.string().min(1).max(50),
-  client_email:     z.string().email(),
-  client_telephone: z.string().optional(),
+  client_email:     z.string().email().max(254),
+  client_telephone: z.string().max(20).optional().nullable(),
   heure_retrait:    z.string().regex(/^\d{2}:\d{2}$/),
   lignes:           z.array(LigneCommandeSchema).min(1).max(30),
-  notes:            z.string().max(500).optional(),
+  notes:            z.string().max(500).optional().nullable(),
 });
 
 function checkSupabaseConfig(): { ok: true } | { ok: false; error: NextResponse } {
@@ -50,7 +51,6 @@ export async function POST(req: NextRequest) {
 
   const clientIp = getClientIp(req);
 
-  // BC3 FIX : isMemoryRateLimited est désormais async (Upstash Redis ou Map)
   const ipLimited = await isMemoryRateLimited(
     `orders:${clientIp}`,
     { windowMs: 60 * 60 * 1000, maxCalls: 5 }
@@ -64,7 +64,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body   = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Corps de requête invalide' }, { status: 400 });
+    }
+
     const parsed = CommandeSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -75,13 +81,29 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data;
+
+    // Sanitization textuelle après validation structurelle
+    const sanitizedData = {
+      ...data,
+      client_prenom:    sanitizeText(data.client_prenom, 50),
+      client_telephone: data.client_telephone ? sanitizeText(data.client_telephone, 20) : null,
+      notes:            data.notes ? sanitizeText(data.notes, 500) : null,
+      lignes: data.lignes.map(l => ({
+        ...l,
+        produit_id:  sanitizeText(l.produit_id, 100),
+        produit_nom: sanitizeText(l.produit_nom, 150),
+        quantite:      Math.max(1, Math.min(l.quantite, 99)),
+        prix_unitaire: Math.round(l.prix_unitaire * 100) / 100,
+      })),
+    };
+
     const { getSupabaseAdmin } = await import('@/lib/supabase');
     const supabase = getSupabaseAdmin();
 
     const { data: boulangerie, error: bErr } = await supabase
       .from('boulangeries')
       .select('id, actif')
-      .eq('slug', data.boulangerie_slug)
+      .eq('slug', sanitizedData.boulangerie_slug)
       .single();
 
     if (bErr || !boulangerie) {
@@ -94,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     const emailLimited = await isSupabaseRateLimited(
       supabase,
-      data.client_email,
+      sanitizedData.client_email,
       boulangerie.id,
       { maxOrdersPer24h: 3 }
     );
@@ -106,23 +128,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const montant_total = data.lignes.reduce(
+    const montant_total = sanitizedData.lignes.reduce(
       (sum, l) => sum + l.quantite * l.prix_unitaire,
       0
     );
+
+    // Borne le montant total pour éviter des dépassements DB
+    const montant_final = Math.round(Math.min(montant_total, 99999.99) * 100) / 100;
 
     const { data: commande, error: cErr } = await supabase
       .from('commandes')
       .insert({
         boulangerie_id:   boulangerie.id,
-        client_prenom:    data.client_prenom,
-        client_email:     data.client_email,
-        client_telephone: data.client_telephone ?? null,
-        heure_retrait:    data.heure_retrait,
-        notes:            data.notes ?? null,
-        montant_total,
+        client_prenom:    sanitizedData.client_prenom,
+        client_email:     sanitizedData.client_email,
+        client_telephone: sanitizedData.client_telephone ?? null,
+        heure_retrait:    sanitizedData.heure_retrait,
+        notes:            sanitizedData.notes ?? null,
+        montant_total:    montant_final,
         statut:           'en_attente',
-        lignes:           data.lignes,
+        lignes:           sanitizedData.lignes,
       })
       .select('id, created_at')
       .single();
@@ -144,11 +169,11 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             commande_id:   commande.id,
-            client_prenom: data.client_prenom,
-            client_email:  data.client_email,
-            heure_retrait: data.heure_retrait,
-            lignes:        data.lignes,
-            montant_total,
+            client_prenom: sanitizedData.client_prenom,
+            client_email:  sanitizedData.client_email,
+            heure_retrait: sanitizedData.heure_retrait,
+            lignes:        sanitizedData.lignes,
+            montant_total: montant_final,
           }),
         });
       }
@@ -177,6 +202,16 @@ export async function GET(req: NextRequest) {
 
   if (!boulangerieId) {
     return NextResponse.json({ error: 'boulangerie_id requis' }, { status: 400 });
+  }
+
+  // Validation UUID
+  if (!isValidUUID(boulangerieId)) {
+    return NextResponse.json({ error: 'boulangerie_id invalide' }, { status: 400 });
+  }
+
+  // Validation date si fournie
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return NextResponse.json({ error: 'Format date invalide (YYYY-MM-DD)' }, { status: 400 });
   }
 
   const authHeader = req.headers.get('authorization');

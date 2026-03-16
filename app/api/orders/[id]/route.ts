@@ -1,7 +1,6 @@
-// app/api/orders/[id]/route.ts
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { isValidUUID } from '@/lib/sanitize';
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
@@ -13,7 +12,6 @@ async function getAuthUser(req: NextRequest) {
   return { user, admin };
 }
 
-// Statuts alignés avec la contrainte CHECK de la table commandes
 const VALID_STATUSES = ['en_attente', 'confirmee', 'prete', 'recuperee', 'annulee'] as const;
 type Status = typeof VALID_STATUSES[number];
 
@@ -22,12 +20,23 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Validation UUID de params.id (évite path traversal et injections)
+    if (!params.id || !isValidUUID(params.id)) {
+      return NextResponse.json({ error: 'ID de commande invalide' }, { status: 400 });
+    }
+
     const auth = await getAuthUser(req);
     if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     const { user, admin } = auth;
 
-    const body = await req.json();
-    const status: Status = body.status;
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Corps de requête invalide' }, { status: 400 });
+    }
+
+    const status = (body as Record<string, unknown>)?.status as Status;
 
     if (!VALID_STATUSES.includes(status)) {
       return NextResponse.json(
@@ -36,7 +45,6 @@ export async function PATCH(
       );
     }
 
-    // Vérifie ownership — la commande appartient bien à ce boulanger
     const { data: boulangerie } = await admin
       .from('boulangeries')
       .select('id')
@@ -47,7 +55,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
     }
 
-    // Table réelle : commandes (pas orders)
     const { data, error } = await admin
       .from('commandes')
       .update({ statut: status, updated_at: new Date().toISOString() })
@@ -73,6 +80,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    // Validation UUID
+    if (!params.id || !isValidUUID(params.id)) {
+      return NextResponse.json({ error: 'ID de commande invalide' }, { status: 400 });
+    }
+
     const auth = await getAuthUser(req);
     if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     const { user, admin } = auth;
@@ -87,7 +99,6 @@ export async function GET(
       return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
     }
 
-    // Table réelle : commandes
     const { data, error } = await admin
       .from('commandes')
       .select('*')

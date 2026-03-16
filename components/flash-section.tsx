@@ -38,7 +38,6 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
         onClick={onClose}
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
         <motion.div
           initial={{ y: 60, opacity: 0, scale: 0.97 }}
           animate={{ y: 0,  opacity: 1, scale: 1 }}
@@ -47,7 +46,7 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
           className="relative w-full max-w-md bg-[#1C1008] border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
-          {/* Header gradient */}
+          {/* Header */}
           <div className="relative bg-gradient-to-r from-[#8B4513] to-[#C19A6B] px-5 py-5">
             <motion.div
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/8 to-transparent"
@@ -76,10 +75,7 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
 
           {/* Contenu */}
           <div className="px-5 py-4">
-            <p className="text-white/40 text-xs uppercase tracking-widest mb-3">
-              Contenu du panier ce soir
-            </p>
-
+            <p className="text-white/40 text-xs uppercase tracking-widest mb-3">Contenu du panier ce soir</p>
             <div className="space-y-2 mb-4">
               {invendus.map((produit, i) => (
                 <motion.div
@@ -119,7 +115,7 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
               </div>
             </div>
 
-            {/* Note anti-réservation */}
+            {/* Note */}
             <div className="flex items-start gap-2 bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl px-3 py-2.5 mb-4">
               <Info size={13} className="text-[#C19A6B] flex-shrink-0 mt-0.5" />
               <p className="text-white/45 text-xs leading-relaxed">
@@ -127,7 +123,6 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
               </p>
             </div>
 
-            {/* CTA */}
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
@@ -145,24 +140,21 @@ function ModalePanier({ invendus, remise, heureFin, timeLeft, onClose, onAddToCa
   );
 }
 
-// ── Hook countdown ────────────────────────────────────────────
-// FIX B5 : utilise heureDebut dynamique (depuis l'API) au lieu de 18h hardcodé
+// ── Hook countdown — utilise les heures dynamiques de l'API ───
 
 function useCountdown(heureDebut: number, heureFin: number) {
   const [timeLeft, setTimeLeft] = useState('');
   const [isLive, setIsLive]     = useState(false);
   const [mounted, setMounted]   = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!mounted) return;
     const tick = () => {
       const now  = new Date();
       const hour = now.getHours();
-      // FIX : utilise heureDebut depuis les props (dynamique depuis l'API)
+      // 🆕 heureDebut dynamique — pas hardcodé à 18
       setIsLive(hour >= heureDebut && hour < heureFin);
       const end = new Date();
       end.setHours(heureFin, 0, 0, 0);
@@ -187,8 +179,8 @@ export default function FlashSection() {
   const { addItem, user, setIsAuthOpen }    = useCart();
   const [modaleOuverte, setModaleOuverte]   = useState(false);
 
+  // 🆕 Toutes les valeurs viennent de l'API
   const { flashActif, heureDebut, heureFin, remise, nbPaniers, invendus } = data;
-  // FIX B5 : passe heureDebut dynamique au hook countdown
   const { timeLeft, isLive } = useCountdown(heureDebut, heureFin);
 
   const handleAddToCart = () => {
@@ -212,7 +204,6 @@ export default function FlashSection() {
     setModaleOuverte(false);
   };
 
-  // État chargement
   if (loading) {
     return (
       <div className="bg-[#2C1810] rounded-3xl p-8 animate-pulse">
@@ -234,7 +225,7 @@ export default function FlashSection() {
         </h2>
         <p className="text-white/50 text-sm leading-relaxed max-w-sm mx-auto">
           Chaque soir à {heureDebut}h, nos invendus sont proposés à −{remise}%
-          jusqu'à épuisement. Premier arrivé, premier servi.
+          jusqu'à {heureFin}h ou épuisement. Premier arrivé, premier servi.
         </p>
         <div className="mt-6 inline-flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-4 py-2">
           <Info size={13} className="text-[#C19A6B]" />
