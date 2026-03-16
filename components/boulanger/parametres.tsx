@@ -3,15 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Database, Key, CheckCircle, AlertCircle, Loader2,
-  ExternalLink, Eye, EyeOff, Save, Info, Bell,
+  CheckCircle, Loader2, Save, Bell,
   MapPin, Clock, Zap, Plus, X, Phone, Mail, Building2,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
 import PushNotificationToggle from './push-notification-toggle';
 
-// ── Types profil complet ──────────────────────────────────────
+// ── Types profil ──────────────────────────────────────────────
 
 interface ProfilComplet {
   id:            string;
@@ -28,8 +27,6 @@ interface ProfilComplet {
   flash_heure_fin:   number;
   flash_remise_pct:  number;
   creneaux_retrait:  string[];
-  hasAirtableKey:    boolean;
-  hasAirtableBaseId: boolean;
 }
 
 // ── Composant Section ─────────────────────────────────────────
@@ -55,12 +52,12 @@ function Section({ title, icon: Icon, children }: {
 function Field({
   label, value, onChange, placeholder, type = 'text', hint,
 }: {
-  label:       string;
-  value:       string;
-  onChange:    (v: string) => void;
+  label:        string;
+  value:        string;
+  onChange:     (v: string) => void;
   placeholder?: string;
-  type?:       string;
-  hint?:       string;
+  type?:        string;
+  hint?:        string;
 }) {
   return (
     <div>
@@ -79,23 +76,43 @@ function Field({
   );
 }
 
+// ── Bouton sauvegarde ─────────────────────────────────────────
+
+function SaveButton({
+  onClick, saving, saved,
+}: {
+  onClick: () => void;
+  saving:  boolean;
+  saved:   boolean;
+}) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.97 }}
+      onClick={onClick}
+      disabled={saving}
+      className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 mt-2 ${
+        saved
+          ? 'bg-green-500/15 border border-green-500/25 text-green-400'
+          : 'bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] hover:bg-[#C19A6B]/25'
+      }`}
+    >
+      {saving
+        ? <><Loader2 size={14} className="animate-spin" /> Sauvegarde…</>
+        : saved
+          ? <><CheckCircle size={14} /> Sauvegardé</>
+          : <><Save size={14} /> Sauvegarder</>
+      }
+    </motion.button>
+  );
+}
+
 // ── Composant principal ───────────────────────────────────────
 
 export default function Parametres() {
   const { user, boulangerie } = useBoulanger();
-  const [token, setToken] = useState<string | null>(null);
-
-  // Profil complet (chargé depuis l'API)
-  const [profil, setProfil] = useState<ProfilComplet | null>(null);
+  const [token, setToken]     = useState<string | null>(null);
+  const [profil, setProfil]   = useState<ProfilComplet | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Section Airtable
-  const [apiKey, setApiKey]         = useState('');
-  const [baseId, setBaseId]         = useState('');
-  const [showKey, setShowKey]       = useState(false);
-  const [testing, setTesting]       = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
-  const [testMessage, setTestMessage] = useState('');
 
   // Section Adresse
   const [adresse,    setAdresse]    = useState('');
@@ -109,15 +126,13 @@ export default function Parametres() {
   const [flashRemise, setFlashRemise] = useState(40);
 
   // Section Créneaux
-  const [creneaux,    setCreneaux]    = useState<string[]>(['08:00', '09:00', '10:00']);
-  const [newCreneau,  setNewCreneau]  = useState('');
+  const [creneaux,     setCreneaux]     = useState<string[]>(['08:00', '09:00', '10:00']);
+  const [newCreneau,   setNewCreneau]   = useState('');
   const [creneauError, setCreneauError] = useState('');
 
   // États sauvegarde
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState<string | null>(null); // section sauvegardée
-
-  // ── Chargement initial ───────────────────────────────────────
+  const [saving, setSaving] = useState(false);
+  const [saved,  setSaved]  = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -139,7 +154,6 @@ export default function Parametres() {
       if (!res.ok) return;
       const data = await res.json() as ProfilComplet;
       setProfil(data);
-      // Initialise les champs depuis le profil
       setAdresse(data.adresse ?? '');
       setVille(data.ville ?? '');
       setCodePostal(data.code_postal ?? '');
@@ -158,8 +172,6 @@ export default function Parametres() {
     return session?.access_token ?? null;
   };
 
-  // ── Sauvegarde générique ─────────────────────────────────────
-
   const saveSection = useCallback(async (section: string, payload: Record<string, unknown>) => {
     setSaving(true);
     try {
@@ -173,56 +185,12 @@ export default function Parametres() {
       if (res.ok) {
         setSaved(section);
         setTimeout(() => setSaved(null), 3000);
-        await loadProfil(); // Recharge le profil pour refléter les changements
+        await loadProfil();
       }
     } finally {
       setSaving(false);
     }
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Test Airtable ────────────────────────────────────────────
-
-  const testConnection = async () => {
-    if (!apiKey || !baseId) {
-      setTestResult('error');
-      setTestMessage("Renseignez d'abord la clé API et l'ID de base");
-      return;
-    }
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const t = await getToken();
-      if (!t) { setTestResult('error'); setTestMessage('Session expirée'); return; }
-      const res = await fetch('/api/boulanger/airtable', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
-        body: JSON.stringify({ apiKey, baseId }),
-      });
-      const data = await res.json() as { valid: boolean; error?: string };
-      if (data.valid) {
-        setTestResult('success');
-        setTestMessage('Connexion réussie !');
-      } else {
-        setTestResult('error');
-        setTestMessage(data.error ?? 'Clés invalides');
-      }
-    } catch {
-      setTestResult('error');
-      setTestMessage('Erreur réseau');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const saveAirtable = async () => {
-    if (!apiKey || !baseId || testResult !== 'success') return;
-    await saveSection('airtable', { airtable_api_key: apiKey, airtable_base_id: baseId });
-    setApiKey('');
-    setBaseId('');
-    setTestResult(null);
-  };
-
-  // ── Gestion créneaux ─────────────────────────────────────────
 
   const addCreneau = () => {
     setCreneauError('');
@@ -247,19 +215,15 @@ export default function Parametres() {
     setCreneaux(prev => prev.filter(x => x !== c));
   };
 
-  // ── Skeleton loader ──────────────────────────────────────────
-
   if (loading) {
     return (
       <div className="space-y-4 pb-6">
-        {[1, 2, 3, 4].map(i => (
+        {[1, 2, 3].map(i => (
           <div key={i} className="h-32 bg-white/5 border border-white/8 rounded-2xl animate-pulse" />
         ))}
       </div>
     );
   }
-
-  // ── Rendu principal ──────────────────────────────────────────
 
   return (
     <div className="space-y-5 pb-6">
@@ -274,7 +238,7 @@ export default function Parametres() {
 
       {/* ── Infos boulangerie ─────────────────────────────────── */}
       <Section title="Votre boulangerie" icon={Building2}>
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="bg-black/20 rounded-xl p-3">
             <p className="text-white/30 text-xs mb-1">Nom</p>
             <p className="text-white text-sm font-medium">{boulangerie?.nom ?? '—'}</p>
@@ -302,12 +266,7 @@ export default function Parametres() {
           />
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <Field
-                label="Ville"
-                value={ville}
-                onChange={setVille}
-                placeholder="Paris"
-              />
+              <Field label="Ville" value={ville} onChange={setVille} placeholder="Paris" />
             </div>
             <div>
               <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">
@@ -330,7 +289,6 @@ export default function Parametres() {
             placeholder="+33 1 42 86 95 22"
             type="tel"
           />
-
           <SaveButton
             onClick={() => saveSection('adresse', { adresse, ville, code_postal: codePostal || null, telephone: telephone || null })}
             saving={saving}
@@ -344,7 +302,6 @@ export default function Parametres() {
         <p className="text-white/35 text-xs mb-3 leading-relaxed">
           Heures proposées aux clients lors du Click & Collect. Au moins 1 créneau requis.
         </p>
-
         <div className="flex flex-wrap gap-2 mb-3">
           {creneaux.map(c => (
             <div
@@ -362,8 +319,6 @@ export default function Parametres() {
             </div>
           ))}
         </div>
-
-        {/* Ajout créneau */}
         <div className="flex gap-2 mb-2">
           <input
             type="time"
@@ -379,10 +334,7 @@ export default function Parametres() {
             <Plus size={14} /> Ajouter
           </button>
         </div>
-        {creneauError && (
-          <p className="text-red-400 text-xs mb-2">{creneauError}</p>
-        )}
-
+        {creneauError && <p className="text-red-400 text-xs mb-2">{creneauError}</p>}
         <SaveButton
           onClick={() => saveSection('creneaux', { creneaux_retrait: creneaux })}
           saving={saving}
@@ -395,9 +347,7 @@ export default function Parametres() {
         <p className="text-white/35 text-xs mb-4 leading-relaxed">
           Paramètres de la vente flash du soir. Les modifications sont appliquées en temps réel sur la vitrine.
         </p>
-
         <div className="space-y-4">
-          {/* Heures */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">
@@ -405,19 +355,11 @@ export default function Parametres() {
               </label>
               <div className="flex items-center gap-2">
                 <input
-                  type="range"
-                  min={14}
-                  max={22}
-                  value={flashDebut}
-                  onChange={e => {
-                    const v = parseInt(e.target.value);
-                    if (v < flashFin) setFlashDebut(v);
-                  }}
+                  type="range" min={14} max={22} value={flashDebut}
+                  onChange={e => { const v = parseInt(e.target.value); if (v < flashFin) setFlashDebut(v); }}
                   className="flex-1 accent-[#C19A6B]"
                 />
-                <span className="text-[#C19A6B] font-mono font-bold text-sm w-10 text-right">
-                  {flashDebut}h
-                </span>
+                <span className="text-[#C19A6B] font-mono font-bold text-sm w-10 text-right">{flashDebut}h</span>
               </div>
             </div>
             <div>
@@ -426,24 +368,14 @@ export default function Parametres() {
               </label>
               <div className="flex items-center gap-2">
                 <input
-                  type="range"
-                  min={15}
-                  max={23}
-                  value={flashFin}
-                  onChange={e => {
-                    const v = parseInt(e.target.value);
-                    if (v > flashDebut) setFlashFin(v);
-                  }}
+                  type="range" min={15} max={23} value={flashFin}
+                  onChange={e => { const v = parseInt(e.target.value); if (v > flashDebut) setFlashFin(v); }}
                   className="flex-1 accent-[#C19A6B]"
                 />
-                <span className="text-[#C19A6B] font-mono font-bold text-sm w-10 text-right">
-                  {flashFin}h
-                </span>
+                <span className="text-[#C19A6B] font-mono font-bold text-sm w-10 text-right">{flashFin}h</span>
               </div>
             </div>
           </div>
-
-          {/* Aperçu plage horaire */}
           <div className="bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl px-4 py-3 flex items-center gap-3">
             <Zap size={14} className="text-[#C19A6B] flex-shrink-0" />
             <p className="text-[#C19A6B]/80 text-sm">
@@ -451,25 +383,17 @@ export default function Parametres() {
               {' '}· durée <strong>{flashFin - flashDebut}h</strong>
             </p>
           </div>
-
-          {/* Remise */}
           <div>
             <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">
-              Remise appliquée — actuellement <span className="text-yellow-400 font-bold">{flashRemise}%</span>
+              Remise — actuellement <span className="text-yellow-400 font-bold">{flashRemise}%</span>
             </label>
             <div className="flex items-center gap-3">
               <input
-                type="range"
-                min={10}
-                max={70}
-                step={5}
-                value={flashRemise}
+                type="range" min={10} max={70} step={5} value={flashRemise}
                 onChange={e => setFlashRemise(parseInt(e.target.value))}
                 className="flex-1 accent-yellow-400"
               />
-              <span className="text-yellow-400 font-mono font-bold text-lg w-12 text-right">
-                −{flashRemise}%
-              </span>
+              <span className="text-yellow-400 font-mono font-bold text-lg w-12 text-right">−{flashRemise}%</span>
             </div>
             <div className="flex justify-between text-white/20 text-[10px] mt-1 px-1">
               <span>−10%</span>
@@ -477,8 +401,6 @@ export default function Parametres() {
               <span>−70%</span>
             </div>
           </div>
-
-          {/* Aperçu prix */}
           <div className="bg-white/4 border border-white/8 rounded-xl p-3">
             <p className="text-white/30 text-xs mb-2">Exemple avec une baguette à 1,30€</p>
             <div className="flex items-center gap-3">
@@ -491,7 +413,6 @@ export default function Parametres() {
               </span>
             </div>
           </div>
-
           <SaveButton
             onClick={() => saveSection('flash', {
               flash_heure_debut: flashDebut,
@@ -504,146 +425,10 @@ export default function Parametres() {
         </div>
       </Section>
 
-      {/* ── Airtable ──────────────────────────────────────────── */}
-      <Section title="Catalogue Airtable (optionnel)" icon={Key}>
-        <div className="bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl p-3 mb-4 flex items-start gap-2">
-          <Info size={13} className="text-[#C19A6B] flex-shrink-0 mt-0.5" />
-          <p className="text-white/45 text-xs leading-relaxed">
-            Connectez Airtable pour synchroniser votre catalogue externe.
-            <a
-              href="https://support.airtable.com/docs/creating-and-using-api-keys-and-access-tokens"
-              target="_blank" rel="noopener noreferrer"
-              className="text-[#C19A6B] ml-1 hover:underline inline-flex items-center gap-0.5"
-            >
-              Créer une clé API <ExternalLink size={10} />
-            </a>
-          </p>
-        </div>
-
-        {/* Status clés existantes */}
-        {profil && (profil.hasAirtableKey || profil.hasAirtableBaseId) && (
-          <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2 mb-3">
-            <CheckCircle size={13} className="text-green-400 flex-shrink-0" />
-            <p className="text-green-400 text-xs">Clés Airtable configurées · Modifier pour mettre à jour</p>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          <div className="relative">
-            <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">
-              Clé API (Personal Access Token)
-            </label>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={e => { setApiKey(e.target.value); setTestResult(null); }}
-                placeholder="patXXXXXXXXXXXXXX..."
-                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm font-mono placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors pr-10"
-              />
-              <button
-                onClick={() => setShowKey(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50"
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-
-          <Field
-            label="ID de la base Airtable"
-            value={baseId}
-            onChange={e => { setBaseId(e); setTestResult(null); }}
-            placeholder="appXXXXXXXXXXXXXX"
-            hint="Visible dans l'URL de votre base : airtable.com/appXXX/..."
-          />
-
-          <AnimatePresence>
-            {testResult && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className={`flex items-center gap-2.5 rounded-xl px-3.5 py-3 ${
-                  testResult === 'success'
-                    ? 'bg-green-500/10 border border-green-500/20'
-                    : 'bg-red-500/10 border border-red-500/20'
-                }`}
-              >
-                {testResult === 'success'
-                  ? <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
-                  : <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
-                }
-                <p className={`text-sm ${testResult === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                  {testMessage}
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="grid grid-cols-2 gap-3">
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={testConnection}
-              disabled={testing || !apiKey || !baseId}
-              className="flex items-center justify-center gap-2 bg-white/8 border border-white/12 text-white/70 py-3 rounded-xl text-sm font-medium hover:bg-white/12 transition-all disabled:opacity-40"
-            >
-              {testing ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />}
-              Tester
-            </motion.button>
-
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={saveAirtable}
-              disabled={saving || !apiKey || !baseId || testResult !== 'success'}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-40 ${
-                saved === 'airtable'
-                  ? 'bg-green-500/20 border border-green-500/30 text-green-400'
-                  : 'bg-[#C19A6B] text-[#1A0F0A] hover:bg-[#D4AE85]'
-              }`}
-            >
-              {saving ? <Loader2 size={14} className="animate-spin" /> :
-               saved === 'airtable' ? <><CheckCircle size={14} /> Sauvegardé</> :
-               <><Save size={14} /> Sauvegarder</>}
-            </motion.button>
-          </div>
-        </div>
-      </Section>
-
       {/* ── Notifications Push ────────────────────────────────── */}
       <Section title="Notifications push" icon={Bell}>
         <PushNotificationToggle token={token} />
       </Section>
     </div>
-  );
-}
-
-// ── Bouton sauvegarde réutilisable ────────────────────────────
-
-function SaveButton({
-  onClick, saving, saved,
-}: {
-  onClick: () => void;
-  saving:  boolean;
-  saved:   boolean;
-}) {
-  return (
-    <motion.button
-      whileTap={{ scale: 0.97 }}
-      onClick={onClick}
-      disabled={saving}
-      className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 mt-2 ${
-        saved
-          ? 'bg-green-500/15 border border-green-500/25 text-green-400'
-          : 'bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] hover:bg-[#C19A6B]/25'
-      }`}
-    >
-      {saving
-        ? <><Loader2 size={14} className="animate-spin" /> Sauvegarde…</>
-        : saved
-          ? <><CheckCircle size={14} /> Sauvegardé</>
-          : <><Save size={14} /> Sauvegarder</>
-      }
-    </motion.button>
   );
 }

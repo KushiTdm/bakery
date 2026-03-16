@@ -9,7 +9,6 @@ import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
 
-// 🆕 'parametres' ajouté
 export type ViewType = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard' | 'parametres';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -37,13 +36,11 @@ export interface HistoryEntry {
 }
 
 interface Boulangerie {
-  id: string;
-  nom: string;
-  slug: string;
-  plan: 'starter' | 'pro' | 'multi';
+  id:    string;
+  nom:   string;
+  slug:  string;
+  plan:  'starter' | 'pro' | 'multi';
   actif: boolean;
-  airtable_api_key: string | null;
-  airtable_base_id: string | null;
 }
 
 function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
@@ -55,7 +52,6 @@ function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
     prixVente:       s.prix_vente,
     coutProduction:  s.cout_production,
     production:      s.production,
-    // ✅ Si non validé, repart de 0 — la vendeuse saisit ce qui reste
     snapshot10h:     s.snapshot_10h_done ? s.snapshot_10h : 0,
     snapshot10hDone: s.snapshot_10h_done,
     snapshot14h:     s.snapshot_14h_done ? s.snapshot_14h : 0,
@@ -82,7 +78,6 @@ function produitToStockEntry(p: ProduitDb): StockEntry {
     prixVente:       p.prix_vente,
     coutProduction:  p.cout_production,
     production:      0,
-    // ✅ Snapshot démarre à 0 — la vendeuse saisit ce qui reste, pas une copie de la production
     snapshot10h:     0,
     snapshot10hDone: false,
     snapshot14h:     0,
@@ -128,7 +123,7 @@ function computeProductionSuggestions(
   );
 
   return todayStocks.map(stock => {
-    const relevant = sameDayHistory.length >= 1 ? sameDayHistory : history;
+    const relevant   = sameDayHistory.length >= 1 ? sameDayHistory : history;
     const dataPoints = relevant.length;
     const productions = relevant
       .map(d => d.stocks.find(s => s.id === stock.id)?.production ?? 0)
@@ -142,7 +137,7 @@ function computeProductionSuggestions(
       };
     }
 
-    const avg = productions.reduce((s, v) => s + v, 0) / productions.length;
+    const avg          = productions.reduce((s, v) => s + v, 0) / productions.length;
     const suggestedQty = Math.max(1, Math.round(avg / 5) * 5);
     const changePercent = stock.production > 0
       ? Math.round(((suggestedQty - stock.production) / stock.production) * 100)
@@ -240,7 +235,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase
         .from('boulangeries')
-        .select('id, nom, slug, plan, actif, airtable_api_key, airtable_base_id')
+        .select('id, nom, slug, plan, actif')
         .eq('user_id', userId)
         .single();
 
@@ -270,14 +265,10 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const { journee } = await res.json() as { journee: DbJournee | null };
 
       if (journee?.stocks_journaliers?.length) {
-        // Si la journée n'est pas clôturée, le stockFinal repart de 0 au chargement
-        // (la vendeuse doit resaisir les invendus en fin de journée)
         const isClosed = journee.cloturee === true;
         const stocks = journee.stocks_journaliers.map(s => {
           const entry = mapDbStockToEntry(s);
-          if (!isClosed) {
-            entry.stockFinal = 0; // Repart de zéro — vendeuse saisit les restes
-          }
+          if (!isClosed) entry.stockFinal = 0;
           return entry;
         });
         setTodayStocks(stocks);
@@ -298,9 +289,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       });
       if (!res.ok) return;
       const { produits } = await res.json() as { produits: ProduitDb[] };
-      if (produits?.length) {
-        setTodayStocks(produits.map(produitToStockEntry));
-      }
+      if (produits?.length) setTodayStocks(produits.map(produitToStockEntry));
     } catch (err) {
       console.warn('[BoulangerContext] loadProduitsAsList:', err);
     }
@@ -344,12 +333,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const updateProduction = useCallback((id: string, val: number) => {
     setTodayStocks(prev => {
-      const next = prev.map(p =>
-        p.id === id
-          // ✅ Snapshots restent à 0 — la vendeuse saisit les restes indépendamment
-          ? { ...p, production: Math.max(0, val) }
-          : p
-      );
+      const next = prev.map(p => p.id === id ? { ...p, production: Math.max(0, val) } : p);
       triggerSave(next, commandesOnline);
       return next;
     });
@@ -360,10 +344,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const next = prev.map(p => {
         if (p.id !== id) return p;
         if (slot === '10h') {
-          // Max = production
           return { ...p, snapshot10h: Math.max(0, Math.min(val, p.production)) };
         } else {
-          // Max = snapshot10h si validé, sinon production (fallback si 10h pas fait)
           const max14h = p.snapshot10hDone && p.snapshot10h > 0 ? p.snapshot10h : p.production;
           return { ...p, snapshot14h: Math.max(0, Math.min(val, max14h)) };
         }
@@ -387,8 +369,6 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setTodayStocks(prev => {
       const next = prev.map(p => {
         if (p.id !== id) return p;
-        // ✅ Plafond = dernier snapshot validé (14h > 10h > production)
-        // Impossible de déclarer plus d'invendus que ce qui restait physiquement
         const maxFinal = p.snapshot14hDone && p.snapshot14h > 0
           ? p.snapshot14h
           : p.snapshot10hDone && p.snapshot10h > 0
