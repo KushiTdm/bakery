@@ -3,6 +3,85 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { isValidSlug } from '@/lib/sanitize';
+
+// ── Rate Limiting (memory-based, simple) ───────────────────────
+// Pour une production à grande échelle, utiliser Upstash Redis
+
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+// Nettoyage automatique des entrées expirées
+setInterval(() => {
+  const now = Date.now();
+  Array.from(loginAttempts.entries()).forEach(([key, entry]) => {
+    if (entry.resetAt < now) loginAttempts.delete(key);
+  });
+}, 60 * 1000);
+
+function getClientIp(req: NextRequest): string {
+  return (
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-nf-client-connection-ip') ??
+    req.headers.get('x-real-ip') ??
+    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
+    'unknown'
+  );
+}
+
+function checkRateLimit(ip: string): { allowed: boolean; remainingMs: number } {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+
+  if (!entry || entry.resetAt < now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, remainingMs: 0 };
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX_ATTEMPTS) {
+    return { allowed: false, remainingMs: entry.resetAt - now };
+  }
+
+  entry.count++;
+  return { allowed: true, remainingMs: 0 };
+}
+
+function resetRateLimit(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
+// ── S4 : Validation de la complexité du mot de passe ───────────
+
+interface PasswordValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+function validatePasswordStrength(password: string): PasswordValidationResult {
+  const errors: string[] = [];
+
+  if (password.length < 8) {
+    errors.push('au moins 8 caractères');
+  }
+
+  if (!/[a-z]/.test(password)) {
+    errors.push('une lettre minuscule');
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    errors.push('une lettre majuscule');
+  }
+
+  if (!/[0-9]/.test(password)) {
+    errors.push('un chiffre');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
 
 // ── GET — Vérifie la session depuis le token JWT ───────────────
 
@@ -41,6 +120,8 @@ export async function GET(req: NextRequest) {
 // ── POST — Login ou Register ───────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const clientIp = getClientIp(req);
+
   try {
     const admin = getSupabaseAdmin();
     const body  = await req.json();
@@ -56,14 +137,28 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Rate limiting sur les tentatives de login
+      const rateCheck = checkRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        const retryMinutes = Math.ceil(rateCheck.remainingMs / 60000);
+        return NextResponse.json(
+          { error: `Trop de tentatives. Réessayez dans ${retryMinutes} minute(s).` },
+          { status: 429, headers: { 'Retry-After': String(Math.ceil(rateCheck.remainingMs / 1000)) } }
+        );
+      }
+
       const { data, error } = await admin.auth.signInWithPassword({ email, password });
 
       if (error) {
+        // Ne pas reset le rate limit en cas d'échec (laisser le compteur incrémenté)
         return NextResponse.json(
           { error: 'Email ou mot de passe incorrect' },
           { status: 401 }
         );
       }
+
+      // Succès : reset le rate limit pour cette IP
+      resetRateLimit(clientIp);
 
       const { data: boulangerie } = await admin
         .from('boulangeries')
@@ -82,6 +177,16 @@ export async function POST(req: NextRequest) {
     // ── Register ───────────────────────────────────────────────
 
     if (action === 'register') {
+      // Rate limiting sur les inscriptions également
+      const rateCheck = checkRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        const retryMinutes = Math.ceil(rateCheck.remainingMs / 60000);
+        return NextResponse.json(
+          { error: `Trop de tentatives. Réessayez dans ${retryMinutes} minute(s).` },
+          { status: 429, headers: { 'Retry-After': String(Math.ceil(rateCheck.remainingMs / 1000)) } }
+        );
+      }
+
       if (!email || !password || !nom || !slug) {
         return NextResponse.json(
           { error: 'Email, mot de passe, nom et slug requis' },
@@ -89,9 +194,19 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      if (password.length < 8) {
+      // S1 : Validation du slug avec isValidSlug()
+      if (!isValidSlug(slug)) {
         return NextResponse.json(
-          { error: 'Le mot de passe doit faire au moins 8 caractères' },
+          { error: 'Slug invalide. Utilisez uniquement des lettres minuscules, chiffres et tirets. Certains slugs sont réservés (api, admin, www...).' },
+          { status: 400 }
+        );
+      }
+
+      // S4 : Validation de la complexité du mot de passe
+      const passwordValidation = validatePasswordStrength(password);
+      if (!passwordValidation.valid) {
+        return NextResponse.json(
+          { error: `Le mot de passe doit contenir : ${passwordValidation.errors.join(', ')}.` },
           { status: 400 }
         );
       }

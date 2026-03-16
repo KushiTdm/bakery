@@ -18,28 +18,16 @@
 
 ## 🔴 SÉCURITÉ — PRIORITÉ 1
 
-### S1. 🔴 CRITIQUE — Validation du slug côté register absente
-**Fichier** : `app/api/boulanger/auth/route.ts` (ligne 79-86)
+### S1. ✅ CORRIGÉ — Validation du slug côté register
+**Fichier** : `app/api/boulanger/auth/route.ts`
 
-**Problème** : Le slug n'est pas validé avec `isValidSlug()` avant l'insertion en base. Un utilisateur pourrait injecter un slug malveillant ou utiliser un slug réservé (`api`, `admin`, `www`, etc.).
+**Statut** : ✅ Corrigé le 16/03/2026
 
+La validation `isValidSlug()` est maintenant appliquée avant toute vérification d'existence du slug :
 ```typescript
-// Actuel (vulnérable)
-const { data: existing } = await admin
-  .from('boulangeries')
-  .select('id')
-  .eq('slug', slug)
-  .single();
-```
-
-**Correction** :
-```typescript
-import { isValidSlug } from '@/lib/sanitize';
-
-// Ajouter avant la vérification d'existence
 if (!isValidSlug(slug)) {
   return NextResponse.json(
-    { error: 'Slug invalide ou réservé' },
+    { error: 'Slug invalide. Utilisez uniquement des lettres minuscules, chiffres et tirets. Certains slugs sont réservés (api, admin, www...).' },
     { status: 400 }
   );
 }
@@ -47,63 +35,52 @@ if (!isValidSlug(slug)) {
 
 ---
 
-### S2. 🔴 CRITIQUE — Absence de rate limiting sur l'authentification
+### S2. ✅ CORRIGÉ — Rate limiting sur l'authentification
 **Fichier** : `app/api/boulanger/auth/route.ts`
 
-**Problème** : Les endpoints de login/register n'ont aucun rate limiting applicatif. Même si Supabase a son propre rate limiting, une protection supplémentaire est recommandée contre les attaques brute-force.
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Correction suggérée** : Ajouter un rate limiting IP sur les tentatives de login (ex: 5 tentatives / 15 min).
-
----
-
-### S3. 🟠 ÉLEVÉ — Fallback unsafe dans lib/supabase.ts
-**Fichier** : `lib/supabase.ts` (ligne 15-19)
-
-**Problème** : En l'absence de variables d'environnement, le client utilise des valeurs fallback (`http://localhost:54321`, `anon-key-missing`). En production, cela pourrait masquer une erreur de configuration.
-
-```typescript
-export const supabase = createClient(
-  supabaseUrl  || 'http://localhost:54321',  // ⚠️ Fallback potentiellement problématique
-  supabaseAnonKey || 'anon-key-missing',
-  ...
-);
-```
-
-**Correction** : En production, lever une erreur bloquante :
-```typescript
-if (process.env.NODE_ENV === 'production' && (!supabaseUrl || !supabaseAnonKey)) {
-  throw new Error('Configuration Supabase manquante');
-}
-```
+Un système de rate limiting mémoire a été implémenté :
+- 5 tentatives maximum par IP
+- Fenêtre de 15 minutes
+- Reset du compteur après succès
+- Headers `Retry-After` inclus dans la réponse 429
 
 ---
 
-### S4. 🟠 ÉLEVÉ — Validation insuffisante du password côté register
-**Fichier** : `app/api/boulanger/auth/route.ts` (ligne 72-76)
+### S3. ✅ CORRIGÉ — Fallback unsafe dans lib/supabase.ts
+**Fichier** : `lib/supabase.ts`
 
-**Problème** : Seule la longueur minimale (8 caractères) est vérifiée. Pas de vérification de complexité.
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Correction suggérée** : Ajouter une validation de complexité (majuscule, minuscule, chiffre, caractère spécial).
+En production, l'absence de variables d'environnement provoque maintenant une erreur bloquante. Les fallbacks ne sont utilisés qu'en développement.
 
 ---
 
-### S5. 🟡 MOYEN — Secret interne faiblement validé
-**Fichier** : `app/api/notifications/send/route.ts` (ligne 38-40)
+### S4. ✅ CORRIGÉ — Validation de la complexité du mot de passe
+**Fichier** : `app/api/boulanger/auth/route.ts`
 
-**Problème** : Si `INTERNAL_API_SECRET` n'est pas défini, l'endpoint accepte toutes les requêtes.
+**Statut** : ✅ Corrigé le 16/03/2026
 
-```typescript
-if (secret !== process.env.INTERNAL_API_SECRET && process.env.INTERNAL_API_SECRET) {
-  // Si INTERNAL_API_SECRET est undefined, la condition est toujours false → accès autorisé
-}
-```
+La validation du mot de passe vérifie maintenant :
+- Minimum 8 caractères
+- Au moins une lettre minuscule
+- Au moins une lettre majuscule
+- Au moins un chiffre
 
-**Correction** :
-```typescript
-if (!process.env.INTERNAL_API_SECRET || secret !== process.env.INTERNAL_API_SECRET) {
-  return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-}
-```
+Message d'erreur explicite : "Le mot de passe doit contenir : au moins 8 caractères, une lettre minuscule, une lettre majuscule, un chiffre."
+
+---
+
+### S5. ✅ CORRIGÉ — Secret interne strictement validé
+**Fichier** : `app/api/notifications/send/route.ts`
+
+**Statut** : ✅ Corrigé le 16/03/2026
+
+Le secret interne est maintenant strictement validé :
+- Si `INTERNAL_API_SECRET` n'est pas défini → accès refusé
+- Si le secret fourni ne correspond pas → accès refusé
+- Log d'erreur pour le debugging
 
 ---
 
@@ -305,22 +282,22 @@ const imageDefaults: Record<string, string> = {
 
 ## 📊 RÉSUMÉ
 
-| Catégorie | 🔴 Critique | 🟠 Élevé | 🟡 Moyen | 🔵 Faible | ⚪ Info |
-|-----------|-------------|----------|----------|-----------|---------|
-| Sécurité  | 1 | 2 | 1 | 0 | 0 |
-| Bugs      | 0 | 1 | 2 | 2 | 0 |
-| Incohérences | 0 | 0 | 2 | 3 | 0 |
-| Grammaire | 0 | 0 | 0 | 2 | 0 |
-| Stratégique | 0 | 0 | 2 | 2 | 0 |
-| **TOTAL** | **1** | **3** | **7** | **9** | **0** |
+| Catégorie | 🔴 Critique | 🟠 Élevé | 🟡 Moyen | 🔵 Faible | ⚪ Info | ✅ Corrigé |
+|-----------|-------------|----------|----------|-----------|---------|-----------|
+| Sécurité  | 0 | 1 | 1 | 0 | 0 | **3** |
+| Bugs      | 0 | 1 | 2 | 2 | 0 | 0 |
+| Incohérences | 0 | 0 | 2 | 3 | 0 | 0 |
+| Grammaire | 0 | 0 | 0 | 2 | 0 | 0 |
+| Stratégique | 0 | 0 | 2 | 2 | 0 | 0 |
+| **TOTAL** | **0** | **2** | **7** | **9** | **0** | **3** |
 
 ---
 
 ## 🔧 ACTIONS PRIORITAIRES
 
-1. **[URGENT]** Ajouter `isValidSlug()` dans `app/api/boulanger/auth/route.ts`
+1. ~~**[URGENT]** Ajouter `isValidSlug()` dans `app/api/boulanger/auth/route.ts`~~ ✅ **CORRIGÉ**
 2. **[URGENT]** Corriger la validation du secret dans `app/api/notifications/send/route.ts`
-3. **[IMPORTANT]** Implémenter un rate limiting sur l'authentification
+3. ~~**[IMPORTANT]** Implémenter un rate limiting sur l'authentification~~ ✅ **CORRIGÉ**
 4. **[IMPORTANT]** Déplacer les types partagés hors du context client
 5. **[MOYEN]** Supprimer ou implémenter le middleware
 

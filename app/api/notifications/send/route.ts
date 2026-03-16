@@ -22,8 +22,13 @@ interface WebPushModule {
 }
 
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-internal-secret');
-  if (secret !== process.env.INTERNAL_API_SECRET && process.env.INTERNAL_API_SECRET) {
+  // S5 : Validation stricte du secret interne
+  // Si INTERNAL_API_SECRET n'est pas défini, on refuse l'accès
+  const expectedSecret = process.env.INTERNAL_API_SECRET;
+  const providedSecret = req.headers.get('x-internal-secret');
+
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    console.error('[notifications/send] Accès refusé : secret invalide ou non configuré');
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 

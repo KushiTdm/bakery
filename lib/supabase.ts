@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
+// S3 : En production, on bloque si les variables ne sont pas définies
+// En développement, on utilise des fallbacks pour le local
+const isProduction = process.env.NODE_ENV === 'production';
+
 if (!supabaseUrl || !supabaseAnonKey) {
   const msg =
     '[Supabase] Variables d\'environnement manquantes :\n' +
@@ -12,22 +16,32 @@ if (!supabaseUrl || !supabaseAnonKey) {
     (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '') +
     'Vérifiez votre fichier .env.local';
 
-  if (process.env.NODE_ENV === 'development') {
+  if (isProduction) {
+    // En production : erreur bloquante
     console.error(msg);
+    throw new Error('[Supabase] Configuration manquante. Impossible de démarrer.');
+  } else {
+    // En développement : warning seulement (les fallbacks seront utilisés)
+    console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
   }
 }
 
-export const supabase = createClient(
-  supabaseUrl  || 'http://localhost:54321',
-  supabaseAnonKey || 'anon-key-missing',
-  {
-    auth: {
-      persistSession:     true,
-      autoRefreshToken:   true,
-      detectSessionInUrl: true,
-    },
-  }
-);
+// En production, on n'utilise JAMAIS de fallback
+// En développement, localhost est acceptable pour le développement local
+const effectiveUrl = supabaseUrl || (isProduction ? undefined : 'http://localhost:54321');
+const effectiveKey = supabaseAnonKey || (isProduction ? undefined : 'anon-key-missing');
+
+if (!effectiveUrl || !effectiveKey) {
+  throw new Error('[Supabase] Configuration invalide en production.');
+}
+
+export const supabase = createClient(effectiveUrl, effectiveKey, {
+  auth: {
+    persistSession:     true,
+    autoRefreshToken:   true,
+    detectSessionInUrl: true,
+  },
+});
 
 export function getSupabaseAdmin() {
   const url        = process.env.NEXT_PUBLIC_SUPABASE_URL;
