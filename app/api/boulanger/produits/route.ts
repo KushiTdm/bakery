@@ -78,16 +78,16 @@ const ProduitUpdateSchema = ProduitSchema.partial().extend({
 function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
   return {
     ...data,
-    nom:                sanitizeProductName(data.nom),
-    description:        data.description ? sanitizeDescription(data.description) : null,
-    emoji:              sanitizeEmoji(data.emoji),
-    allergenes:         sanitizeStringArray(data.allergenes, [...ALLERGENES_VALIDES]),
-    note_interne:       data.note_interne ? sanitizeText(data.note_interne, 500) : null,
-    image_url:          data.image_url ? sanitizeUrl(data.image_url) : null,
-    disponible_du:      sanitizeDate(data.disponible_du),
-    disponible_au:      sanitizeDate(data.disponible_au),
-    prix_vente:         Math.round(data.prix_vente * 100) / 100,
-    cout_production:    Math.round((data.cout_production ?? 0) * 100) / 100,
+    nom:                 sanitizeProductName(data.nom),
+    description:         data.description ? sanitizeDescription(data.description) : null,
+    emoji:               sanitizeEmoji(data.emoji),
+    allergenes:          sanitizeStringArray(data.allergenes, [...ALLERGENES_VALIDES]),
+    note_interne:        data.note_interne ? sanitizeText(data.note_interne, 500) : null,
+    image_url:           data.image_url ? sanitizeUrl(data.image_url) : null,
+    disponible_du:       sanitizeDate(data.disponible_du),
+    disponible_au:       sanitizeDate(data.disponible_au),
+    prix_vente:          Math.round(data.prix_vente * 100) / 100,
+    cout_production:     Math.round((data.cout_production ?? 0) * 100) / 100,
     prix_flash_override: data.prix_flash_override
       ? Math.round(data.prix_flash_override * 100) / 100
       : null,
@@ -95,8 +95,6 @@ function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
 }
 
 // ── GET ───────────────────────────────────────────────────────
-// Passe actif=false pour récupérer TOUS les produits (actifs + inactifs)
-// depuis l'espace boulanger.
 
 export async function GET(req: NextRequest) {
   try {
@@ -107,7 +105,6 @@ export async function GET(req: NextRequest) {
     const { searchParams }         = new URL(req.url);
 
     const categorie = searchParams.get('categorie');
-    // actif=false signifie "ne pas filtrer" → on retourne tous les produits
     const actifOnly = searchParams.get('actif') !== 'false';
     const flashOnly = searchParams.get('flash') === 'true';
 
@@ -173,11 +170,12 @@ export async function POST(req: NextRequest) {
 
     const sanitized = sanitizeProduitData(parsed.data);
 
+    // I3 : comptage sur TOUS les produits (actifs ET inactifs) pour éviter
+    // de contourner la limite en désactivant des produits avant d'en créer.
     const { count } = await admin
       .from('produits')
       .select('*', { count: 'exact', head: true })
-      .eq('boulangerie_id', boulangerieId)
-      .eq('actif_catalogue', true);
+      .eq('boulangerie_id', boulangerieId);
 
     const { data: boulangerie } = await admin
       .from('boulangeries')
@@ -203,9 +201,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Invalide le catalogue côté client
     revalidatePath('/');
-
     return NextResponse.json({ produit: data }, { status: 201 });
 
   } catch (err) {
@@ -275,9 +271,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Invalide le catalogue côté client (visibilité, prix, flash…)
     revalidatePath('/');
-
     return NextResponse.json({ produit: data });
 
   } catch (err) {
@@ -336,9 +330,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Invalide le catalogue côté client
     revalidatePath('/');
-
     return NextResponse.json({ success: true });
 
   } catch (err) {

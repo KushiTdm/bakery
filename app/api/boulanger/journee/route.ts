@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import type { StockEntry } from '@/context/boulanger-context';
+// I2 : import depuis lib/types.ts (neutre) et non depuis context/boulanger-context ('use client')
+import type { StockEntry } from '@/lib/types';
 
 async function getBoulangerieId(req: NextRequest): Promise<string | null> {
   const admin = getSupabaseAdmin();
@@ -76,29 +77,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'stocks requis (tableau)' }, { status: 400 });
     }
 
-    // Borne commandesOnline — évite des valeurs aberrantes
     const commandesOnlineSafe = Math.max(0, Math.min(Math.floor(Number(commandesOnline) || 0), 9999));
 
-    // Borne les valeurs numériques des stocks
     const stocksSafe = stocks.map(s => ({
       ...s,
-      production:  Math.max(0, Math.min(Math.floor(Number(s.production)  || 0), 99999)),
-      snapshot10h: Math.max(0, Math.min(Math.floor(Number(s.snapshot10h) || 0), 99999)),
-      snapshot14h: Math.max(0, Math.min(Math.floor(Number(s.snapshot14h) || 0), 99999)),
-      stockFinal:  Math.max(0, Math.min(Math.floor(Number(s.stockFinal)  || 0), 99999)),
-      prixVente:   Math.max(0, Math.min(Math.round(Number(s.prixVente)   * 100) / 100, 9999.99)),
-      coutProduction: Math.max(0, Math.min(Math.round(Number(s.coutProduction) * 100) / 100, 9999.99)),
+      production:     Math.max(0, Math.min(Math.floor(Number(s.production)       || 0), 99999)),
+      snapshot10h:    Math.max(0, Math.min(Math.floor(Number(s.snapshot10h)      || 0), 99999)),
+      snapshot14h:    Math.max(0, Math.min(Math.floor(Number(s.snapshot14h)      || 0), 99999)),
+      stockFinal:     Math.max(0, Math.min(Math.floor(Number(s.stockFinal)       || 0), 99999)),
+      prixVente:      Math.max(0, Math.min(Math.round(Number(s.prixVente)        * 100) / 100, 9999.99)),
+      coutProduction: Math.max(0, Math.min(Math.round(Number(s.coutProduction)   * 100) / 100, 9999.99)),
     }));
 
-    const today = new Date().toISOString().split('T')[0];
-
+    const today       = new Date().toISOString().split('T')[0];
     const totalProduit = stocksSafe.reduce((s, p) => s + p.production, 0);
     const totalInvendu = stocksSafe.reduce((s, p) => s + p.stockFinal, 0);
-    const caEstime = stocksSafe.reduce(
-      (s, p) => s + (p.production - p.stockFinal) * p.prixVente,
-      0
+    const caEstime     = stocksSafe.reduce(
+      (s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0
     );
-    const tauxInvendu = totalProduit > 0
+    const tauxInvendu  = totalProduit > 0
       ? parseFloat(((totalInvendu / totalProduit) * 100).toFixed(2))
       : 0;
 
@@ -125,20 +122,20 @@ export async function POST(req: NextRequest) {
     }
 
     const stocksToUpsert = stocksSafe.map((s) => ({
-      journee_id:       journee.id,
-      boulangerie_id:   boulangerieId,
-      produit_id:       s.id,
-      produit_nom:      String(s.name).slice(0, 150),
-      produit_emoji:    String(s.emoji).slice(0, 4),
-      categorie:        ['boulangerie', 'viennoiserie', 'patisserie'].includes(s.category) ? s.category : 'boulangerie',
-      prix_vente:       s.prixVente,
-      cout_production:  s.coutProduction,
-      production:       s.production,
-      snapshot_10h:     s.snapshot10h,
+      journee_id:        journee.id,
+      boulangerie_id:    boulangerieId,
+      produit_id:        s.id,
+      produit_nom:       String(s.name).slice(0, 150),
+      produit_emoji:     String(s.emoji).slice(0, 4),
+      categorie:         ['boulangerie', 'viennoiserie', 'patisserie'].includes(s.category) ? s.category : 'boulangerie',
+      prix_vente:        s.prixVente,
+      cout_production:   s.coutProduction,
+      production:        s.production,
+      snapshot_10h:      s.snapshot10h,
       snapshot_10h_done: !!s.snapshot10hDone,
-      snapshot_14h:     s.snapshot14h,
+      snapshot_14h:      s.snapshot14h,
       snapshot_14h_done: !!s.snapshot14hDone,
-      stock_final:      s.stockFinal,
+      stock_final:       s.stockFinal,
     }));
 
     const { error: stocksError } = await admin

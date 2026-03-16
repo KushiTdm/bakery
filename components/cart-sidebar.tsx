@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Minus, Plus, ShoppingBag, Trash2, ArrowRight,
@@ -30,15 +30,21 @@ function useBoulangerieInfo(slug: string | null) {
 
   useEffect(() => {
     if (!slug) return;
-    // On récupère les infos publiques via le catalogue (qui expose le profil public)
-    // Note : dans un projet complet, créer une route GET /api/boulangerie/:slug/info
-    // Pour l'instant, on utilise l'endpoint catalogue qui retourne les données publiques
+    let cancelled = false;
+
     fetch(`/api/catalogue/${slug}`)
       .then(r => r.json())
       .then((data: { boulangerie?: BoulangeriePublicInfo }) => {
-        if (data?.boulangerie) setInfo(data.boulangerie);
+        if (!cancelled && data?.boulangerie) setInfo(data.boulangerie);
       })
-      .catch(() => {/* fail silently, utilise les valeurs par défaut */});
+      .catch((err) => {
+        // B4 : log en développement pour faciliter le debug
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[cart-sidebar] Impossible de charger les infos boulangerie :', err);
+        }
+      });
+
+    return () => { cancelled = true; };
   }, [slug]);
 
   return info;
@@ -130,7 +136,7 @@ export default function CartSidebar() {
     boulangerieSlug,
   } = useCart();
 
-  const resolution = useSlug();
+  const resolution      = useSlug();
   const boulangerieInfo = useBoulangerieInfo(resolution?.slug ?? boulangerieSlug ?? null);
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
@@ -140,7 +146,11 @@ export default function CartSidebar() {
   const [isSubmitting, setIsSubmitting]     = useState(false);
   const [submitError, setSubmitError]       = useState<string | null>(null);
 
-  // Initialise le créneau sélectionné au premier créneau disponible
+  // B3 : ref synchrone pour bloquer les doubles soumissions — le setState
+  // seul ne suffit pas car le re-render n'est pas garanti avant le prochain
+  // clic dans le même cycle d'événements.
+  const submittingRef = useRef(false);
+
   useEffect(() => {
     if (boulangerieInfo.creneaux_retrait.length > 0 && !selectedHeure) {
       setSelectedHeure(boulangerieInfo.creneaux_retrait[0]);
@@ -152,9 +162,11 @@ export default function CartSidebar() {
   // ── Checkout ─────────────────────────────────────────────────
 
   const handleCheckout = async () => {
-    if (!user) { setIsAuthOpen(true); return; }
-    if (!selectedHeure) { setSubmitError('Sélectionnez un créneau de retrait'); return; }
+    if (!user)         { setIsAuthOpen(true); return; }
+    if (!selectedHeure){ setSubmitError('Sélectionnez un créneau de retrait'); return; }
+    if (submittingRef.current) return; // B3 : guard synchrone
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -190,6 +202,7 @@ export default function CartSidebar() {
     } catch {
       setSubmitError('Erreur réseau. Vérifiez votre connexion et réessayez.');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -350,7 +363,7 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
-                {/* 🆕 Créneau de retrait dynamique */}
+                {/* Créneau de retrait dynamique */}
                 <div>
                   <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
                     <Clock size={12} />
@@ -377,7 +390,7 @@ export default function CartSidebar() {
                   )}
                 </div>
 
-                {/* 🆕 Adresse dynamique */}
+                {/* Adresse dynamique */}
                 <div className="bg-[#F5F0E8] rounded-xl px-3 py-2.5 flex items-start gap-2">
                   <MapPin size={13} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
                   <div>

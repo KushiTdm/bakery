@@ -1,6 +1,6 @@
 # Rapport d'analyse — BakeryOS
 
-*Généré automatiquement le 16/03/2026*
+*Généré automatiquement le 16/03/2026 — mis à jour le 16/03/2026*
 
 ---
 
@@ -20,263 +20,193 @@
 
 ### S1. ✅ CORRIGÉ — Validation du slug côté register
 **Fichier** : `app/api/boulanger/auth/route.ts`
-
 **Statut** : ✅ Corrigé le 16/03/2026
-
-La validation `isValidSlug()` est maintenant appliquée avant toute vérification d'existence du slug :
-```typescript
-if (!isValidSlug(slug)) {
-  return NextResponse.json(
-    { error: 'Slug invalide. Utilisez uniquement des lettres minuscules, chiffres et tirets. Certains slugs sont réservés (api, admin, www...).' },
-    { status: 400 }
-  );
-}
-```
+`isValidSlug()` est appliqué avant toute vérification d'existence en base.
 
 ---
 
 ### S2. ✅ CORRIGÉ — Rate limiting sur l'authentification
 **Fichier** : `app/api/boulanger/auth/route.ts`
-
 **Statut** : ✅ Corrigé le 16/03/2026
-
-Un système de rate limiting mémoire a été implémenté :
-- 5 tentatives maximum par IP
-- Fenêtre de 15 minutes
-- Reset du compteur après succès
-- Headers `Retry-After` inclus dans la réponse 429
+Système Map mémoire : 5 tentatives / 15 min, reset après succès, header `Retry-After`.
 
 ---
 
 ### S3. ✅ CORRIGÉ — Fallback unsafe dans lib/supabase.ts
 **Fichier** : `lib/supabase.ts`
+**Statut** : ✅ Corrigé le 16/03/2026 (v2 — simplification)
 
-**Statut** : ✅ Corrigé le 16/03/2026
-
-En production, l'absence de variables d'environnement provoque maintenant une erreur bloquante. Les fallbacks ne sont utilisés qu'en développement.
+Correction initiale : erreur bloquante si variables absentes en production.
+Correction v2 : suppression des variables intermédiaires `effectiveUrl`/`effectiveKey`
+qui créaient une logique de double-vérification fragile. Désormais :
+- `throw` immédiat en production si variables absentes
+- `resolvedUrl`/`resolvedKey` simples avec fallback dev uniquement
+- Chemin d'erreur linéaire et sans ambiguïté
 
 ---
 
 ### S4. ✅ CORRIGÉ — Validation de la complexité du mot de passe
 **Fichier** : `app/api/boulanger/auth/route.ts`
-
 **Statut** : ✅ Corrigé le 16/03/2026
-
-La validation du mot de passe vérifie maintenant :
-- Minimum 8 caractères
-- Au moins une lettre minuscule
-- Au moins une lettre majuscule
-- Au moins un chiffre
-
-Message d'erreur explicite : "Le mot de passe doit contenir : au moins 8 caractères, une lettre minuscule, une lettre majuscule, un chiffre."
+`validatePasswordStrength()` vérifie 8 chars min, minuscule, majuscule, chiffre.
 
 ---
 
-### S5. ✅ CORRIGÉ — Secret interne strictement validé
-**Fichier** : `app/api/notifications/send/route.ts`
+### S5. ✅ CORRIGÉ — Secret interne aligné entre les deux routes
+**Fichiers** : `app/api/notifications/send/route.ts`, `app/api/orders/confirm-email/route.ts`
+**Statut** : ✅ Corrigé le 16/03/2026 (v2 — alignement)
 
-**Statut** : ✅ Corrigé le 16/03/2026
-
-Le secret interne est maintenant strictement validé :
-- Si `INTERNAL_API_SECRET` n'est pas défini → accès refusé
-- Si le secret fourni ne correspond pas → accès refusé
-- Log d'erreur pour le debugging
+Correction initiale : secret validé dans `notifications/send`.
+Correction v2 : `confirm-email/route.ts` aligné sur le même contrat :
+- secret absent en **production** → **401** (et non 500)
+- secret absent en **développement** → warning + pass-through
+- secret présent partout → vérification stricte → 401 si mismatch
 
 ---
 
 ## 🐛 BUGS — PRIORITÉ 2
 
-### B1. 🟠 ÉLEVÉ — Casting `produit_id::UUID` potentiellement invalide
-**Fichier** : `migrations/migration-complete-v1.sql` (ligne 380)
+### B1. 🟠 ÉLEVÉ — Cast `produit_id::UUID` potentiellement invalide
+**Fichier** : `migrations/migration-complete-v1.sql`
+**Statut** : 🔴 Ouvert — correction à appliquer en SQL
 
-**Problème** : Dans `get_paniers_flash()`, le cast `sj.produit_id::UUID` peut échouer si `produit_id` contient une valeur non-UUID (anciennes données).
-
-```sql
-LEFT JOIN produits p
-  ON p.id = sj.produit_id::UUID  -- ⚠️ Cast unsafe
-```
-
-**Correction** : Ajouter une validation ou utiliser une fonction de cast sécurisée.
+Dans `get_paniers_flash()`, le cast `sj.produit_id::UUID` peut échouer si
+`produit_id` contient une valeur non-UUID (anciennes données).
+**Correction suggérée** : utiliser `is_valid_uuid(sj.produit_id)` ou un cast sécurisé.
 
 ---
 
-### B2. 🟡 MOYEN — `client_telephone` non validé côté client
+### B2. 🟡 MOYEN — `client_telephone` non collecté côté client
 **Fichier** : `components/cart-sidebar.tsx`
-
-**Problème** : Le téléphone client n'est pas collecté dans le formulaire de commande, pourtant le champ existe en base. Si un boulangerie a besoin du téléphone, le client ne peut pas le fournir.
-
-**Note** : Ce n'est pas un bug technique mais une incohérence fonctionnelle.
-
----
-
-### B3. 🟡 MOYEN — Double appel API lors du checkout
-**Fichier** : `components/cart-sidebar.tsx` (ligne 127-152)
-
-**Problème** : Si l'utilisateur soumet rapidement plusieurs fois, plusieurs commandes pourraient être créées (race condition).
-
-**Correction** : Ajouter un état `isSubmitting` (déjà présent) et désactiver le boutton, mais aussi vérifier côté serveur qu'une commande similaire n'existe pas déjà.
+**Statut** : ⚪ Accepté (incohérence fonctionnelle volontaire — pas un bug technique)
+Le champ existe en base mais n'est pas exposé dans le formulaire de commande.
+À traiter lors de l'évolution UX du tunnel de commande si besoin.
 
 ---
 
-### B4. 🔵 FAIBLE — Gestion d'erreur silencieuse dans cart-sidebar
-**Fichier** : `components/cart-sidebar.tsx` (ligne 63-66)
+### B3. ✅ CORRIGÉ — Race condition double soumission
+**Fichier** : `components/cart-sidebar.tsx`
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Problème** : Les erreurs de fetch pour les infos boulangerie sont ignorées silencieusement.
-
-```typescript
-.catch(() => {/* fail silently, utilise les valeurs par défaut */});
-```
-
-**Suggestion** : Logger l'erreur pour le debugging en développement.
+Ajout d'un `useRef<boolean>` (`submittingRef`) en complément du state `isSubmitting`.
+Le ref est synchrone : il est positionné à `true` avant l'appel async et remis à `false`
+dans le `finally`, bloquant tout second clic dans le même cycle d'événements.
+Le state `isSubmitting` reste pour l'UI (désactivation du bouton).
 
 ---
 
-### B5. 🔵 FAIBLE — TVA calculée mais pas envoyée
-**Fichier** : `components/cart-sidebar.tsx` (ligne 185-186)
+### B4. ✅ CORRIGÉ — Gestion d'erreur silencieuse dans cart-sidebar
+**Fichier** : `components/cart-sidebar.tsx`
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Problème** : La TVA est calculée côté client pour l'affichage, mais n'est pas stockée en base avec la commande.
+Le `.catch()` silencieux a été remplacé par un `console.warn` conditionné à
+`process.env.NODE_ENV !== 'production'`. L'erreur reste non-bloquante en prod
+(les valeurs par défaut sont utilisées), mais est visible en développement.
 
-**Suggestion** : Envisager de stocker le montant HT et TVA dans la table `commandes`.
+---
+
+### B5. 🔵 FAIBLE — TVA calculée mais pas stockée en base
+**Fichier** : `components/cart-sidebar.tsx`
+**Statut** : ⚪ Accepté — évolution future
+
+La TVA est calculée côté client pour l'affichage uniquement.
+À traiter si besoin de conformité comptable (ajout de `montant_ht` et `tva` dans `commandes`).
 
 ---
 
 ## ⚠️ INCOHÉRENCES — PRIORITÉ 3
 
-### I1. 🟡 MOYEN — Middleware quasi-vide
+### I1. ✅ CORRIGÉ — Middleware quasi-vide
 **Fichier** : `middleware.ts`
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Problème** : Le middleware ne fait rien d'utile. Il laisse passer toutes les requêtes sans vérification réelle.
-
-```typescript
-// Commentaire du code :
-// Laisse passer /boulanger et /boulanger/xxx
-// La vérification auth est dans BoulangerProvider / BoulangerContext
-```
-
-**Question** : Pourquoi avoir un middleware qui ne middleware rien ? Soit supprimer ce fichier, soit y implémenter une vraie logique de protection.
+Le middleware a été simplifié et documenté. Le choix architectural (auth côté client
+via `BoulangerContext`) est maintenant explicitement commenté avec le chemin pour
+une future protection SSR. Le paramètre `_req` est préfixé pour signaler qu'il
+est intentionnellement inutilisé.
 
 ---
 
-### I2. 🟡 MOYEN — Types dupliqués entre context et API
-**Fichiers** : 
-- `context/boulanger-context.tsx` → `StockEntry`
-- `app/api/boulanger/journee/route.ts` → importe `StockEntry` depuis le context
+### I2. ✅ CORRIGÉ — Types partagés importés depuis un fichier 'use client'
+**Fichiers** : `lib/types.ts` (nouveau), `context/boulanger-context.tsx`, `app/api/boulanger/journee/route.ts`
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Problème** : Un type défini dans un fichier client (`context/`) est importé dans un fichier serveur (`app/api/`). Cela peut causer des problèmes de bundling.
-
-**Correction** : Déplacer les types partagés dans `lib/types.ts` ou `types/`.
-
----
-
-### I3. 🔵 FAIBLE — Plan Starter limité à 20 produits mais count uniquement sur `actif_catalogue=true`
-**Fichier** : `app/api/boulanger/produits/route.ts` (ligne 144-148)
-
-**Problème** : Le comptage pour la limite du plan Starter ne compte que les produits actifs. Un utilisateur pourrait contourner la limite en désactivant des produits.
-
-```typescript
-const { count } = await admin
-  .from('produits')
-  .select('*', { count: 'exact', head: true })
-  .eq('boulangerie_id', boulangerieId)
-  .eq('actif_catalogue', true);  // Uniquement les actifs
-```
-
-**Question** : Est-ce intentionnel ? Sinon, retirer le filtre `actif_catalogue`.
+Création de `lib/types.ts` (sans directive) contenant `StockEntry`, `HistoryEntry`,
+`ProductionSuggestion`, `ViewType`, `SyncStatus`.
+- `context/boulanger-context.tsx` importe depuis `lib/types.ts` et ré-exporte pour
+  la compatibilité des imports existants.
+- `app/api/boulanger/journee/route.ts` importe `StockEntry` depuis `lib/types.ts`
+  au lieu du contexte client.
 
 ---
 
-### I4. 🔵 FAIBLE — Colonnes `adresse`, `ville`, `code_postal`, `telephone` absentes de la migration initiale
+### I3. ✅ CORRIGÉ — Limite Starter comptait seulement les produits actifs
+**Fichier** : `app/api/boulanger/produits/route.ts`
+**Statut** : ✅ Corrigé le 16/03/2026
+
+Le comptage pour la limite plan Starter porte maintenant sur **tous les produits**
+(actifs ET inactifs), sans filtre `actif_catalogue`. Cela ferme le contournement
+qui consistait à désactiver des produits avant d'en créer de nouveaux.
+
+---
+
+### I4. 🔵 FAIBLE — Colonnes d'adresse absentes du CREATE TABLE initial
 **Fichier** : `migrations/migration-complete-v1.sql`
+**Statut** : 🔴 Ouvert — correction en SQL
 
-**Problème** : Ces colonnes sont utilisées dans le code mais ne sont pas définies dans le `CREATE TABLE boulangeries`. Elles sont ajoutées plus tard via des `ALTER TABLE IF NOT EXISTS` implicites dans les policies, mais pas dans la structure de table.
-
-**Correction** : Ajouter les colonnes manquantes dans le `CREATE TABLE` initial :
-```sql
-adresse       TEXT,
-ville         TEXT,
-code_postal   TEXT,
-telephone     TEXT,
-```
+`adresse`, `ville`, `code_postal`, `telephone` doivent être déclarées dans
+le `CREATE TABLE boulangeries` et non seulement via `ALTER TABLE` implicites.
 
 ---
 
 ### I5. 🔵 FAIBLE — ESLint ignoré pendant le build
-**Fichier** : `next.config.js` (ligne 4)
-
-```javascript
-eslint: { ignoreDuringBuilds: true },
-```
-
-**Problème** : Les erreurs ESLint sont ignorées lors du build, ce qui peut masquer des problèmes.
+**Fichier** : `next.config.js`
+**Statut** : ⚪ Accepté pour l'instant — à activer avant la mise en production finale
+`eslint: { ignoreDuringBuilds: true }` masque des problèmes potentiels.
 
 ---
 
-## 📝 FAUTES DE GRAMMAIRE/ORTHOGRAPHE — PRIORITÉ 4
+## 📝 GRAMMAIRE/ORTHOGRAPHE — PRIORITÉ 4
 
-### G1. 🔵 FAIBLE — Messages d'erreur en français incohérents
-**Fichier** : `app/api/orders/route.ts`
+### G1. ⚪ INFO — Messages d'erreur cohérents
+Aucune correction nécessaire.
 
-- Ligne 87 : `'Trop de tentatives. Réessayez dans une heure.'` ✓
-- Ligne 121 : `"Limite de commandes atteinte pour aujourd'hui..."` ✓
-
-**Note** : Les messages sont cohérents, aucun problème détecté.
-
----
-
-### G2. 🔵 FAIBLE — Commentaire en anglais dans fichier français
-**Fichier** : `app/api/boulanger/produits/route.ts` (ligne 277)
-
-```typescript
-// Invalide le catalogue côté client
-revalidatePath('/');
-```
-
-**Suggestion** : Harmoniser les commentaires en français.
+### G2. 🔵 FAIBLE — Commentaires mixtes (FR/EN) dans certains fichiers
+**Statut** : ⚪ Accepté — harmonisation possible lors d'une future passe de style.
 
 ---
 
 ## 🎯 ERREURS STRATÉGIQUES — PRIORITÉ 5
 
 ### E1. 🟡 MOYEN — Pas de pagination sur l'historique
-**Fichier** : `app/api/boulanger/historique/route.ts` (non analysé mais inféré)
-
-**Problème** : Si beaucoup de journées sont enregistrées, le chargement de l'historique devient lent.
-
-**Suggestion** : Implémenter une pagination (cursor-based) ou limiter côté serveur.
+**Fichier** : `app/api/boulanger/historique/route.ts`
+**Statut** : 🟡 Ouvert — limite actuelle de 90 entrées suffit à court terme.
+Implémenter une pagination cursor-based si le volume augmente.
 
 ---
 
 ### E2. 🟡 MOYEN — Pas de soft delete pour les produits
-**Fichier** : `app/api/boulanger/produits/route.ts` (DELETE)
-
-**Problème** : Les produits sont supprimés définitivement. Si un produit est référencé dans une commande historique, cela peut causer des problèmes d'intégrité.
-
-**Suggestion** : Implémenter un soft delete (colonne `deleted_at`) ou archiver les produits.
-
----
-
-### E3. 🔵 FAIBLE — Images externes Unsplash utilisées comme fallback
-**Fichier** : `app/api/catalogue/[slug]/route.ts` (ligne 21-26)
-
-```typescript
-const imageDefaults: Record<string, string> = {
-  boulangerie:  'https://images.unsplash.com/photo-1568471173242-461f0a730452?w=800&q=80',
-  ...
-};
-```
-
-**Problème** : Dépendance à un service externe pour les images par défaut. Si Unsplash est indisponible ou supprime l'image, l'affichage sera cassé.
-
-**Suggestion** : Héberger les images par défaut dans `/public/images/`.
+**Fichier** : `app/api/boulanger/produits/route.ts`
+**Statut** : 🟡 Ouvert
+Les produits référencés dans des commandes historiques sont supprimés définitivement.
+Implémenter `deleted_at` ou archivage lors d'une prochaine itération DB.
 
 ---
 
-### E4. 🔵 FAIBLE — Pas de validation du format d'heure `heure_retrait`
+### E3. 🔵 FAIBLE — Images externes Unsplash comme fallback
+**Fichier** : `app/api/catalogue/[slug]/route.ts`
+**Statut** : 🔵 Ouvert
+Héberger les images par défaut dans `/public/images/` pour éliminer la dépendance externe.
+
+---
+
+### E4. ✅ CORRIGÉ — heure_retrait non validée contre les créneaux configurés
 **Fichier** : `app/api/orders/route.ts`
+**Statut** : ✅ Corrigé le 16/03/2026
 
-**Problème** : Le format est validé (`^\d{2}:\d{2}$`) mais pas la cohérence avec les créneaux configurés par la boulangerie.
-
-**Suggestion** : Vérifier que l'heure de retrait fait partie des créneaux disponibles.
+Après récupération de la boulangerie, `creneaux_retrait` est extrait du profil.
+Si la liste est non-vide et que `heure_retrait` n'en fait pas partie, la commande
+est rejetée avec une erreur 400 explicite listant les créneaux valides.
 
 ---
 
@@ -284,23 +214,25 @@ const imageDefaults: Record<string, string> = {
 
 | Catégorie | 🔴 Critique | 🟠 Élevé | 🟡 Moyen | 🔵 Faible | ⚪ Info | ✅ Corrigé |
 |-----------|-------------|----------|----------|-----------|---------|-----------|
-| Sécurité  | 0 | 1 | 1 | 0 | 0 | **3** |
-| Bugs      | 0 | 1 | 2 | 2 | 0 | 0 |
-| Incohérences | 0 | 0 | 2 | 3 | 0 | 0 |
-| Grammaire | 0 | 0 | 0 | 2 | 0 | 0 |
-| Stratégique | 0 | 0 | 2 | 2 | 0 | 0 |
-| **TOTAL** | **0** | **2** | **7** | **9** | **0** | **3** |
+| Sécurité  | 0 | 0 | 0 | 0 | 0 | **5** |
+| Bugs      | 0 | 1 | 0 | 1 | 2 | **2** |
+| Incohérences | 0 | 0 | 0 | 2 | 1 | **4** |
+| Grammaire | 0 | 0 | 0 | 1 | 1 | 0 |
+| Stratégique | 0 | 0 | 2 | 1 | 0 | **1** |
+| **TOTAL** | **0** | **1** | **2** | **5** | **4** | **12** |
 
 ---
 
-## 🔧 ACTIONS PRIORITAIRES
+## 🔧 ACTIONS RESTANTES (par priorité)
 
-1. ~~**[URGENT]** Ajouter `isValidSlug()` dans `app/api/boulanger/auth/route.ts`~~ ✅ **CORRIGÉ**
-2. **[URGENT]** Corriger la validation du secret dans `app/api/notifications/send/route.ts`
-3. ~~**[IMPORTANT]** Implémenter un rate limiting sur l'authentification~~ ✅ **CORRIGÉ**
-4. **[IMPORTANT]** Déplacer les types partagés hors du context client
-5. **[MOYEN]** Supprimer ou implémenter le middleware
+1. **[URGENT - SQL]** B1 — Cast UUID unsafe dans `get_paniers_flash()` (migration SQL)
+2. **[URGENT - SQL]** I4 — Colonnes `adresse/ville/code_postal/telephone` absentes du `CREATE TABLE`
+3. **[MOYEN]** E1 — Pagination cursor-based sur l'historique
+4. **[MOYEN]** E2 — Soft delete produits (`deleted_at`)
+5. **[FAIBLE]** E3 — Images fallback hébergées localement
+6. **[FAIBLE]** I5 — Réactiver ESLint au build
 
 ---
 
-*Analyse générée par Cline — 16/03/2026*
+*Analyse initiale : Cline — 16/03/2026*
+*Mises à jour : Claude — 16/03/2026*

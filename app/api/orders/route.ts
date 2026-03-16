@@ -9,7 +9,7 @@ const LigneCommandeSchema = z.object({
   produit_id:    z.string().min(1).max(100),
   produit_nom:   z.string().min(1).max(150),
   quantite:      z.number().int().positive().max(99),
-  prix_unitaire: z.number().positive().max(9999), // max 9999€ par unité
+  prix_unitaire: z.number().positive().max(9999),
 });
 
 const CommandeSchema = z.object({
@@ -90,8 +90,8 @@ export async function POST(req: NextRequest) {
       notes:            data.notes ? sanitizeText(data.notes, 500) : null,
       lignes: data.lignes.map(l => ({
         ...l,
-        produit_id:  sanitizeText(l.produit_id, 100),
-        produit_nom: sanitizeText(l.produit_nom, 150),
+        produit_id:    sanitizeText(l.produit_id, 100),
+        produit_nom:   sanitizeText(l.produit_nom, 150),
         quantite:      Math.max(1, Math.min(l.quantite, 99)),
         prix_unitaire: Math.round(l.prix_unitaire * 100) / 100,
       })),
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
 
     const { data: boulangerie, error: bErr } = await supabase
       .from('boulangeries')
-      .select('id, actif')
+      .select('id, actif, creneaux_retrait')
       .eq('slug', sanitizedData.boulangerie_slug)
       .single();
 
@@ -112,6 +112,20 @@ export async function POST(req: NextRequest) {
 
     if (!boulangerie.actif) {
       return NextResponse.json({ error: 'Boulangerie non active' }, { status: 403 });
+    }
+
+    // E4 : validation de heure_retrait contre les créneaux configurés.
+    // Évite de passer une heure arbitraire qui ne correspond à aucun
+    // créneau réel (ex: "03:00" ou un créneau supprimé depuis).
+    const creneaux: string[] = Array.isArray(boulangerie.creneaux_retrait)
+      ? boulangerie.creneaux_retrait
+      : [];
+
+    if (creneaux.length > 0 && !creneaux.includes(sanitizedData.heure_retrait)) {
+      return NextResponse.json(
+        { error: `Créneau de retrait invalide. Créneaux disponibles : ${creneaux.join(', ')}` },
+        { status: 400 }
+      );
     }
 
     const emailLimited = await isSupabaseRateLimited(
@@ -133,7 +147,6 @@ export async function POST(req: NextRequest) {
       0
     );
 
-    // Borne le montant total pour éviter des dépassements DB
     const montant_final = Math.round(Math.min(montant_total, 99999.99) * 100) / 100;
 
     const { data: commande, error: cErr } = await supabase
@@ -197,19 +210,17 @@ export async function GET(req: NextRequest) {
   if (!config.ok) return config.error;
 
   const { searchParams } = new URL(req.url);
-  const boulangerieId = searchParams.get('boulangerie_id');
-  const date          = searchParams.get('date');
+  const boulangerieId    = searchParams.get('boulangerie_id');
+  const date             = searchParams.get('date');
 
   if (!boulangerieId) {
     return NextResponse.json({ error: 'boulangerie_id requis' }, { status: 400 });
   }
 
-  // Validation UUID
   if (!isValidUUID(boulangerieId)) {
     return NextResponse.json({ error: 'boulangerie_id invalide' }, { status: 400 });
   }
 
-  // Validation date si fournie
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: 'Format date invalide (YYYY-MM-DD)' }, { status: 400 });
   }

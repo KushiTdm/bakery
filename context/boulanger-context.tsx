@@ -8,32 +8,13 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
+// I2 : types partagés déplacés dans lib/types.ts (importable côté serveur aussi)
+import type {
+  ViewType, SyncStatus,
+  StockEntry, HistoryEntry, ProductionSuggestion,
+} from '@/lib/types';
 
-export type ViewType = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard' | 'parametres';
-export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
-
-export interface StockEntry {
-  id: string;
-  name: string;
-  emoji: string;
-  category: 'boulangerie' | 'viennoiserie' | 'patisserie';
-  prixVente: number;
-  coutProduction: number;
-  production: number;
-  snapshot10h: number;
-  snapshot10hDone: boolean;
-  snapshot14h: number;
-  snapshot14hDone: boolean;
-  stockFinal: number;
-}
-
-export interface HistoryEntry {
-  date: string;
-  chiffreAffaires: number;
-  tauxInvendu: number;
-  commandesOnline: number;
-  stocks: StockEntry[];
-}
+export type { ViewType, SyncStatus, StockEntry, HistoryEntry, ProductionSuggestion };
 
 interface Boulangerie {
   id:    string;
@@ -61,11 +42,11 @@ function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
 }
 
 interface ProduitDb {
-  id: string;
-  nom: string;
-  emoji: string;
-  categorie: 'boulangerie' | 'viennoiserie' | 'patisserie';
-  prix_vente: number;
+  id:              string;
+  nom:             string;
+  emoji:           string;
+  categorie:       'boulangerie' | 'viennoiserie' | 'patisserie';
+  prix_vente:      number;
   cout_production: number;
 }
 
@@ -96,17 +77,6 @@ function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
   };
 }
 
-export interface ProductionSuggestion {
-  id:            string;
-  name:          string;
-  emoji:         string;
-  avgProduction: number;
-  suggestedQty:  number;
-  dataPoints:    number;
-  changePercent: number;
-  confidence:    'high' | 'medium' | 'low';
-}
-
 function computeProductionSuggestions(
   history: HistoryEntry[],
   todayStocks: StockEntry[],
@@ -123,8 +93,8 @@ function computeProductionSuggestions(
   );
 
   return todayStocks.map(stock => {
-    const relevant   = sameDayHistory.length >= 1 ? sameDayHistory : history;
-    const dataPoints = relevant.length;
+    const relevant    = sameDayHistory.length >= 1 ? sameDayHistory : history;
+    const dataPoints  = relevant.length;
     const productions = relevant
       .map(d => d.stocks.find(s => s.id === stock.id)?.production ?? 0)
       .filter(v => v > 0);
@@ -137,8 +107,8 @@ function computeProductionSuggestions(
       };
     }
 
-    const avg          = productions.reduce((s, v) => s + v, 0) / productions.length;
-    const suggestedQty = Math.max(1, Math.round(avg / 5) * 5);
+    const avg           = productions.reduce((s, v) => s + v, 0) / productions.length;
+    const suggestedQty  = Math.max(1, Math.round(avg / 5) * 5);
     const changePercent = stock.production > 0
       ? Math.round(((suggestedQty - stock.production) / stock.production) * 100)
       : 0;
@@ -155,29 +125,29 @@ function computeProductionSuggestions(
 }
 
 interface BoulangerContextType {
-  session: Session | null;
-  user: User | null;
-  boulangerie: Boulangerie | null;
-  isAuthenticated: boolean;
-  authLoading: boolean;
-  logout: () => Promise<void>;
-  activeView: ViewType;
-  setActiveView: (v: ViewType) => void;
-  syncStatus: SyncStatus;
-  todayStocks: StockEntry[];
-  updateProduction: (id: string, val: number) => void;
-  updateSnapshot: (id: string, val: number, slot: '10h' | '14h') => void;
-  validateSnapshot: (slot: '10h' | '14h') => void;
-  updateStockFinal: (id: string, val: number) => void;
-  commandesOnline: number;
-  setCommandesOnline: (n: number) => void;
-  revenueToday: number;
-  unsoldToday: number;
-  unsoldValueToday: number;
-  unsoldRateToday: number;
-  totalProducedToday: number;
-  history: HistoryEntry[];
-  closeDayAndSave: (commandesOnline: number) => Promise<void>;
+  session:             Session | null;
+  user:                User | null;
+  boulangerie:         Boulangerie | null;
+  isAuthenticated:     boolean;
+  authLoading:         boolean;
+  logout:              () => Promise<void>;
+  activeView:          ViewType;
+  setActiveView:       (v: ViewType) => void;
+  syncStatus:          SyncStatus;
+  todayStocks:         StockEntry[];
+  updateProduction:    (id: string, val: number) => void;
+  updateSnapshot:      (id: string, val: number, slot: '10h' | '14h') => void;
+  validateSnapshot:    (slot: '10h' | '14h') => void;
+  updateStockFinal:    (id: string, val: number) => void;
+  commandesOnline:     number;
+  setCommandesOnline:  (n: number) => void;
+  revenueToday:        number;
+  unsoldToday:         number;
+  unsoldValueToday:    number;
+  unsoldRateToday:     number;
+  totalProducedToday:  number;
+  history:             HistoryEntry[];
+  closeDayAndSave:     (commandesOnline: number) => Promise<void>;
   productionSuggestions: ProductionSuggestion[];
 }
 
@@ -250,7 +220,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function loadTodayData(boulangerieId?: string) {
+  async function loadTodayData(_boulangerieId?: string) {
     try {
       const token = await getToken();
       if (!token) return;
@@ -417,8 +387,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setBoulangerie(null);
   }, []);
 
-  const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0), [todayStocks]);
-  const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0), [todayStocks]);
+  const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0),   [todayStocks]);
+  const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0),    [todayStocks]);
   const unsoldValueToday   = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0), [todayStocks]);
   const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
   const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);

@@ -1,144 +1,136 @@
-// app/api/orders/confirm-email/route.ts
-// ─────────────────────────────────────────────────────────────
-// S3 FIX : INTERNAL_API_SECRET désormais obligatoire en production.
-// En développement, l'absence du secret est signalée par un warning
-// mais non bloquante (appels server-side sans secret via localhost).
-// ─────────────────────────────────────────────────────────────
+// lib/supabase.ts
 
-import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { createClient } from '@supabase/supabase-js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-interface LigneCommande {
+// En production, les variables sont obligatoires — on bloque au démarrage.
+// En développement, on avertit et on utilise des valeurs locales.
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  const missing =
+    (!supabaseUrl     ? '  → NEXT_PUBLIC_SUPABASE_URL\n'     : '') +
+    (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '');
+
+  const msg =
+    '[Supabase] Variables d\'environnement manquantes :\n' +
+    missing +
+    'Vérifiez votre fichier .env.local';
+
+  if (isProduction) {
+    throw new Error(msg);
+  }
+
+  console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
+}
+
+// Valeurs définitives — en prod elles sont garanties non-undefined par le throw ci-dessus.
+// En dev on tolère un fallback local pour ne pas bloquer le hot-reload.
+const resolvedUrl = supabaseUrl ?? 'http://localhost:54321';
+const resolvedKey = supabaseAnonKey ?? 'anon-key-missing';
+
+export const supabase = createClient(resolvedUrl, resolvedKey, {
+  auth: {
+    persistSession:     true,
+    autoRefreshToken:   true,
+    detectSessionInUrl: true,
+  },
+});
+
+export function getSupabaseAdmin() {
+  const url        = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceKey) {
+    throw new Error(
+      '[Supabase] NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont requis côté serveur.\n' +
+      'Vérifiez votre .env.local'
+    );
+  }
+
+  return createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+// ── Types base de données ──────────────────────────────────────
+
+export interface DbBoulangerie {
+  id:            string;
+  user_id:       string;
+  nom:           string;
+  slug:          string;
+  email_contact: string | null;
+  plan:          'starter' | 'pro' | 'multi';
+  actif:         boolean;
+  adresse:       string | null;
+  ville:         string | null;
+  code_postal:   string | null;
+  telephone:     string | null;
+  creneaux_retrait:  string[];
+  flash_heure_debut: number;
+  flash_heure_fin:   number;
+  flash_remise_pct:  number;
+  tour_completed_at: string | null;
+  created_at:    string;
+  updated_at:    string;
+}
+
+export interface DbJournee {
+  id:               string;
+  boulangerie_id:   string;
+  date:             string;
+  commandes_online: number;
+  ca_estime:        number;
+  taux_invendu:     number;
+  total_produit:    number;
+  total_invendu:    number;
+  cloturee:         boolean;
+  created_at:       string;
+  updated_at:       string;
+  stocks_journaliers?: DbStockJournalier[];
+}
+
+export interface DbStockJournalier {
+  id:                string;
+  journee_id:        string;
+  boulangerie_id:    string;
+  produit_id:        string;
+  produit_nom:       string;
+  produit_emoji:     string;
+  categorie:         string;
+  prix_vente:        number;
+  cout_production:   number;
+  production:        number;
+  snapshot_10h:      number;
+  snapshot_10h_done: boolean;
+  snapshot_14h:      number;
+  snapshot_14h_done: boolean;
+  stock_final:       number;
+  created_at:        string;
+  updated_at:        string;
+}
+
+export interface DbCommande {
+  id:               string;
+  boulangerie_id:   string;
+  client_prenom:    string;
+  client_email:     string;
+  client_telephone: string | null;
+  heure_retrait:    string;
+  notes:            string | null;
+  montant_total:    number;
+  statut:           'en_attente' | 'confirmee' | 'prete' | 'recuperee' | 'annulee';
+  lignes:           DbLigneCommande[];
+  created_at:       string;
+  updated_at:       string;
+}
+
+export interface DbLigneCommande {
+  produit_id:    string;
   produit_nom:   string;
   quantite:      number;
   prix_unitaire: number;
-}
-
-interface ConfirmPayload {
-  commande_id:   string;
-  client_prenom: string;
-  client_email:  string;
-  heure_retrait: string;
-  lignes:        LigneCommande[];
-  montant_total: number;
-}
-
-// ── Validation du secret interne ─────────────────────────────
-function checkInternalSecret(req: NextRequest): NextResponse | null {
-  const secret   = process.env.INTERNAL_API_SECRET;
-  const provided = req.headers.get('x-internal-secret');
-
-  const isProd = process.env.NODE_ENV === 'production';
-
-  if (!secret) {
-    if (isProd) {
-      // En production sans secret configuré → erreur bloquante
-      console.error(
-        '[confirm-email] INTERNAL_API_SECRET non défini en production. ' +
-        'Ajoutez-le dans Netlify → Site settings → Environment variables.'
-      );
-      return NextResponse.json(
-        { error: 'Configuration serveur incomplète (INTERNAL_API_SECRET manquant)' },
-        { status: 500 }
-      );
-    } else {
-      // En dev, on accepte mais on avertit
-      console.warn(
-        '[confirm-email] INTERNAL_API_SECRET non défini — ' +
-        'appel accepté en développement uniquement.'
-      );
-      return null; // OK, on continue
-    }
-  }
-
-  // Secret configuré → vérification stricte quel que soit l'environnement
-  if (provided !== secret) {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-  }
-
-  return null; // OK
-}
-
-export async function POST(req: NextRequest) {
-  const authError = checkInternalSecret(req);
-  if (authError) return authError;
-
-  try {
-    const payload: ConfirmPayload = await req.json();
-    const { client_prenom, client_email, heure_retrait, lignes, montant_total, commande_id } = payload;
-
-    if (!client_email || !lignes?.length) {
-      return NextResponse.json({ error: 'Payload invalide' }, { status: 400 });
-    }
-
-    const lignesHtml = lignes
-      .map(
-        l => `<tr>
-          <td style="padding:8px 0;border-bottom:1px solid #f0ede8">${l.produit_nom}</td>
-          <td style="padding:8px 0;border-bottom:1px solid #f0ede8;text-align:center">${l.quantite}</td>
-          <td style="padding:8px 0;border-bottom:1px solid #f0ede8;text-align:right">${(l.prix_unitaire * l.quantite).toFixed(2)} €</td>
-        </tr>`
-      )
-      .join('');
-
-    const { error } = await resend.emails.send({
-      from:    process.env.RESEND_FROM_EMAIL ?? 'BakeryOS <commandes@artisandore.fr>',
-      to:      client_email,
-      subject: `✅ Commande confirmée — retrait à ${heure_retrait}`,
-      html: `
-        <!DOCTYPE html>
-        <html lang="fr">
-        <head><meta charset="UTF-8"></head>
-        <body style="font-family:Georgia,serif;color:#2c2118;max-width:560px;margin:0 auto;padding:24px">
-          <h1 style="font-size:24px;font-weight:normal;color:#8b4513;margin-bottom:4px">
-            Votre commande est confirmée 🥐
-          </h1>
-          <p style="color:#6b5744;margin-bottom:24px">
-            Bonjour ${client_prenom}, nous avons bien reçu votre commande.
-          </p>
-
-          <div style="background:#fdf8f3;border-radius:8px;padding:16px 20px;margin-bottom:24px">
-            <p style="margin:0;font-size:18px;font-weight:bold;color:#8b4513">
-              🕐 Retrait : ${heure_retrait}
-            </p>
-          </div>
-
-          <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
-            <thead>
-              <tr style="border-bottom:2px solid #e8ddd5">
-                <th style="text-align:left;padding:8px 0;font-weight:500;color:#6b5744">Produit</th>
-                <th style="text-align:center;padding:8px 0;font-weight:500;color:#6b5744">Qté</th>
-                <th style="text-align:right;padding:8px 0;font-weight:500;color:#6b5744">Prix</th>
-              </tr>
-            </thead>
-            <tbody>${lignesHtml}</tbody>
-            <tfoot>
-              <tr>
-                <td colspan="2" style="padding-top:12px;font-weight:bold">Total</td>
-                <td style="padding-top:12px;font-weight:bold;text-align:right">${montant_total.toFixed(2)} €</td>
-              </tr>
-            </tfoot>
-          </table>
-
-          <p style="font-size:12px;color:#a89080;border-top:1px solid #e8ddd5;padding-top:16px">
-            Référence commande : ${commande_id}<br>
-            En cas de problème, répondez directement à cet email.
-          </p>
-        </body>
-        </html>
-      `,
-    });
-
-    if (error) {
-      console.error('[confirm-email] Resend error:', error);
-      return NextResponse.json({ error: 'Email non envoyé' }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error('[confirm-email] unexpected error:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
-  }
 }

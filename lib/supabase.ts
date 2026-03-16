@@ -2,40 +2,36 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// S3 : En production, on bloque si les variables ne sont pas définies
-// En développement, on utilise des fallbacks pour le local
+// En production, les variables sont obligatoires — on bloque au démarrage.
+// En développement, on avertit et on utilise des valeurs locales.
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (!supabaseUrl || !supabaseAnonKey) {
+  const missing =
+    (!supabaseUrl     ? '  → NEXT_PUBLIC_SUPABASE_URL\n'     : '') +
+    (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '');
+
   const msg =
     '[Supabase] Variables d\'environnement manquantes :\n' +
-    (!supabaseUrl     ? '  → NEXT_PUBLIC_SUPABASE_URL\n'     : '') +
-    (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '') +
+    missing +
     'Vérifiez votre fichier .env.local';
 
   if (isProduction) {
-    // En production : erreur bloquante
-    console.error(msg);
-    throw new Error('[Supabase] Configuration manquante. Impossible de démarrer.');
-  } else {
-    // En développement : warning seulement (les fallbacks seront utilisés)
-    console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
+    throw new Error(msg);
   }
+
+  console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
 }
 
-// En production, on n'utilise JAMAIS de fallback
-// En développement, localhost est acceptable pour le développement local
-const effectiveUrl = supabaseUrl || (isProduction ? undefined : 'http://localhost:54321');
-const effectiveKey = supabaseAnonKey || (isProduction ? undefined : 'anon-key-missing');
+// Valeurs définitives — en prod elles sont garanties non-undefined par le throw ci-dessus.
+// En dev on tolère un fallback local pour ne pas bloquer le hot-reload.
+const resolvedUrl = supabaseUrl ?? 'http://localhost:54321';
+const resolvedKey = supabaseAnonKey ?? 'anon-key-missing';
 
-if (!effectiveUrl || !effectiveKey) {
-  throw new Error('[Supabase] Configuration invalide en production.');
-}
-
-export const supabase = createClient(effectiveUrl, effectiveKey, {
+export const supabase = createClient(resolvedUrl, resolvedKey, {
   auth: {
     persistSession:     true,
     autoRefreshToken:   true,
