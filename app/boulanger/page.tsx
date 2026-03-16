@@ -1,24 +1,23 @@
-// app/boulanger/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Sun, Camera, Moon, BarChart2, BookOpen,
+  Sun, Camera, Moon,
   LogOut, Cloud, CloudOff, Check, Loader2,
-  HelpCircle,
+  HelpCircle, MoreHorizontal, BookOpen, BarChart2,
+  Settings, X, ChevronRight,
 } from 'lucide-react';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
-import LoginForm   from '@/components/boulanger/login-form';
-import VueMatin    from '@/components/boulanger/vue-matin';
-import VueSnapshot from '@/components/boulanger/vue-snapshot';
-import VueSoir     from '@/components/boulanger/vue-soir';
-import Dashboard   from '@/components/boulanger/dashboard';
-import Catalogue   from '@/components/boulanger/catalogue';
+import LoginForm    from '@/components/boulanger/login-form';
+import VueMatin     from '@/components/boulanger/vue-matin';
+import VueSnapshot  from '@/components/boulanger/vue-snapshot';
+import VueSoir      from '@/components/boulanger/vue-soir';
+import Dashboard    from '@/components/boulanger/dashboard';
+import Catalogue    from '@/components/boulanger/catalogue';
+import Parametres   from '@/components/boulanger/parametres';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import type { ViewType } from '@/context/boulanger-context';
-
-// ─── Horloge live ──────────────────────────────────────────────────────────
 
 function LiveClock() {
   const [time, setTime] = useState('');
@@ -32,33 +31,24 @@ function LiveClock() {
   return <span className="text-white/30 text-xs font-mono tabular-nums">{time}</span>;
 }
 
-// ─── Indicateur de synchronisation ────────────────────────────────────────
-
 function SyncIndicator() {
   const { syncStatus } = useBoulanger();
-
   const icons = {
     idle:   <Cloud size={13} className="text-white/20" />,
     saving: <Loader2 size={13} className="text-[#C19A6B]/70 animate-spin" />,
     saved:  <Check size={13} className="text-green-400" />,
     error:  <CloudOff size={13} className="text-red-400" />,
   };
-
   const labels: Record<string, string> = {
-    idle:   '',
-    saving: 'Sync...',
-    saved:  'Sauvegardé',
-    error:  'Hors ligne',
+    idle: '', saving: 'Sync…', saved: 'Sauvegardé', error: 'Hors ligne',
   };
-
   return (
     <div className="flex items-center gap-1.5">
       {icons[syncStatus]}
       {labels[syncStatus] && (
         <span className={`text-[10px] font-medium ${
           syncStatus === 'saved' ? 'text-green-400' :
-          syncStatus === 'error' ? 'text-red-400'   :
-          'text-[#C19A6B]/70'
+          syncStatus === 'error' ? 'text-red-400' : 'text-[#C19A6B]/70'
         }`}>
           {labels[syncStatus]}
         </span>
@@ -67,17 +57,107 @@ function SyncIndicator() {
   );
 }
 
-// ─── Navigation ────────────────────────────────────────────────────────────
+// ─── Drawer "Plus" ─────────────────────────────────────────────
 
-const NAV_ITEMS: { id: ViewType; shortLabel: string; icon: React.ElementType }[] = [
-  { id: 'matin',     shortLabel: 'Matin',    icon: Sun       },
-  { id: 'snapshot',  shortLabel: 'Stock',    icon: Camera    },
-  { id: 'soir',      shortLabel: 'Soir',     icon: Moon      },
-  { id: 'catalogue', shortLabel: 'Produits', icon: BookOpen  },
-  { id: 'dashboard', shortLabel: 'Stats',    icon: BarChart2 },
+const SECONDARY_ITEMS: { id: ViewType; label: string; icon: React.ElementType; desc: string }[] = [
+  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,  desc: 'Gérer votre catalogue' },
+  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2, desc: 'Historique & performance' },
+  { id: 'parametres', label: 'Paramètres',   icon: Settings,  desc: 'Flash, créneaux, adresse' },
 ];
 
-// ─── Shell principal ───────────────────────────────────────────────────────
+function PlusDrawer({
+  open,
+  onClose,
+  onNavigate,
+  activeView,
+}: {
+  open:       boolean;
+  onClose:    () => void;
+  onNavigate: (v: ViewType) => void;
+  activeView: ViewType;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+            className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto"
+          >
+            <div className="bg-[#130B06] border border-white/10 rounded-t-3xl overflow-hidden shadow-2xl">
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 bg-white/20 rounded-full" />
+              </div>
+              <div className="flex items-center justify-between px-5 py-3">
+                <p className="text-white/50 text-xs uppercase tracking-widest font-medium">
+                  Gestion & paramètres
+                </p>
+                <button
+                  onClick={onClose}
+                  className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="px-4 pb-8 space-y-2.5">
+                {SECONDARY_ITEMS.map(item => {
+                  const Icon     = item.icon;
+                  const isActive = activeView === item.id;
+                  return (
+                    <motion.button
+                      key={item.id}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => { onNavigate(item.id); onClose(); }}
+                      className={`
+                        w-full flex items-center gap-4 px-4 py-4 rounded-2xl border text-left
+                        transition-all touch-manipulation select-none
+                        ${isActive
+                          ? 'bg-[#C19A6B]/15 border-[#C19A6B]/25'
+                          : 'bg-white/4 border-white/8 active:bg-white/8'
+                        }
+                      `}
+                    >
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-[#C19A6B]/20' : 'bg-white/8'}`}>
+                        <Icon size={22} className={isActive ? 'text-[#C19A6B]' : 'text-white/60'} strokeWidth={isActive ? 2.2 : 1.8} />
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-base font-semibold ${isActive ? 'text-[#C19A6B]' : 'text-white'}`}>
+                          {item.label}
+                        </p>
+                        <p className="text-white/35 text-xs mt-0.5">{item.desc}</p>
+                      </div>
+                      <ChevronRight size={16} className={isActive ? 'text-[#C19A6B]/60' : 'text-white/20'} />
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ─── Navigation 3 onglets ──────────────────────────────────────
+
+const MAIN_NAV: { id: ViewType; label: string; icon: React.ElementType }[] = [
+  { id: 'matin',    label: 'Matin',  icon: Sun    },
+  { id: 'snapshot', label: 'Stock',  icon: Camera },
+  { id: 'soir',     label: 'Soir',   icon: Moon   },
+];
+
+// ─── Shell ────────────────────────────────────────────────────
 
 function AppShell() {
   const {
@@ -87,8 +167,10 @@ function AppShell() {
   } = useBoulanger();
 
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // ── Loading auth ──────────────────────────────────────────────────────────
+  const isSecondaryActive = ['catalogue', 'dashboard', 'parametres'].includes(activeView);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center">
@@ -104,7 +186,6 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-[#1A0F0A]">
-      {/* Grain overlay */}
       <div
         className="fixed inset-0 opacity-[0.025] pointer-events-none z-0"
         style={{
@@ -112,16 +193,13 @@ function AppShell() {
         }}
       />
 
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-[#120A06]/90 backdrop-blur-md border-b border-white/6">
         <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="text-xl">🥖</span>
             <div>
-              <p
-                className="text-white text-sm font-bold leading-none"
-                style={{ fontFamily: 'Playfair Display, serif' }}
-              >
+              <p className="text-white text-sm font-bold leading-none" style={{ fontFamily: 'Playfair Display, serif' }}>
                 {boulangerie?.nom ?? "L'Artisan Doré"}
               </p>
               <p className="text-[#C19A6B]/70 text-[10px] tracking-[0.2em] uppercase leading-none mt-0.5">
@@ -129,28 +207,21 @@ function AppShell() {
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             <SyncIndicator />
             <LiveClock />
-
-            {/* Bouton Aide — relance le tour */}
             {!tourLoading && (
               <button
                 data-tour="header-help-btn"
                 onClick={tourCompleted ? resetTour : startTour}
-                title="Visite guidée"
                 className="w-8 h-8 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/30 hover:text-[#C19A6B]/80 hover:bg-[#C19A6B]/10 hover:border-[#C19A6B]/20 transition-all"
               >
                 <HelpCircle size={15} />
               </button>
             )}
-
-            {/* Déconnexion */}
             <button
               onClick={logout}
               className="w-8 h-8 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/10 transition-all"
-              title="Déconnexion"
             >
               <LogOut size={14} />
             </button>
@@ -158,65 +229,100 @@ function AppShell() {
         </div>
       </header>
 
-      {/* ── Contenu ── */}
-      <main className="relative z-10 max-w-lg mx-auto px-4 pt-20 pb-28">
+      {/* Contenu */}
+      <main className="relative z-10 max-w-lg mx-auto px-4 pt-20 pb-32">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeView}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -14 }}
-            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
           >
-            {activeView === 'matin'     && <VueMatin />}
-            {activeView === 'snapshot'  && <VueSnapshot />}
-            {activeView === 'soir'      && <VueSoir />}
-            {activeView === 'catalogue' && <Catalogue />}
-            {activeView === 'dashboard' && <Dashboard />}
+            {activeView === 'matin'      && <VueMatin />}
+            {activeView === 'snapshot'   && <VueSnapshot />}
+            {activeView === 'soir'       && <VueSoir />}
+            {activeView === 'catalogue'  && <Catalogue />}
+            {activeView === 'dashboard'  && <Dashboard />}
+            {activeView === 'parametres' && <Parametres />}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* ── Bottom Nav ── */}
+      {/* Bottom Nav — 3 + Plus */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#120A06]/97 backdrop-blur-md border-t border-white/10">
-        <div className="grid grid-cols-5 w-full px-1 h-[68px]">
-          {NAV_ITEMS.map(item => {
+        <div className="grid grid-cols-4 w-full max-w-lg mx-auto h-[76px]">
+
+          {MAIN_NAV.map(item => {
             const Icon     = item.icon;
             const isActive = activeView === item.id;
             return (
               <motion.button
                 key={item.id}
                 onClick={() => setActiveView(item.id)}
-                whileTap={{ scale: 0.90 }}
-                className="flex flex-col items-center justify-center gap-1.5 py-2 transition-all duration-200"
+                whileTap={{ scale: 0.87 }}
+                className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none"
               >
-                <div className={`relative flex flex-col items-center gap-1.5 px-2 py-1.5 rounded-xl w-full transition-all ${
-                  isActive ? 'bg-[#C19A6B]/15' : ''
-                }`}>
+                <div className={`
+                  flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all
+                  ${isActive ? 'bg-[#C19A6B]/15' : ''}
+                `}>
                   <Icon
-                    size={19}
+                    size={24}
                     strokeWidth={isActive ? 2.2 : 1.6}
-                    className={isActive ? 'text-[#C19A6B]' : 'text-white/60'}
+                    className={isActive ? 'text-[#C19A6B]' : 'text-white/50'}
                   />
-                  <span className={`text-[10px] font-semibold leading-none ${
-                    isActive ? 'text-[#C19A6B]' : 'text-white/60'
-                  }`}>
-                    {item.shortLabel}
+                  <span className={`text-[10px] font-bold leading-none ${isActive ? 'text-[#C19A6B]' : 'text-white/50'}`}>
+                    {item.label}
                   </span>
                 </div>
               </motion.button>
             );
           })}
+
+          {/* Bouton Plus */}
+          <motion.button
+            onClick={() => setDrawerOpen(true)}
+            whileTap={{ scale: 0.87 }}
+            className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none"
+          >
+            <div className={`
+              flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all
+              ${isSecondaryActive ? 'bg-[#C19A6B]/15' : ''}
+            `}>
+              {isSecondaryActive ? (
+                <>
+                  {activeView === 'catalogue'  && <BookOpen  size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'dashboard'  && <BarChart2 size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'parametres' && <Settings  size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  <span className="text-[10px] font-bold leading-none text-[#C19A6B]">
+                    {activeView === 'catalogue' ? 'Produits' : activeView === 'dashboard' ? 'Stats' : 'Config'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <MoreHorizontal size={24} strokeWidth={1.6} className="text-white/50" />
+                  <span className="text-[10px] font-bold leading-none text-white/50">Plus</span>
+                </>
+              )}
+            </div>
+          </motion.button>
+
         </div>
       </nav>
 
-      {/* ── Tour Wizard (rendu dans un portal, z-index 9000+) ── */}
+      {/* Drawer */}
+      <PlusDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onNavigate={v => setActiveView(v)}
+        activeView={activeView}
+      />
+
       <TourWizard onNavigateToView={(view) => setActiveView(view)} />
     </div>
   );
 }
-
-// ─── Page export ───────────────────────────────────────────────────────────
 
 export default function BoulangerPage() {
   return (

@@ -55,9 +55,10 @@ function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
     prixVente:       s.prix_vente,
     coutProduction:  s.cout_production,
     production:      s.production,
-    snapshot10h:     s.snapshot_10h,
+    // ✅ Si non validé, repart de 0 — la vendeuse saisit ce qui reste
+    snapshot10h:     s.snapshot_10h_done ? s.snapshot_10h : 0,
     snapshot10hDone: s.snapshot_10h_done,
-    snapshot14h:     s.snapshot_14h,
+    snapshot14h:     s.snapshot_14h_done ? s.snapshot_14h : 0,
     snapshot14hDone: s.snapshot_14h_done,
     stockFinal:      s.stock_final,
   };
@@ -81,6 +82,7 @@ function produitToStockEntry(p: ProduitDb): StockEntry {
     prixVente:       p.prix_vente,
     coutProduction:  p.cout_production,
     production:      0,
+    // ✅ Snapshot démarre à 0 — la vendeuse saisit ce qui reste, pas une copie de la production
     snapshot10h:     0,
     snapshot10hDone: false,
     snapshot14h:     0,
@@ -268,7 +270,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const { journee } = await res.json() as { journee: DbJournee | null };
 
       if (journee?.stocks_journaliers?.length) {
-        setTodayStocks(journee.stocks_journaliers.map(mapDbStockToEntry));
+        // Si la journée n'est pas clôturée, le stockFinal repart de 0 au chargement
+        // (la vendeuse doit resaisir les invendus en fin de journée)
+        const isClosed = journee.cloturee === true;
+        const stocks = journee.stocks_journaliers.map(s => {
+          const entry = mapDbStockToEntry(s);
+          if (!isClosed) {
+            entry.stockFinal = 0; // Repart de zéro — vendeuse saisit les restes
+          }
+          return entry;
+        });
+        setTodayStocks(stocks);
         _setCommandesOnline(journee.commandes_online ?? 0);
       } else {
         await loadProduitsAsList(token);
@@ -334,7 +346,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setTodayStocks(prev => {
       const next = prev.map(p =>
         p.id === id
-          ? { ...p, production: Math.max(0, val), snapshot10h: Math.max(0, val), snapshot14h: Math.max(0, val) }
+          // ✅ Snapshots restent à 0 — la vendeuse saisit les restes indépendamment
+          ? { ...p, production: Math.max(0, val) }
           : p
       );
       triggerSave(next, commandesOnline);
@@ -344,13 +357,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const updateSnapshot = useCallback((id: string, val: number, slot: '10h' | '14h') => {
     setTodayStocks(prev => {
-      const next = prev.map(p =>
-        p.id === id
-          ? slot === '10h'
-            ? { ...p, snapshot10h: Math.max(0, Math.min(val, p.production)) }
-            : { ...p, snapshot14h: Math.max(0, Math.min(val, p.snapshot10h)) }
-          : p
-      );
+      const next = prev.map(p => {
+        if (p.id !== id) return p;
+        if (slot === '10h') {
+          // Max = production
+          return { ...p, snapshot10h: Math.max(0, Math.min(val, p.production)) };
+        } else {
+          // Max = snapshot10h si validé, sinon production (fallback si 10h pas fait)
+          const max14h = p.snapshot10hDone && p.snapshot10h > 0 ? p.snapshot10h : p.production;
+          return { ...p, snapshot14h: Math.max(0, Math.min(val, max14h)) };
+        }
+      });
       triggerSave(next, commandesOnline);
       return next;
     });
@@ -368,9 +385,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const updateStockFinal = useCallback((id: string, val: number) => {
     setTodayStocks(prev => {
-      const next = prev.map(p =>
-        p.id === id ? { ...p, stockFinal: Math.max(0, val) } : p
-      );
+      const next = prev.map(p => {
+        if (p.id !== id) return p;
+        // ✅ Plafond = dernier snapshot validé (14h > 10h > production)
+        // Impossible de déclarer plus d'invendus que ce qui restait physiquement
+        const maxFinal = p.snapshot14hDone && p.snapshot14h > 0
+          ? p.snapshot14h
+          : p.snapshot10hDone && p.snapshot10h > 0
+            ? p.snapshot10h
+            : p.production;
+        return { ...p, stockFinal: Math.max(0, Math.min(val, maxFinal)) };
+      });
       triggerSave(next, commandesOnline);
       return next;
     });

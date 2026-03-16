@@ -1,86 +1,114 @@
 'use client';
 // components/boulanger/vue-snapshot.tsx
-// Vue snapshot étagère — saisie ce qui reste en rayon (10h et 14h).
-// Connectée au BoulangerContext : todayStocks, updateSnapshot, validateSnapshot.
+// ✅ Valeur de départ = 0 (vendeuse saisit ce qui reste, pas ce qui était)
+// ✅ Gros boutons tactiles pour usage au comptoir
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Camera, AlertTriangle, TrendingDown, Check, Loader2 } from 'lucide-react';
+import { Camera, AlertTriangle, TrendingDown, Check, Loader2, Plus, Minus } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import type { StockEntry } from '@/context/boulanger-context';
-
-// ─── Types ────────────────────────────────────────────────────
 
 type Slot = '10h' | '14h';
 
 const SEUIL_ALERTE_PCT = 30; // % restant au-delà duquel on alerte
 
-// ─── Cellule de saisie ────────────────────────────────────────
+// ─── Cellule tactile ──────────────────────────────────────────
+// Affiche 0 par défaut + gros boutons +/−
 
-function SnapshotCell({
+function SnapshotCellTouch({
   value,
   max,
   onChange,
+  disabled,
 }: {
-  value:    number | undefined;
+  value:    number;
   max:      number;
   onChange: (v: number) => void;
+  disabled?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [input, setInput]     = useState(value?.toString() ?? '');
+  const pct    = max > 0 ? (value / max) * 100 : 0;
+  const alerte = pct > SEUIL_ALERTE_PCT && value > 0;
 
-  const pct    = max > 0 && value !== undefined ? (value / max) * 100 : null;
-  const alerte = pct !== null && pct > SEUIL_ALERTE_PCT;
+  const decrement = () => { if (value > 0) onChange(value - 1); };
+  const increment = () => { if (value < max) onChange(value + 1); };
 
-  const commit = () => {
-    const n = parseInt(input, 10);
-    if (!isNaN(n) && n >= 0 && n <= max) onChange(n);
-    else setInput(value?.toString() ?? '');
-    setEditing(false);
-  };
-
-  if (value === undefined) {
+  if (disabled) {
     return (
-      <button
-        onClick={() => { setInput(''); setEditing(true); }}
-        className="w-14 h-9 rounded-xl border border-dashed border-white/15 flex items-center justify-center text-white/20 hover:border-[#C19A6B]/30 hover:text-[#C19A6B]/50 transition-all text-xs"
-      >
-        —
-      </button>
-    );
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type="number"
-        min={0}
-        max={max}
-        value={input}
-        onChange={e => setInput(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => e.key === 'Enter' && commit()}
-        className="w-14 h-9 rounded-xl bg-[#C19A6B]/10 border border-[#C19A6B]/30 text-center text-white text-sm font-bold focus:outline-none tabular-nums"
-      />
+      <div className="flex items-center gap-2">
+        <div
+          className={`w-14 h-11 rounded-xl flex items-center justify-center text-sm font-bold font-mono border ${
+            alerte ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-white/5 border-white/8 text-white/40'
+          }`}
+        >
+          {value}
+        </div>
+      </div>
     );
   }
 
   return (
-    <button
-      onClick={() => { setInput(value.toString()); setEditing(true); }}
-      className={`w-14 h-9 rounded-xl border flex items-center justify-center text-sm font-bold tabular-nums transition-all ${
-        alerte
-          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-          : 'bg-white/5 border-white/8 text-white hover:bg-white/8'
-      }`}
-    >
-      {value}
-    </button>
+    <div className="flex items-center gap-1.5">
+      {/* Bouton − */}
+      <motion.button
+        whileTap={{ scale: 0.85 }}
+        onPointerDown={decrement}
+        disabled={value <= 0}
+        className={`
+          w-12 h-12 rounded-xl flex items-center justify-center
+          select-none touch-manipulation transition-all
+          ${value <= 0
+            ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed'
+            : 'bg-white/10 border border-white/12 hover:bg-white/16 active:bg-white/22'
+          }
+        `}
+        aria-label="Diminuer"
+      >
+        <Minus size={16} strokeWidth={2.5} className="text-white" />
+      </motion.button>
+
+      {/* Valeur */}
+      <motion.div
+        key={value}
+        initial={{ scale: 1.2 }}
+        animate={{ scale: 1 }}
+        transition={{ duration: 0.15 }}
+        className={`
+          w-14 h-12 rounded-xl flex items-center justify-center
+          text-lg font-bold font-mono tabular-nums border select-none
+          ${alerte
+            ? 'bg-amber-500/12 border-amber-500/25 text-amber-400'
+            : value > 0
+              ? 'bg-[#C19A6B]/10 border-[#C19A6B]/20 text-[#C19A6B]'
+              : 'bg-white/5 border-white/8 text-white/50'
+          }
+        `}
+      >
+        {value}
+      </motion.div>
+
+      {/* Bouton + */}
+      <motion.button
+        whileTap={{ scale: 0.85 }}
+        onPointerDown={increment}
+        disabled={value >= max}
+        className={`
+          w-12 h-12 rounded-xl flex items-center justify-center
+          select-none touch-manipulation transition-all
+          ${value >= max
+            ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed'
+            : 'bg-[#C19A6B]/20 border border-[#C19A6B]/30 hover:bg-[#C19A6B]/30 active:bg-[#C19A6B]/40'
+          }
+        `}
+        aria-label="Augmenter"
+      >
+        <Plus size={16} strokeWidth={2.5} className="text-[#C19A6B]" />
+      </motion.button>
+    </div>
   );
 }
 
-// ─── Vue Snapshot principale ──────────────────────────────────
+// ─── Vue Snapshot ─────────────────────────────────────────────
 
 export default function VueSnapshot() {
   const {
@@ -101,17 +129,18 @@ export default function VueSnapshot() {
   const handleSave = () => {
     validateSnapshot(slotActif);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setTimeout(() => setSaved(false), 3000);
   };
 
-  // Stocks avec invendus potentiels pour le slot actif
+  // Alertes invendus potentiels
   const alertes = todayStocks.filter(s => {
     const reste = slotActif === '10h' ? s.snapshot10h : s.snapshot14h;
     if (s.production === 0) return false;
-    return (reste / s.production) * 100 > SEUIL_ALERTE_PCT;
+    // N'alerte que si la valeur a été saisie (> 0)
+    return reste > 0 && (reste / s.production) * 100 > SEUIL_ALERTE_PCT;
   });
 
-  const heure = new Date().getHours();
+  const heure       = new Date().getHours();
   const slotSuggere: Slot = heure < 12 ? '10h' : '14h';
 
   if (authLoading) {
@@ -122,13 +151,13 @@ export default function VueSnapshot() {
     );
   }
 
-  if (todayStocks.length === 0) {
+  if (todayStocks.length === 0 || todayStocks.every(s => s.production === 0)) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <span className="text-5xl mb-4">📸</span>
         <p className="text-white/50 font-medium">Aucune production saisie</p>
         <p className="text-white/25 text-sm mt-1">
-          Saisissez d'abord votre production dans l'onglet <span className="text-[#C19A6B]">Matin</span>
+          Saisissez la production dans l'onglet <span className="text-[#C19A6B]">Matin</span>
         </p>
       </div>
     );
@@ -136,27 +165,28 @@ export default function VueSnapshot() {
 
   return (
     <div className="space-y-4">
+
       {/* ── Header ── */}
       <div data-tour="snapshot-header" className="pt-2">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-white/40 text-[11px] uppercase tracking-widest font-medium">
-              Contrôle étagère
+              Comptage étagère
             </p>
             <h1
-              className="text-white text-2xl font-bold mt-1 leading-tight"
+              className="text-white text-2xl font-bold mt-1"
               style={{ fontFamily: 'Playfair Display, serif' }}
             >
-              Snapshot de stock
+              Stock en rayon
             </h1>
           </div>
           <div className="w-10 h-10 rounded-2xl bg-[#C19A6B]/10 border border-[#C19A6B]/15 flex items-center justify-center">
             <Camera size={18} className="text-[#C19A6B]/70" />
           </div>
         </div>
-        <p className="text-white/30 text-xs mt-2 leading-relaxed">
-          Saisissez ce qui <strong className="text-white/50">reste</strong> en rayon.
-          Les ventes sont calculées automatiquement.
+        <p className="text-white/35 text-xs mt-2 leading-relaxed">
+          Saisissez ce qui <strong className="text-white/55">reste</strong> en vitrine.
+          Partez de zéro — ajoutez uniquement les invendus.
         </p>
       </div>
 
@@ -167,20 +197,24 @@ export default function VueSnapshot() {
             ? todayStocks.some(s => s.snapshot10hDone)
             : todayStocks.some(s => s.snapshot14hDone);
           return (
-            <button
+            <motion.button
               key={slot}
+              whileTap={{ scale: 0.96 }}
               onClick={() => setSlotActif(slot)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
-                slotActif === slot
-                  ? 'bg-[#C19A6B]/15 border-[#C19A6B]/25 text-[#C19A6B]'
-                  : 'bg-white/3 border-white/8 text-white/40 hover:text-white/60'
-              }`}
+              className={`
+                flex-1 py-3.5 rounded-2xl text-sm font-bold transition-all border
+                select-none touch-manipulation
+                ${slotActif === slot
+                  ? 'bg-[#C19A6B]/15 border-[#C19A6B]/30 text-[#C19A6B]'
+                  : 'bg-white/4 border-white/8 text-white/50 hover:text-white/70'
+                }
+              `}
             >
-              {isDone ? '✅' : '📸'} {slot}
+              {isDone ? '✅' : '📸'} Snapshot {slot}
               {slot === slotSuggere && !isDone && (
                 <span className="ml-1.5 text-[9px] text-[#C19A6B]/60">maintenant</span>
               )}
-            </button>
+            </motion.button>
           );
         })}
       </div>
@@ -190,14 +224,11 @@ export default function VueSnapshot() {
         <div
           data-tour="snapshot-alerte"
           className="flex items-start gap-3 px-4 py-3 rounded-2xl border"
-          style={{
-            background: 'rgba(245,158,11,0.08)',
-            borderColor: 'rgba(245,158,11,0.2)',
-          }}
+          style={{ background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.2)' }}
         >
-          <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <AlertTriangle size={15} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-amber-400 text-[12px] font-semibold">
+            <p className="text-amber-400 text-xs font-semibold">
               {alertes.length} produit{alertes.length > 1 ? 's' : ''} à risque d'invendu
             </p>
             <p className="text-amber-400/60 text-[11px] mt-0.5">
@@ -207,96 +238,94 @@ export default function VueSnapshot() {
         </div>
       )}
 
-      {/* ── Tableau produits ── */}
+      {/* ── Liste produits ── */}
       <div
         className="rounded-2xl border overflow-hidden"
         style={{
           background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
-          borderColor: 'rgba(255,255,255,0.06)',
+          borderColor: 'rgba(255,255,255,0.07)',
         }}
       >
-        {/* En-tête colonnes */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5">
+        {/* En-tête */}
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5">
           <p className="flex-1 text-white/30 text-[10px] uppercase tracking-widest">Produit</p>
-          <p className="w-14 text-center text-white/30 text-[10px]">Produit</p>
-          <p className="w-14 text-center text-[#C19A6B]/60 text-[10px] font-semibold">
-            Reste {slotActif}
+          <p className="text-white/30 text-[10px] uppercase tracking-widest text-right pr-1">
+            Produit / Reste
           </p>
-          <p className="w-14 text-center text-white/30 text-[10px]">Vendus</p>
         </div>
 
         {/* Lignes */}
         {todayStocks.map(stock => {
-          const isDone   = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
-          const reste    = slotActif === '10h' ? stock.snapshot10h     : stock.snapshot14h;
-          const base     = slotActif === '10h' ? stock.production       : stock.snapshot10h;
-          const vendus   = base - reste;
+          const isDone = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
+          const reste  = slotActif === '10h' ? stock.snapshot10h : stock.snapshot14h;
+          // Fallback sur production si snapshot10h non encore saisi (= 0)
+          const base   = slotActif === '10h' ? stock.production : (stock.snapshot10h > 0 ? stock.snapshot10h : stock.production);
+          const vendus = base - reste;
 
           return (
             <div
               key={stock.id}
-              className={`flex items-center gap-3 px-4 py-2.5 border-b border-white/4 last:border-0 ${isDone ? 'opacity-50' : ''}`}
+              className={`
+                flex items-center gap-3 px-4 py-3 border-b border-white/4 last:border-0
+                ${isDone ? 'opacity-45' : ''}
+              `}
             >
-              <div className="flex-1 flex items-center gap-2 min-w-0">
-                <span className="text-base">{stock.emoji}</span>
-                <span className="text-white text-sm truncate">{stock.name}</span>
+              {/* Produit */}
+              <div className="flex-1 flex items-center gap-2.5 min-w-0">
+                <span className="text-xl leading-none flex-shrink-0">{stock.emoji}</span>
+                <div className="min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{stock.name}</p>
+                  <p className="text-white/35 text-[10px] tabular-nums">
+                    Produit : {base} pcs
+                    {vendus > 0 && (
+                      <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>
+                    )}
+                  </p>
+                </div>
               </div>
-              {/* Base (readonly) */}
-              <div className="w-14 text-center text-white/40 text-sm font-mono tabular-nums">
-                {slotActif === '10h' ? stock.production : stock.snapshot10h}
-              </div>
-              {/* Saisie reste */}
-              <div className="w-14 flex justify-center">
-                {isDone ? (
-                  <div className="w-14 h-9 rounded-xl bg-white/3 border border-white/5 flex items-center justify-center">
-                    <span className="text-white/40 text-sm font-mono">{reste}</span>
-                  </div>
-                ) : (
-                  <SnapshotCell
-                    value={reste}
-                    max={base}
-                    onChange={val => handleChange(stock, slotActif, val)}
-                  />
-                )}
-              </div>
-              {/* Vendus calculés */}
-              <div className="w-14 text-center">
-                <span className="text-green-400/70 text-sm font-mono tabular-nums">
-                  {vendus > 0 ? vendus : '—'}
-                </span>
+
+              {/* Contrôle tactile */}
+              <div className="flex-shrink-0">
+                <SnapshotCellTouch
+                  value={reste}
+                  max={base}
+                  onChange={val => handleChange(stock, slotActif, val)}
+                  disabled={isDone}
+                />
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* ── Bouton sauvegarder ── */}
-      <button
+      {/* ── Bouton valider snapshot ── */}
+      <motion.button
+        whileTap={{ scale: 0.97 }}
         onClick={handleSave}
         disabled={syncStatus === 'saving'}
-        className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all font-semibold text-sm disabled:opacity-50"
-        style={{
-          background: saved
-            ? 'rgba(74,222,128,0.15)'
-            : 'linear-gradient(135deg, rgba(193,154,107,0.2) 0%, rgba(193,154,107,0.1) 100%)',
-          border: `1px solid ${saved ? 'rgba(74,222,128,0.3)' : 'rgba(193,154,107,0.25)'}`,
-          color: saved ? 'rgb(74,222,128)' : '#C19A6B',
-        }}
+        className={`
+          w-full py-4 rounded-2xl flex items-center justify-center gap-2.5
+          font-bold text-base transition-all duration-300 select-none touch-manipulation
+          disabled:opacity-50
+        `}
+        style={
+          saved
+            ? { background: 'rgba(74,222,128,0.15)', border: '1px solid rgba(74,222,128,0.3)', color: 'rgb(74,222,128)' }
+            : { background: 'linear-gradient(135deg, rgba(193,154,107,0.25) 0%, rgba(193,154,107,0.12) 100%)', border: '1px solid rgba(193,154,107,0.35)', color: '#C19A6B' }
+        }
       >
-        {syncStatus === 'saving' ? (
-          <><Loader2 size={15} className="animate-spin" /> Synchronisation...</>
-        ) : saved ? (
-          <><Check size={15} /> Snapshot {slotActif} enregistré</>
-        ) : (
-          <><Camera size={15} /> Valider le snapshot {slotActif}</>
-        )}
-      </button>
+        {syncStatus === 'saving'
+          ? <><Loader2 size={18} className="animate-spin" /> Synchronisation…</>
+          : saved
+            ? <><Check size={18} /> Snapshot {slotActif} enregistré ✓</>
+            : <><Camera size={18} /> Valider le snapshot {slotActif}</>
+        }
+      </motion.button>
 
-      {/* Légende */}
-      <div className="flex items-center gap-2 justify-center">
+      <div className="flex items-center gap-2 justify-center pb-1">
         <TrendingDown size={11} className="text-amber-400/50" />
         <p className="text-white/20 text-[10px]">
-          Fond orange = risque d'invendu (reste &gt; {SEUIL_ALERTE_PCT}% du produit)
+          Orange = reste &gt; {SEUIL_ALERTE_PCT}% de la production
         </p>
       </div>
     </div>
