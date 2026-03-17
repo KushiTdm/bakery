@@ -1,12 +1,7 @@
 'use client';
-// app/boulanger/commandes/page.tsx
-// Page commandes — refonte complète
-// - Séparation Click & Collect / Paniers anti-gaspi
-// - Filtres par heure de retrait
-// - Modal client avec coordonnées au clic
-// - Statut temps réel via Supabase Realtime
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
@@ -14,7 +9,7 @@ import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
 import {
   Zap, ShoppingBag, Phone, Mail, Clock, Check,
   X, RefreshCw, Loader2, AlertCircle, ChevronRight,
-  User, Package,
+  ArrowLeft, BellOff, Send, Package,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -30,7 +25,7 @@ interface Order {
   items:       OrderItem[];
   total:       number;
   heureRetrait: string;
-  status:      'pending' | 'confirmed' | 'ready' | 'done' | 'cancelled';
+  status:      'pending' | 'confirmed' | 'ready' | 'done' | 'cancelled' | 'not_collected';
   type:        'clickcollect' | 'flash';
   createdAt:   string;
 }
@@ -38,11 +33,12 @@ interface Order {
 type FilterType = 'all' | 'clickcollect' | 'flash' | 'pending' | string;
 
 const STATUS_DB_MAP: Record<Order['status'], DbCommande['statut']> = {
-  pending:   'en_attente',
-  confirmed: 'confirmee',
-  ready:     'prete',
-  done:      'recuperee',
-  cancelled: 'annulee',
+  pending:       'en_attente',
+  confirmed:     'confirmee',
+  ready:         'prete',
+  done:          'recuperee',
+  cancelled:     'annulee',
+  not_collected: 'annulee',
 };
 
 const DB_STATUS_MAP: Record<DbCommande['statut'], Order['status']> = {
@@ -58,7 +54,8 @@ const STATUS_LABEL: Record<Order['status'], string> = {
   confirmed: 'Confirmée',
   ready:     'Prête',
   done:      'Récupérée',
-  cancelled: 'Annulée',
+  cancelled:     'Annulée',
+  not_collected: 'Non récupérée',
 };
 
 const NEXT_STATUS: Partial<Record<Order['status'], Order['status']>> = {
@@ -121,7 +118,8 @@ function StatusBadge({ status }: { status: Order['status'] }) {
     confirmed: 'bg-blue-400/12 text-blue-300 border-blue-400/25',
     ready:     'bg-green-400/12 text-green-300 border-green-400/25',
     done:      'bg-white/5 text-white/30 border-white/10',
-    cancelled: 'bg-red-400/12 text-red-300 border-red-400/25',
+    cancelled:     'bg-red-400/12 text-red-300 border-red-400/25',
+    not_collected: 'bg-orange-400/12 text-orange-300 border-orange-400/25',
   };
   return (
     <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium ${styles[status]}`}>
@@ -137,13 +135,15 @@ function OrderModal({
   onClose,
   onAdvance,
   onCancel,
+  onNotCollected,
   advancing,
 }: {
   order: Order;
   onClose: () => void;
-  onAdvance: (id: string) => void;
-  onCancel: (id: string) => void;
-  advancing: boolean;
+  onAdvance:      (id: string) => void;
+  onCancel:       (id: string) => void;
+  onNotCollected: (id: string) => void;
+  advancing:      boolean;
 }) {
   const next = NEXT_STATUS[order.status];
 
@@ -249,31 +249,60 @@ function OrderModal({
             </div>
           </div>
 
-          {/* Statut + actions */}
-          <div className="flex items-center gap-3">
+          {/* Statut */}
+          <div className="flex items-center gap-2 mb-3">
             <StatusBadge status={order.status} />
-            <span className="text-white/20 text-xs">→</span>
+          </div>
+
+          {/* Actions principales */}
+          <div className="space-y-2">
+            {/* Avancer le statut */}
             {next && (
               <motion.button
-                whileTap={{ scale: 0.96 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => onAdvance(order.id)}
                 disabled={advancing}
-                className="flex items-center gap-1.5 bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] text-xs px-3 py-2 rounded-xl font-medium disabled:opacity-50 hover:bg-[#C19A6B]/25 transition-colors"
+                className="w-full flex items-center justify-center gap-2 bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] text-sm px-4 py-3 rounded-xl font-medium disabled:opacity-50 hover:bg-[#C19A6B]/25 transition-colors"
               >
-                {advancing
-                  ? <Loader2 size={12} className="animate-spin" />
-                  : <Check size={12} />
-                }
+                {advancing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                 {NEXT_LABEL[order.status]}
               </motion.button>
             )}
-            {order.status !== 'done' && order.status !== 'cancelled' && (
-              <button
-                onClick={() => onCancel(order.id)}
-                className="text-red-400/60 text-xs hover:text-red-400 transition-colors ml-auto"
+
+            {/* Relancer le client par email */}
+            {order.status !== 'done' && order.status !== 'cancelled' && order.status !== 'not_collected' && (
+              <a
+                href={`mailto:${order.email}?subject=Votre%20commande%20%23${order.shortId}%20est%20pr%C3%AAte&body=Bonjour%20${encodeURIComponent(order.prenom)}%2C%0A%0AVotre%20commande%20%23${order.shortId}%20est%20pr%C3%AAte%20%C3%A0%20retirer.%0A%0AN%27oubliez%20pas%20de%20passer%20la%20r%C3%A9cup%C3%A9rer%20avant%20la%20fermeture%20!%0A%0AL%27Artisan%20Dor%C3%A9`}
+                className="w-full flex items-center justify-center gap-2 bg-blue-400/10 border border-blue-400/20 text-blue-300 text-sm px-4 py-3 rounded-xl font-medium hover:bg-blue-400/18 transition-colors"
               >
-                Annuler
-              </button>
+                <Send size={14} />
+                Relancer le client par email
+              </a>
+            )}
+
+            {/* Non récupérée */}
+            {(order.status === 'ready' || order.status === 'confirmed') && (
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => onNotCollected(order.id)}
+                disabled={advancing}
+                className="w-full flex items-center justify-center gap-2 bg-orange-400/10 border border-orange-400/20 text-orange-300 text-sm px-4 py-3 rounded-xl font-medium hover:bg-orange-400/18 transition-colors"
+              >
+                <BellOff size={14} />
+                Commande non récupérée
+              </motion.button>
+            )}
+
+            {/* Annuler */}
+            {order.status !== 'done' && order.status !== 'cancelled' && order.status !== 'not_collected' && (
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => onCancel(order.id)}
+                className="w-full flex items-center justify-center gap-2 bg-red-500/8 border border-red-500/15 text-red-400/70 text-sm px-4 py-3 rounded-xl hover:bg-red-500/15 hover:text-red-400 transition-colors"
+              >
+                <X size={14} />
+                Annuler la commande
+              </motion.button>
             )}
           </div>
         </div>
@@ -386,6 +415,7 @@ function OrderCard({
 
 function CommandesPage() {
   const { isAuthenticated, authLoading } = useBoulanger();
+  const router = useRouter();
 
   const [orders,        setOrders]        = useState<Order[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -507,6 +537,13 @@ function CommandesPage() {
     setSelectedOrder(null);
   }, [updateStatus]);
 
+  const handleNotCollected = useCallback((id: string) => {
+    // Marque comme annulée côté DB (statut 'annulee') mais affichage différent
+    updateStatus(id, 'cancelled');
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'not_collected' as const } : o));
+    setSelectedOrder(null);
+  }, [updateStatus]);
+
   // ── Données dérivées ─────────────────────────────────────────
 
   const clickCollect = orders.filter(o => o.type === 'clickcollect');
@@ -560,10 +597,20 @@ function CommandesPage() {
 
       {/* Header sticky */}
       <div className="sticky top-0 z-10 bg-[#1A0F0A]/96 backdrop-blur border-b border-white/8 px-4 py-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          {/* Bouton retour */}
+          <button
+            onClick={() => router.push('/boulanger')}
+            className="w-9 h-9 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-all flex-shrink-0"
+            aria-label="Retour à l'espace boulanger"
+          >
+            <ArrowLeft size={16} />
+          </button>
+
+          {/* Titre + statut */}
+          <div className="flex-1 min-w-0">
             <h1
-              className="text-white font-bold text-lg"
+              className="text-white font-bold text-lg leading-tight"
               style={{ fontFamily: 'Playfair Display, serif' }}
             >
               Commandes
@@ -578,10 +625,12 @@ function CommandesPage() {
               }
             </p>
           </div>
+
+          {/* Actualiser */}
           <button
             onClick={loadOrders}
             disabled={loading}
-            className="text-[#C19A6B] text-xs px-3 py-1.5 rounded-lg border border-[#C19A6B]/30 hover:bg-[#C19A6B]/10 transition-colors disabled:opacity-40 flex items-center gap-1.5"
+            className="text-[#C19A6B] text-xs px-3 py-1.5 rounded-lg border border-[#C19A6B]/30 hover:bg-[#C19A6B]/10 transition-colors disabled:opacity-40 flex items-center gap-1.5 flex-shrink-0"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             Actualiser
@@ -767,6 +816,7 @@ function CommandesPage() {
             onClose={() => setSelectedOrder(null)}
             onAdvance={id => { handleAdvance(id); setSelectedOrder(null); }}
             onCancel={handleCancel}
+            onNotCollected={handleNotCollected}
             advancing={updating === selectedOrder.id}
           />
         )}
@@ -775,10 +825,6 @@ function CommandesPage() {
   );
 }
 
-// ── Export enveloppé dans BoulangerProvider ───────────────────
-// La page /boulanger/commandes est une route séparée de /boulanger.
-// Elle a besoin de son propre BoulangerProvider pour que
-// useBoulanger() fonctionne (isAuthenticated, authLoading).
 export default function CommandesPageWrapper() {
   return (
     <BoulangerProvider>

@@ -253,6 +253,10 @@ app.bakeryos.fr    → Netlify (app)
 - Migration : `migration-v2.sql` — fichier unique, remplace tous les anciens
 - Seed : `seed.sql` — adapter le slug avant d'exécuter
 
+
+### OPTIONS BOULANGER
+- Choisir ou non d'afficher le contenu du panier
+
 ---
 
 *Mis à jour le 16/03/2026*
