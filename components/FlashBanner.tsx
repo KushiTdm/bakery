@@ -1,4 +1,6 @@
 'use client';
+// components/FlashBanner.tsx
+// Bandeau flash en haut de page — affiche l'état du flash en temps réel
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,11 +15,9 @@ interface FlashBannerProps {
 
 type BannerState = 'hidden' | 'teaser' | 'live';
 
-// 🆕 heureDebut et heureFin passés en props — proviennent de l'API
 function useBannerState(heureDebut: number, heureFin: number) {
-  const [state, setState]       = useState<BannerState>('hidden');
+  const [state,    setState]    = useState<BannerState>('hidden');
   const [timeLeft, setTimeLeft] = useState('');
-  // Affiche le teaser 3h avant le début
   const warningHour = heureDebut - 3;
 
   useEffect(() => {
@@ -62,15 +62,12 @@ function useBannerState(heureDebut: number, heureFin: number) {
 export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProps) {
   const { data, loading } = useFlashPaniers();
 
-  // 🆕 Utilise les valeurs dynamiques de l'API (plus de hardcode)
-  const { heureDebut, heureFin, nbPaniers, remise } = data;
+  const { heureDebut, heureFin, nbPaniers, remise, invendus } = data;
   const { state, timeLeft } = useBannerState(heureDebut, heureFin);
   const [dismissed, setDismissed] = useState(false);
 
-  // Reset dismissed à chaque changement d'état (teaser → live)
   useEffect(() => { setDismissed(false); }, [state]);
 
-  // Masqué pendant le chargement initial, si dismissed ou hors fenêtre horaire
   if (loading || state === 'hidden' || dismissed) return null;
 
   return (
@@ -147,7 +144,8 @@ export default function FlashBanner({ activeTab, setActiveTab }: FlashBannerProp
                 </p>
               </div>
 
-              {nbPaniers > 0 && (
+              {/* Noms des produits disponibles (compact) */}
+              {nbPaniers > 0 && invendus.length > 0 && (
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}

@@ -1,9 +1,10 @@
 'use client';
+// app/boulanger/page.tsx — mise à jour avec onglet Flash dans la nav
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Sun, Camera, Moon,
+  Sun, Camera, Moon, Zap,
   LogOut, Cloud, CloudOff, Check, Loader2,
   HelpCircle, MoreHorizontal, BookOpen, BarChart2,
   Settings, X, ChevronRight,
@@ -13,6 +14,7 @@ import LoginForm    from '@/components/boulanger/login-form';
 import VueMatin     from '@/components/boulanger/vue-matin';
 import VueSnapshot  from '@/components/boulanger/vue-snapshot';
 import VueSoir      from '@/components/boulanger/vue-soir';
+import VueFlash     from '@/components/boulanger/vue-flash';
 import Dashboard    from '@/components/boulanger/dashboard';
 import Catalogue    from '@/components/boulanger/catalogue';
 import Parametres   from '@/components/boulanger/parametres';
@@ -66,15 +68,9 @@ const SECONDARY_ITEMS: { id: ViewType; label: string; icon: React.ElementType; d
 ];
 
 function PlusDrawer({
-  open,
-  onClose,
-  onNavigate,
-  activeView,
+  open, onClose, onNavigate, activeView,
 }: {
-  open:       boolean;
-  onClose:    () => void;
-  onNavigate: (v: ViewType) => void;
-  activeView: ViewType;
+  open: boolean; onClose: () => void; onNavigate: (v: ViewType) => void; activeView: ViewType;
 }) {
   return (
     <AnimatePresence>
@@ -149,15 +145,16 @@ function PlusDrawer({
   );
 }
 
-// ─── Navigation 3 onglets ──────────────────────────────────────
+// ─── Navigation principale — 4 onglets + Plus ──────────────────
 
-const MAIN_NAV: { id: ViewType; label: string; icon: React.ElementType }[] = [
+const MAIN_NAV: { id: ViewType; label: string; icon: React.ElementType; flash?: boolean }[] = [
   { id: 'matin',    label: 'Matin',  icon: Sun    },
   { id: 'snapshot', label: 'Stock',  icon: Camera },
   { id: 'soir',     label: 'Soir',   icon: Moon   },
+  { id: 'flash',    label: 'Flash',  icon: Zap, flash: true },
 ];
 
-// ─── Shell ────────────────────────────────────────────────────
+// ─── Shell ─────────────────────────────────────────────────────
 
 function AppShell() {
   const {
@@ -186,6 +183,7 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-[#1A0F0A]">
+      {/* Grain texture */}
       <div
         className="fixed inset-0 opacity-[0.025] pointer-events-none z-0"
         style={{
@@ -242,6 +240,7 @@ function AppShell() {
             {activeView === 'matin'      && <VueMatin />}
             {activeView === 'snapshot'   && <VueSnapshot />}
             {activeView === 'soir'       && <VueSoir />}
+            {activeView === 'flash'      && <VueFlash />}
             {activeView === 'catalogue'  && <Catalogue />}
             {activeView === 'dashboard'  && <Dashboard />}
             {activeView === 'parametres' && <Parametres />}
@@ -249,9 +248,9 @@ function AppShell() {
         </AnimatePresence>
       </main>
 
-      {/* Bottom Nav — 3 + Plus */}
+      {/* Bottom Nav — 4 onglets + Plus */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#120A06]/97 backdrop-blur-md border-t border-white/10">
-        <div className="grid grid-cols-4 w-full max-w-lg mx-auto h-[76px]">
+        <div className="grid grid-cols-5 w-full max-w-lg mx-auto h-[76px]">
 
           {MAIN_NAV.map(item => {
             const Icon     = item.icon;
@@ -264,15 +263,27 @@ function AppShell() {
                 className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none"
               >
                 <div className={`
-                  flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all
-                  ${isActive ? 'bg-[#C19A6B]/15' : ''}
+                  flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all
+                  ${isActive
+                    ? item.flash
+                      ? 'bg-yellow-400/15'
+                      : 'bg-[#C19A6B]/15'
+                    : ''
+                  }
                 `}>
                   <Icon
-                    size={24}
+                    size={22}
                     strokeWidth={isActive ? 2.2 : 1.6}
-                    className={isActive ? 'text-[#C19A6B]' : 'text-white/50'}
+                    className={isActive
+                      ? item.flash ? 'text-yellow-400 fill-yellow-400/30' : 'text-[#C19A6B]'
+                      : 'text-white/50'
+                    }
                   />
-                  <span className={`text-[10px] font-bold leading-none ${isActive ? 'text-[#C19A6B]' : 'text-white/50'}`}>
+                  <span className={`text-[10px] font-bold leading-none ${
+                    isActive
+                      ? item.flash ? 'text-yellow-400' : 'text-[#C19A6B]'
+                      : 'text-white/50'
+                  }`}>
                     {item.label}
                   </span>
                 </div>
@@ -287,21 +298,21 @@ function AppShell() {
             className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none"
           >
             <div className={`
-              flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all
+              flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all
               ${isSecondaryActive ? 'bg-[#C19A6B]/15' : ''}
             `}>
               {isSecondaryActive ? (
                 <>
-                  {activeView === 'catalogue'  && <BookOpen  size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
-                  {activeView === 'dashboard'  && <BarChart2 size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
-                  {activeView === 'parametres' && <Settings  size={24} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'catalogue'  && <BookOpen  size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'dashboard'  && <BarChart2 size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'parametres' && <Settings  size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   <span className="text-[10px] font-bold leading-none text-[#C19A6B]">
                     {activeView === 'catalogue' ? 'Produits' : activeView === 'dashboard' ? 'Stats' : 'Config'}
                   </span>
                 </>
               ) : (
                 <>
-                  <MoreHorizontal size={24} strokeWidth={1.6} className="text-white/50" />
+                  <MoreHorizontal size={22} strokeWidth={1.6} className="text-white/50" />
                   <span className="text-[10px] font-bold leading-none text-white/50">Plus</span>
                 </>
               )}
@@ -319,7 +330,7 @@ function AppShell() {
         activeView={activeView}
       />
 
-      <TourWizard onNavigateToView={(view) => setActiveView(view)} />
+      <TourWizard onNavigateToView={view => setActiveView(view)} />
     </div>
   );
 }

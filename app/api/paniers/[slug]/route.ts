@@ -1,24 +1,32 @@
 // app/api/paniers/[slug]/route.ts
+// ─────────────────────────────────────────────────────────────
+// Route publique — lit get_paniers_flash() depuis Supabase
+// Retourne les paniers actifs du jour avec quantités et allergènes
+// ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 import { unstable_noStore as noStore } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 
-export const dynamic = 'force-dynamic';
+export const dynamic    = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
+// ── Type de réponse (partagé avec le hook client) ─────────────
+
 export interface PanierFlashResponse {
-  flashActif:  boolean;
-  heureDebut:  number;
-  heureFin:    number;
-  remise:      number;
-  nbPaniers:   number;
+  flashActif: boolean;
+  heureDebut: number;
+  heureFin:   number;
+  remise:     number;
+  nbPaniers:  number;
   invendus: {
     nom:          string;
     emoji:        string;
     categorie:    string;
     prixOriginal: number;
     prixFlash:    number;
+    quantite:     number;      // ← nouveau : quantité restante en rayon
+    allergenes:   string[];    // ← nouveau : liste des codes allergènes
   }[];
 }
 
@@ -44,7 +52,6 @@ export async function GET(
   noStore();
 
   const slug = params.slug?.trim().toLowerCase();
-
   if (!slug || slug.length > 60) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });
   }

@@ -10,7 +10,8 @@
 // ici dans un fichier sans directive, importable des deux côtés.
 // ─────────────────────────────────────────────────────────────
 
-export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'catalogue' | 'dashboard' | 'parametres';
+// 'flash' ajouté pour l'onglet paniers anti-gaspi dans la nav du bas
+export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface StockEntry {
