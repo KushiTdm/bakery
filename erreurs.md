@@ -18,6 +18,12 @@
 
 ## 🔴 SÉCURITÉ — PRIORITÉ 1
 
+### ERREUR SECURITE.
+Un client qui se connecte pour passer commande, peuta avoir acces à la partie boulangerie /boulanger comme s'il avait une boulangerie.
+Le wizard se lance pour lui proposer d'ajouter ses produits.
+A corriger de maniere urgente et s'assurer de la securité surtout des données et de leur acces.
+
+
 ### S1. ✅ CORRIGÉ — Validation du slug côté register
 **Fichier** : `app/api/boulanger/auth/route.ts`
 **Statut** : ✅ Corrigé le 16/03/2026
