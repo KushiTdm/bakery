@@ -1,3 +1,8 @@
+// lib/sanitize.ts
+// ─────────────────────────────────────────────────────────────
+// Utilitaires de validation et sanitisation partagés.
+// ─────────────────────────────────────────────────────────────
+
 // ── Validation UUID ───────────────────────────────────────────
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -132,4 +137,12 @@ export function sanitizeDate(value: unknown): string | null {
   const d = new Date(value);
   if (isNaN(d.getTime())) return null;
   return value;
+}
+
+/**
+ * Nettoie et normalise un email (trim + lowercase).
+ * Utilisé dans les routes API multi-user.
+ */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }

@@ -8,10 +8,14 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
-// I2 : types partagés déplacés dans lib/types.ts (importable côté serveur aussi)
+// I2 : types partagés dans lib/types.ts (importable côté serveur aussi)
 import type {
   ViewType, SyncStatus,
   StockEntry, HistoryEntry, ProductionSuggestion,
+  BoulangerRole, PermissionsMap, PermissionKey,
+} from '@/lib/types';
+import {
+  DEFAULT_PERMISSIONS, mergePermissions, permissionSatisfies,
 } from '@/lib/types';
 
 export type { ViewType, SyncStatus, StockEntry, HistoryEntry, ProductionSuggestion };
@@ -131,6 +135,14 @@ interface BoulangerContextType {
   isAuthenticated:     boolean;
   authLoading:         boolean;
   logout:              () => Promise<void>;
+
+  // ── Multi-user : rôle & permissions ──────────────────────────
+  userRole:    BoulangerRole | null;
+  memberId:    string | null;   // undefined pour le owner
+  permissions: PermissionsMap;
+  canRead:     (feature: PermissionKey) => boolean;
+  canWrite:    (feature: PermissionKey) => boolean;
+
   activeView:          ViewType;
   setActiveView:       (v: ViewType) => void;
   syncStatus:          SyncStatus;
@@ -163,14 +175,26 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [todayStocks, setTodayStocks] = useState<StockEntry[]>([]);
   const [commandesOnline, _setCommandesOnline] = useState(0);
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
+
+  // ── Multi-user state ─────────────────────────────────────────
+  const [userRole, setUserRole]       = useState<BoulangerRole | null>(null);
+  const [memberId, setMemberId]       = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<PermissionsMap>(DEFAULT_PERMISSIONS.owner);
+
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Helpers permissions ───────────────────────────────────────
+  const canRead  = useCallback((feature: PermissionKey) =>
+    permissionSatisfies(permissions[feature], 'read'), [permissions]);
+  const canWrite = useCallback((feature: PermissionKey) =>
+    permissionSatisfies(permissions[feature], 'write'), [permissions]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        loadAll(session.user.id);
+        loadAll();
       } else {
         setAuthLoading(false);
       }
@@ -181,11 +205,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          loadAll(session.user.id);
+          loadAll();
         } else {
-          setBoulangerie(null);
-          setTodayStocks([]);
-          setHistory([]);
+          resetState();
           setAuthLoading(false);
         }
       }
@@ -194,33 +216,77 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function resetState() {
+    setBoulangerie(null);
+    setUserRole(null);
+    setMemberId(null);
+    setPermissions(DEFAULT_PERMISSIONS.owner);
+    setTodayStocks([]);
+    setHistory([]);
+    _setCommandesOnline(0);
+    setActiveView('matin');
+  }
+
   async function getToken(): Promise<string | null> {
     const { data: { session } }: { data: { session: Session | null } } =
       await supabase.auth.getSession();
     return session?.access_token ?? null;
   }
 
-  async function loadAll(userId: string) {
+  // ── loadAll — utilise get_current_user_access() pour owner ET employés ──
+  // Fallback : si le RPC n'existe pas encore (migration non exécutée),
+  // on retombe sur la requête directe à boulangeries (comportement v1).
+  async function loadAll() {
     setAuthLoading(true);
     try {
+      // Tentative via RPC multi-user (migration-multiuser.sql)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_current_user_access');
+
+      if (!rpcError && rpcData && rpcData.length > 0) {
+        const row = rpcData[0];
+        setBoulangerie({
+          id:    row.boulangerie_id,
+          nom:   row.boulangerie_nom,
+          slug:  row.boulangerie_slug,
+          plan:  row.boulangerie_plan,
+          actif: row.boulangerie_actif,
+        });
+        const role = row.user_role as BoulangerRole;
+        setUserRole(role);
+        setMemberId(row.membre_id ?? null);
+        setPermissions(mergePermissions(role, (row.custom_permissions ?? {}) as Partial<PermissionsMap>));
+        await Promise.all([loadTodayData(), loadHistory()]);
+        return;
+      }
+
+      // Fallback v1 : requête directe (migration multiuser pas encore exécutée)
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) { setBoulangerie(null); return; }
+
       const { data, error } = await supabase
         .from('boulangeries')
         .select('id, nom, slug, plan, actif')
-        .eq('user_id', userId)
+        .eq('user_id', currentUser.id)
         .single();
 
-      if (error) throw error;
+      if (error || !data) { setBoulangerie(null); setUserRole(null); return; }
+
       setBoulangerie(data as Boulangerie);
-      await Promise.all([loadTodayData(data.id), loadHistory()]);
+      setUserRole('owner');
+      setMemberId(null);
+      setPermissions(DEFAULT_PERMISSIONS.owner);
+      await Promise.all([loadTodayData(), loadHistory()]);
+
     } catch (err) {
       console.error('[BoulangerContext]', err);
       setBoulangerie(null);
+      setUserRole(null);
     } finally {
       setAuthLoading(false);
     }
   }
 
-  async function loadTodayData(_boulangerieId?: string) {
+  async function loadTodayData() {
     try {
       const token = await getToken();
       if (!token) return;
@@ -228,10 +294,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/boulanger/journee', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) {
-        await loadProduitsAsList(token);
-        return;
-      }
+      if (!res.ok) { await loadProduitsAsList(token); return; }
       const { journee } = await res.json() as { journee: DbJournee | null };
 
       if (journee?.stocks_journaliers?.length) {
@@ -380,19 +443,14 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
-    setTodayStocks([]);
-    setHistory([]);
-    _setCommandesOnline(0);
-    setActiveView('matin');
-    setBoulangerie(null);
-  }, []);
+    resetState();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0),   [todayStocks]);
   const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0),    [todayStocks]);
   const unsoldValueToday   = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0), [todayStocks]);
   const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
   const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);
-
   const productionSuggestions = useMemo(
     () => computeProductionSuggestions(history, todayStocks, new Date().getDay()),
     [history, todayStocks]
@@ -403,6 +461,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       session, user, boulangerie,
       isAuthenticated: !!session,
       authLoading, logout,
+      userRole, memberId, permissions, canRead, canWrite,
       activeView, setActiveView,
       syncStatus,
       todayStocks,

@@ -1,7 +1,7 @@
 'use client';
 // app/boulanger/page.tsx
-// ✅ FIX S0 : Vérification boulangerie !== null pour bloquer l'accès client
-// ✅ FIX : Commandes ajoutée dans le drawer "Plus" avec navigation vers /boulanger/commandes
+// ✅ Multi-user : nav & vues filtrées par canRead() / canWrite()
+// ✅ Fix S0    : boulangerie null = accès refusé (client OTP bloqué)
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -9,7 +9,7 @@ import {
   Sun, Camera, Moon, Zap,
   LogOut, Cloud, CloudOff, Check, Loader2,
   HelpCircle, MoreHorizontal, BookOpen, BarChart2,
-  Settings, X, ChevronRight, ShoppingBag,
+  Settings, X, ChevronRight, ShoppingBag, Shield, Users,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
@@ -20,9 +20,11 @@ import VueSoir      from '@/components/boulanger/vue-soir';
 import VueFlash     from '@/components/boulanger/vue-flash';
 import Dashboard    from '@/components/boulanger/dashboard';
 import Catalogue    from '@/components/boulanger/catalogue';
-import Parametres   from '@/components/boulanger/parametres';
+import Parametres     from '@/components/boulanger/parametres';
+import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import type { ViewType } from '@/context/boulanger-context';
+import { ROLE_LABELS } from '@/lib/types';
 
 // ── Horloge ───────────────────────────────────────────────────
 
@@ -67,70 +69,59 @@ function SyncIndicator() {
 // ─── Drawer "Plus" ─────────────────────────────────────────────
 
 type DrawerItem = {
-  id:       string;
-  label:    string;
-  icon:     React.ElementType;
-  desc:     string;
-  href?:    string;
-  view?:    ViewType;
+  id:         string;
+  label:      string;
+  icon:       React.ElementType;
+  desc:       string;
+  href?:      string;
+  view?:      ViewType;
+  permission: string | null;
 };
 
 const DRAWER_ITEMS: DrawerItem[] = [
   {
-    id:    'commandes',
-    label: 'Commandes',
-    icon:  ShoppingBag,
-    desc:  'Click & collect et anti-gaspi du jour',
-    href:  '/boulanger/commandes',
+    id: 'commandes', label: 'Commandes', icon: ShoppingBag,
+    desc: 'Click & collect et anti-gaspi du jour',
+    href: '/boulanger/commandes', permission: 'commandes',
   },
   {
-    id:    'catalogue',
-    label: 'Produits',
-    icon:  BookOpen,
-    desc:  'Gérer votre catalogue',
-    view:  'catalogue',
+    id: 'catalogue', label: 'Produits', icon: BookOpen,
+    desc: 'Gérer votre catalogue', view: 'catalogue', permission: 'catalogue',
   },
   {
-    id:    'dashboard',
-    label: 'Statistiques',
-    icon:  BarChart2,
-    desc:  'Historique & performance',
-    view:  'dashboard',
+    id: 'dashboard', label: 'Statistiques', icon: BarChart2,
+    desc: 'Historique & performance', view: 'dashboard', permission: 'dashboard',
   },
   {
-    id:    'parametres',
-    label: 'Paramètres',
-    icon:  Settings,
-    desc:  'Flash, créneaux, adresse',
-    view:  'parametres',
+    id: 'equipe', label: 'Équipe', icon: Users,
+    desc: 'Membres, invitations, rôles', view: 'equipe', permission: 'equipe',
+  },
+  {
+    id: 'parametres', label: 'Paramètres', icon: Settings,
+    desc: 'Flash, créneaux, adresse', view: 'parametres', permission: 'parametres',
   },
 ];
 
 function PlusDrawer({
   open, onClose, onNavigate, activeView,
 }: {
-  open:       boolean;
-  onClose:    () => void;
-  onNavigate: (v: ViewType) => void;
-  activeView: ViewType;
+  open: boolean; onClose: () => void;
+  onNavigate: (v: ViewType) => void; activeView: ViewType;
 }) {
   const router = useRouter();
+  const { canRead } = useBoulanger();
 
   return (
     <AnimatePresence>
       {open && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40"
             onClick={onClose}
           />
           <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 320 }}
             className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto"
           >
@@ -142,8 +133,7 @@ function PlusDrawer({
                 <p className="text-white/50 text-xs uppercase tracking-widest font-medium">
                   Gestion & paramètres
                 </p>
-                <button
-                  onClick={onClose}
+                <button onClick={onClose}
                   className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
                 >
                   <X size={15} />
@@ -151,7 +141,10 @@ function PlusDrawer({
               </div>
               <div className="px-4 pb-8 space-y-2.5">
                 {DRAWER_ITEMS.map(item => {
-                  const Icon     = item.icon;
+                  // Filtrer selon les permissions de l'utilisateur
+                  if (item.permission && !canRead(item.permission as any)) return null;
+
+                  const Icon = item.icon;
                   const isActive = item.view ? activeView === item.view : false;
                   const isCommandes = item.id === 'commandes';
 
@@ -160,11 +153,8 @@ function PlusDrawer({
                       key={item.id}
                       whileTap={{ scale: 0.97 }}
                       onClick={() => {
-                        if (item.href) {
-                          router.push(item.href);
-                        } else if (item.view) {
-                          onNavigate(item.view);
-                        }
+                        if (item.href) router.push(item.href);
+                        else if (item.view) onNavigate(item.view);
                         onClose();
                       }}
                       className={`
@@ -178,15 +168,10 @@ function PlusDrawer({
                         }
                       `}
                     >
-                      <div className={`
-                        w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
-                        ${isActive     ? 'bg-[#C19A6B]/20' :
-                          isCommandes  ? 'bg-[#C19A6B]/15' :
-                          'bg-white/8'
-                        }
-                      `}>
-                        <Icon
-                          size={22}
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                        isActive ? 'bg-[#C19A6B]/20' : isCommandes ? 'bg-[#C19A6B]/15' : 'bg-white/8'
+                      }`}>
+                        <Icon size={22}
                           className={isActive || isCommandes ? 'text-[#C19A6B]' : 'text-white/60'}
                           strokeWidth={isActive ? 2.2 : 1.8}
                         />
@@ -194,9 +179,7 @@ function PlusDrawer({
                       <div className="flex-1">
                         <p className={`text-base font-semibold ${
                           isActive || isCommandes ? 'text-[#C19A6B]' : 'text-white'
-                        }`}>
-                          {item.label}
-                        </p>
+                        }`}>{item.label}</p>
                         <p className="text-white/35 text-xs mt-0.5">{item.desc}</p>
                       </div>
                       <ChevronRight size={16} className={
@@ -214,13 +197,26 @@ function PlusDrawer({
   );
 }
 
-// ─── Navigation principale — 4 onglets + Plus ──────────────────
+// ── Vue bloquée ───────────────────────────────────────────────
 
-const MAIN_NAV: { id: ViewType; label: string; icon: React.ElementType; flash?: boolean }[] = [
-  { id: 'matin',    label: 'Matin',  icon: Sun    },
-  { id: 'snapshot', label: 'Stock',  icon: Camera },
-  { id: 'soir',     label: 'Soir',   icon: Moon   },
-  { id: 'flash',    label: 'Flash',  icon: Zap, flash: true },
+function ViewBlocked() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <Shield size={32} className="text-white/15 mb-4" />
+      <p className="text-white/40 text-sm font-medium">Vue non accessible</p>
+      <p className="text-white/20 text-xs mt-1">Votre rôle n'autorise pas cette section.</p>
+    </div>
+  );
+}
+
+// ─── Navigation principale ─────────────────────────────────────
+
+// Nav complète (identique à l'original) — filtrée par canRead
+const ALL_NAV_ITEMS: { id: ViewType; label: string; icon: React.ElementType; flash?: boolean; permission: string }[] = [
+  { id: 'matin',    label: 'Matin',  icon: Sun,    permission: 'matin'    },
+  { id: 'snapshot', label: 'Stock',  icon: Camera, permission: 'snapshot' },
+  { id: 'soir',     label: 'Soir',   icon: Moon,   permission: 'soir'     },
+  { id: 'flash',    label: 'Flash',  icon: Zap, flash: true, permission: 'flash' },
 ];
 
 // ─── Shell ─────────────────────────────────────────────────────
@@ -230,13 +226,14 @@ function AppShell() {
     isAuthenticated, authLoading,
     activeView, setActiveView,
     logout, boulangerie,
+    userRole, canRead,
   } = useBoulanger();
 
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const router = useRouter();
 
-  const isSecondaryActive = (['catalogue', 'dashboard', 'parametres'] as ViewType[]).includes(activeView);
+  const isSecondaryActive = (['catalogue', 'dashboard', 'parametres', 'equipe'] as ViewType[]).includes(activeView);
 
   // ── Loading ────────────────────────────────────────────────
   if (authLoading) {
@@ -253,32 +250,25 @@ function AppShell() {
   // ── Non authentifié ────────────────────────────────────────
   if (!isAuthenticated) return <LoginForm />;
 
-  // ── 🔐 FIX S0 : Bloquer les clients authentifiés sans boulangerie
-  // Un utilisateur peut être authentifié via OTP (client click & collect)
-  // sans pour autant avoir un rôle boulanger. On vérifie ici que
-  // l'utilisateur est bien owner d'une boulangerie.
-  if (!boulangerie) {
+  // ── 🔐 FIX S0 : Bloquer les clients sans rôle boulanger ──
+  if (!boulangerie || !userRole) {
     return (
       <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center px-4">
         <div className="text-center">
-          <span className="text-4xl block mb-4">🔒</span>
-          <p
-            className="text-white/70 text-lg font-semibold"
-            style={{ fontFamily: 'Playfair Display, serif' }}
-          >
+          <Shield size={40} className="text-white/20 mx-auto mb-4" />
+          <p className="text-white/70 text-lg font-semibold"
+            style={{ fontFamily: 'Playfair Display, serif' }}>
             Accès non autorisé
           </p>
           <p className="text-white/40 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
             Cet espace est réservé aux boulangers inscrits sur BakeryOS.
           </p>
-          <button
-            onClick={() => router.push('/')}
+          <button onClick={() => router.push('/')}
             className="mt-6 px-6 py-3 bg-[#C19A6B] text-[#1A0F0A] rounded-xl font-semibold text-sm hover:bg-[#D4AE85] transition-colors"
           >
             Retour à la vitrine
           </button>
-          <button
-            onClick={logout}
+          <button onClick={logout}
             className="block mx-auto mt-3 text-white/25 text-xs hover:text-white/50 transition-colors"
           >
             Se déconnecter
@@ -287,6 +277,9 @@ function AppShell() {
       </div>
     );
   }
+
+  // Nav filtrée selon les permissions (max 4 boutons)
+  const navItems = ALL_NAV_ITEMS.filter(n => canRead(n.permission as any)).slice(0, 4);
 
   // ── Interface boulanger ────────────────────────────────────
   return (
@@ -305,18 +298,23 @@ function AppShell() {
           <div className="flex items-center gap-2.5">
             <span className="text-xl">🥖</span>
             <div>
-              <p className="text-white text-sm font-bold leading-none" style={{ fontFamily: 'Playfair Display, serif' }}>
+              <p className="text-white text-sm font-bold leading-none"
+                style={{ fontFamily: 'Playfair Display, serif' }}>
                 {boulangerie?.nom ?? "L'Artisan Doré"}
               </p>
-              <p className="text-[#C19A6B]/70 text-[10px] tracking-[0.2em] uppercase leading-none mt-0.5">
-                Espace boulanger
+              {/* Badge rôle — owner voit "Espace boulanger", employés voient leur rôle */}
+              <p className={`text-[10px] tracking-[0.2em] uppercase leading-none mt-0.5 ${
+                userRole === 'owner'   ? 'text-[#C19A6B]/70' :
+                userRole === 'gerant'  ? 'text-blue-400/70'  : 'text-white/35'
+              }`}>
+                {userRole === 'owner' ? 'Espace boulanger' : ROLE_LABELS[userRole]}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <SyncIndicator />
             <LiveClock />
-            {!tourLoading && (
+            {!tourLoading && userRole === 'owner' && (
               <button
                 data-tour="header-help-btn"
                 onClick={tourCompleted ? resetTour : startTour}
@@ -345,22 +343,25 @@ function AppShell() {
             exit={{ opacity: 0, y: -14 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
           >
-            {activeView === 'matin'      && <VueMatin />}
-            {activeView === 'snapshot'   && <VueSnapshot />}
-            {activeView === 'soir'       && <VueSoir />}
-            {activeView === 'flash'      && <VueFlash />}
-            {activeView === 'catalogue'  && <Catalogue />}
-            {activeView === 'dashboard'  && <Dashboard />}
-            {activeView === 'parametres' && <Parametres />}
+            {activeView === 'matin'      && (canRead('matin')      ? <VueMatin />    : <ViewBlocked />)}
+            {activeView === 'snapshot'   && (canRead('snapshot')   ? <VueSnapshot /> : <ViewBlocked />)}
+            {activeView === 'soir'       && (canRead('soir')       ? <VueSoir />     : <ViewBlocked />)}
+            {activeView === 'flash'      && (canRead('flash')      ? <VueFlash />    : <ViewBlocked />)}
+            {activeView === 'catalogue'  && (canRead('catalogue')  ? <Catalogue />   : <ViewBlocked />)}
+            {activeView === 'dashboard'  && (canRead('dashboard')  ? <Dashboard />   : <ViewBlocked />)}
+            {activeView === 'parametres' && (canRead('parametres') ? <Parametres />  : <ViewBlocked />)}
+            {activeView === 'equipe'      && (canRead('equipe')      ? <EquipeManager /> : <ViewBlocked />)}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Bottom Nav — 4 onglets + Plus */}
+      {/* Bottom Nav — items filtrés par permissions */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#120A06]/97 backdrop-blur-md border-t border-white/10">
-        <div className="grid grid-cols-5 w-full max-w-lg mx-auto h-[76px]">
-
-          {MAIN_NAV.map(item => {
+        <div
+          className="grid w-full max-w-lg mx-auto h-[76px]"
+          style={{ gridTemplateColumns: `repeat(${navItems.length + 1}, 1fr)` }}
+        >
+          {navItems.map(item => {
             const Icon     = item.icon;
             const isActive = activeView === item.id;
             return (
@@ -412,9 +413,11 @@ function AppShell() {
                   {activeView === 'catalogue'  && <BookOpen  size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   {activeView === 'dashboard'  && <BarChart2 size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   {activeView === 'parametres' && <Settings  size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
+                  {activeView === 'equipe'      && <Users     size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   <span className="text-[10px] font-bold leading-none text-[#C19A6B]">
                     {activeView === 'catalogue' ? 'Produits'
                       : activeView === 'dashboard' ? 'Stats'
+                      : activeView === 'equipe' ? 'Équipe'
                       : 'Config'}
                   </span>
                 </>
@@ -426,11 +429,9 @@ function AppShell() {
               )}
             </div>
           </motion.button>
-
         </div>
       </nav>
 
-      {/* Drawer */}
       <PlusDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -438,7 +439,10 @@ function AppShell() {
         activeView={activeView}
       />
 
-      <TourWizard onNavigateToView={view => setActiveView(view)} />
+      {/* Tour guidé — uniquement pour les owners */}
+      {userRole === 'owner' && (
+        <TourWizard onNavigateToView={view => setActiveView(view)} />
+      )}
     </div>
   );
 }
