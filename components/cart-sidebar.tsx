@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
 import { useSlug } from '@/hooks/use-slug';
+import { supabase } from '@/lib/supabase';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -18,42 +19,92 @@ interface BoulangeriePublicInfo {
   creneaux_retrait: string[];
 }
 
-// ── Hook : charge les infos publiques de la boulangerie ────────
+interface ProfilClient {
+  prenom:    string;
+  telephone: string | null;
+}
+
+// ── Conversion créneaux → plages 4h ────────────────────────────
+
+function heureToPlage(heure: string): string {
+  const h = parseInt(heure.split(':')[0], 10);
+  return `${h}h–${h + 4}h`;
+}
+
+function creneauxToPlages(creneaux: string[]): { value: string; label: string }[] {
+  if (!creneaux || creneaux.length === 0) {
+    return [
+      { value: '08:00', label: '8h–12h' },
+      { value: '12:00', label: '12h–16h' },
+      { value: '16:00', label: '16h–20h' },
+    ];
+  }
+  return [...creneaux].sort().map(c => ({ value: c, label: heureToPlage(c) }));
+}
+
+// ── Hook : infos boulangerie ────────────────────────────────────
 
 function useBoulangerieInfo(slug: string | null) {
   const [info, setInfo] = useState<BoulangeriePublicInfo>({
-    adresse:          null,
-    ville:            null,
-    code_postal:      null,
-    creneaux_retrait: ['08:00', '09:00', '10:00'],
+    adresse: null, ville: null, code_postal: null,
+    creneaux_retrait: ['08:00', '12:00', '16:00'],
   });
 
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
-
     fetch(`/api/catalogue/${slug}`)
       .then(r => r.json())
       .then((data: { boulangerie?: BoulangeriePublicInfo }) => {
         if (!cancelled && data?.boulangerie) setInfo(data.boulangerie);
       })
-      .catch((err) => {
-        // B4 : log en développement pour faciliter le debug
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('[cart-sidebar] Impossible de charger les infos boulangerie :', err);
-        }
-      });
-
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [slug]);
 
   return info;
 }
 
-// ── Formatage adresse ──────────────────────────────────────────
+// ── Hook : profil client ────────────────────────────────────────
+// Récupère le VRAI prénom et téléphone depuis profils_clients
+// pour les envoyer correctement dans la commande
+
+function useClientProfil() {
+  const [profil, setProfil] = useState<ProfilClient | null>(null);
+  const { user } = useCart();
+
+  useEffect(() => {
+    if (!user) { setProfil(null); return; }
+
+    async function load() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        const res = await fetch('/api/client/profil', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+
+        const { profil: data } = await res.json() as {
+          profil: { prenom: string; telephone: string | null } | null
+        };
+        if (data) setProfil({ prenom: data.prenom, telephone: data.telephone });
+      } catch {}
+    }
+    load();
+  }, [user]);
+
+  return profil;
+}
 
 function formatAdresse(info: BoulangeriePublicInfo): string {
-  const parts = [info.adresse, info.code_postal && info.ville ? `${info.code_postal} ${info.ville}` : info.ville].filter(Boolean);
+  const parts = [
+    info.adresse,
+    info.code_postal && info.ville
+      ? `${info.code_postal} ${info.ville}`
+      : info.ville,
+  ].filter(Boolean);
   return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
 }
 
@@ -62,11 +113,8 @@ function formatAdresse(info: BoulangeriePublicInfo): string {
 function OrderConfirmation({
   orderNumber, total, heureRetrait, adresse, onClose,
 }: {
-  orderNumber:  string;
-  total:        number;
-  heureRetrait: string;
-  adresse:      string;
-  onClose:      () => void;
+  orderNumber: string; total: number; heureRetrait: string;
+  adresse: string; onClose: () => void;
 }) {
   return (
     <motion.div
@@ -75,8 +123,7 @@ function OrderConfirmation({
       className="flex flex-col items-center justify-center h-full px-6 py-10 text-center"
     >
       <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
+        initial={{ scale: 0 }} animate={{ scale: 1 }}
         transition={{ type: 'spring', damping: 14, delay: 0.1 }}
         className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-5"
       >
@@ -95,8 +142,8 @@ function OrderConfirmation({
           {[
             { icon: ShoppingBag, label: 'Numéro de commande', value: orderNumber, mono: true },
             { icon: MapPin,      label: 'Retrait en boutique', value: adresse },
-            { icon: Clock,       label: 'Heure de retrait', value: heureRetrait },
-            { icon: Mail,        label: 'Confirmation', value: 'Email envoyé à votre adresse' },
+            { icon: Clock,       label: 'Créneau de retrait',  value: heureToPlage(heureRetrait) },
+            { icon: Mail,        label: 'Confirmation',        value: 'Email envoyé à votre adresse' },
           ].map(({ icon: Icon, label, value, mono }) => (
             <div key={label} className="flex items-center gap-2.5">
               <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
@@ -113,7 +160,6 @@ function OrderConfirmation({
         <p className="text-[#2C1810]/40 text-xs mb-5">
           Paiement sur place uniquement · Espèces ou carte bancaire
         </p>
-
         <button
           onClick={onClose}
           className="w-full bg-[#2C1810] text-white py-3.5 rounded-xl font-semibold text-sm hover:bg-[#C19A6B] transition-colors"
@@ -138,6 +184,7 @@ export default function CartSidebar() {
 
   const resolution      = useSlug();
   const boulangerieInfo = useBoulangerieInfo(resolution?.slug ?? boulangerieSlug ?? null);
+  const clientProfil    = useClientProfil();
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber]       = useState('');
@@ -145,40 +192,48 @@ export default function CartSidebar() {
   const [selectedHeure, setSelectedHeure]   = useState('');
   const [isSubmitting, setIsSubmitting]     = useState(false);
   const [submitError, setSubmitError]       = useState<string | null>(null);
-
-  // B3 : ref synchrone pour bloquer les doubles soumissions — le setState
-  // seul ne suffit pas car le re-render n'est pas garanti avant le prochain
-  // clic dans le même cycle d'événements.
   const submittingRef = useRef(false);
 
+  const plages = creneauxToPlages(boulangerieInfo.creneaux_retrait);
+
   useEffect(() => {
-    if (boulangerieInfo.creneaux_retrait.length > 0 && !selectedHeure) {
-      setSelectedHeure(boulangerieInfo.creneaux_retrait[0]);
+    if (plages.length > 0 && !selectedHeure) {
+      setSelectedHeure(plages[0].value);
     }
-  }, [boulangerieInfo.creneaux_retrait, selectedHeure]);
+  }, [boulangerieInfo.creneaux_retrait, selectedHeure, plages]);
 
   const adresseFormatted = formatAdresse(boulangerieInfo);
 
   // ── Checkout ─────────────────────────────────────────────────
 
   const handleCheckout = async () => {
-    if (!user)         { setIsAuthOpen(true); return; }
-    if (!selectedHeure){ setSubmitError('Sélectionnez un créneau de retrait'); return; }
-    if (submittingRef.current) return; // B3 : guard synchrone
+    if (!user) { setIsAuthOpen(true); return; }
+    if (!selectedHeure) { setSubmitError('Sélectionnez un créneau de retrait'); return; }
+    if (submittingRef.current) return;
 
     submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
+      // FIX : utilise le vrai prénom depuis profils_clients
+      const clientPrenom = clientProfil?.prenom
+        ?? user.user_metadata?.prenom
+        ?? user.email?.split('@')[0]
+        ?? 'Client';
+
+      // FIX : inclut le vrai téléphone depuis profils_clients
+      const clientTelephone = clientProfil?.telephone ?? null;
+
       const res = await fetch('/api/orders', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          boulangerie_slug: boulangerieSlug,
-          client_prenom:    user.user_metadata?.prenom ?? user.email?.split('@')[0] ?? 'Client',
-          client_email:     user.email!,
-          heure_retrait:    selectedHeure,
+          boulangerie_slug:  boulangerieSlug,
+          client_prenom:     clientPrenom,
+          client_email:      user.email!,
+          client_telephone:  clientTelephone,
+          heure_retrait:     selectedHeure,
           lignes: items.map(({ product, quantity }) => ({
             produit_id:    product.id,
             produit_nom:   product.name,
@@ -189,18 +244,14 @@ export default function CartSidebar() {
       });
 
       const json = await res.json() as { commande_id?: string; error?: string };
-
-      if (!res.ok) {
-        setSubmitError(json.error ?? 'Une erreur est survenue. Veuillez réessayer.');
-        return;
-      }
+      if (!res.ok) { setSubmitError(json.error ?? 'Une erreur est survenue.'); return; }
 
       setOrderNumber(json.commande_id ?? '');
       setHeureRetrait(selectedHeure);
       setOrderConfirmed(true);
       clearCart();
     } catch {
-      setSubmitError('Erreur réseau. Vérifiez votre connexion et réessayez.');
+      setSubmitError('Erreur réseau. Vérifiez votre connexion.');
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);
@@ -222,17 +273,13 @@ export default function CartSidebar() {
       {isCartOpen && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={handleClose}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[55]"
           />
 
           <motion.div
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
+            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             className="fixed right-0 top-0 h-full w-full max-w-md bg-[#FDFBF7] z-[56] flex flex-col shadow-2xl"
           >
@@ -265,16 +312,13 @@ export default function CartSidebar() {
             <div className="flex-1 overflow-y-auto">
               {orderConfirmed ? (
                 <OrderConfirmation
-                  orderNumber={orderNumber}
-                  total={TOTAL_TTC}
-                  heureRetrait={heureRetrait}
-                  adresse={adresseFormatted}
+                  orderNumber={orderNumber} total={TOTAL_TTC}
+                  heureRetrait={heureRetrait} adresse={adresseFormatted}
                   onClose={handleClose}
                 />
               ) : items.length === 0 ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                   className="flex flex-col items-center justify-center h-full px-6 text-center"
                 >
                   <div className="w-20 h-20 bg-[#C19A6B]/10 rounded-full flex items-center justify-center mb-4">
@@ -298,10 +342,8 @@ export default function CartSidebar() {
                   <AnimatePresence>
                     {items.map(({ product, quantity }) => (
                       <motion.div
-                        key={product.id}
-                        layout
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
+                        key={product.id} layout
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, x: 60, transition: { duration: 0.2 } }}
                         className="bg-white rounded-xl p-3 flex gap-3 shadow-sm"
                       >
@@ -343,14 +385,13 @@ export default function CartSidebar() {
             {/* Footer */}
             {items.length > 0 && !orderConfirmed && (
               <div className="border-t border-[#E8E0D5] bg-white px-5 py-5 space-y-3">
+                {/* Totaux */}
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between text-[#2C1810]/60">
-                    <span>Sous-total HT</span>
-                    <span>{(totalPrice - TVA).toFixed(2)} €</span>
+                    <span>Sous-total HT</span><span>{(totalPrice - TVA).toFixed(2)} €</span>
                   </div>
                   <div className="flex justify-between text-[#2C1810]/60">
-                    <span>TVA (5,5%)</span>
-                    <span>{TVA.toFixed(2)} €</span>
+                    <span>TVA (5,5%)</span><span>{TVA.toFixed(2)} €</span>
                   </div>
                   <div className="flex justify-between text-[#2C1810]/60">
                     <span>Click & Collect</span>
@@ -363,34 +404,29 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
-                {/* Créneau de retrait dynamique */}
+                {/* Créneaux — plages horaires */}
                 <div>
                   <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
-                    <Clock size={12} />
-                    Heure de retrait
+                    <Clock size={12} /> Créneau de retrait
                   </label>
-                  {boulangerieInfo.creneaux_retrait.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {boulangerieInfo.creneaux_retrait.map(c => (
-                        <button
-                          key={c}
-                          onClick={() => setSelectedHeure(c)}
-                          className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-all border ${
-                            selectedHeure === c
-                              ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
-                              : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
-                          }`}
-                        >
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[#2C1810]/40 text-xs">Aucun créneau configuré</p>
-                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {plages.map(p => (
+                      <button
+                        key={p.value}
+                        onClick={() => setSelectedHeure(p.value)}
+                        className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                          selectedHeure === p.value
+                            ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
+                            : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {/* Adresse dynamique */}
+                {/* Adresse */}
                 <div className="bg-[#F5F0E8] rounded-xl px-3 py-2.5 flex items-start gap-2">
                   <MapPin size={13} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
                   <div>
@@ -399,21 +435,24 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
+                {/* Statut connexion */}
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                    Connecté : {user.email}
+                    {clientProfil?.prenom
+                      ? <><strong>{clientProfil.prenom}</strong> · {user.email}</>
+                      : user.email
+                    }
                   </div>
                 ) : (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
-                    ⚠️ Connexion requise pour commander
+                    Vous devrez vous connecter pour finaliser la commande
                   </div>
                 )}
 
                 {submitError && (
                   <motion.div
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
                     className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 flex items-start gap-2"
                   >
                     <AlertCircle size={14} className="text-red-500 flex-shrink-0 mt-0.5" />
@@ -422,19 +461,17 @@ export default function CartSidebar() {
                 )}
 
                 <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                   onClick={handleCheckout}
                   disabled={isSubmitting || !selectedHeure}
                   className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? (
-                    <><Loader2 size={16} className="animate-spin" /> Envoi en cours…</>
-                  ) : user ? (
-                    <>Confirmer la commande <ArrowRight size={16} /></>
-                  ) : (
-                    <>Se connecter pour commander <ArrowRight size={16} /></>
-                  )}
+                  {isSubmitting
+                    ? <><Loader2 size={16} className="animate-spin" /> Envoi en cours…</>
+                    : user
+                      ? <>Confirmer la commande <ArrowRight size={16} /></>
+                      : <>Se connecter pour commander <ArrowRight size={16} /></>
+                  }
                 </motion.button>
 
                 <p className="text-center text-[#2C1810]/40 text-xs">

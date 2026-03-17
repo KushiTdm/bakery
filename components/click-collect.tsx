@@ -18,6 +18,13 @@ interface BoulangeriePublicInfo {
   creneaux_retrait: string[];
 }
 
+// ── Conversion créneaux en plages ──────────────────────────────
+function heureToPlage(heure: string): string {
+  const h = parseInt(heure.split(':')[0], 10);
+  const hFin = h + 4;
+  return `${h}h–${hFin}h`;
+}
+
 // ── Hook catalogue ─────────────────────────────────────────────
 
 function useCatalogue(slug: string | null) {
@@ -33,7 +40,6 @@ function useCatalogue(slug: string | null) {
     async function load() {
       setLoading(true);
       try {
-        // cache: 'no-store' → empêche le navigateur ET Next.js de mettre en cache
         const res = await fetch(`/api/catalogue/${slug}`, {
           cache: 'no-store',
         });
@@ -66,8 +72,6 @@ function useCatalogue(slug: string | null) {
   return { products, boulangerie, loading, source };
 }
 
-// ── Formatage adresse ──────────────────────────────────────────
-
 function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
   if (!info) return '42 Rue de la Boulangerie, 75001 Paris';
   const parts = [
@@ -78,12 +82,13 @@ function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
 }
 
 // ── Card produit ───────────────────────────────────────────────
+// CORRECTION : addItem ne requiert plus d'auth.
+// L'auth est demandée uniquement au checkout dans cart-sidebar.
 
 function ProductCard({ product, index }: { product: Product; index: number }) {
-  const { addItem, user, setIsAuthOpen, setPendingProduct } = useCart();
+  const { addItem } = useCart();
 
   const handleAdd = () => {
-    if (!user) { setPendingProduct(product); setIsAuthOpen(true); return; }
     addItem(product);
   };
 
@@ -141,22 +146,18 @@ export default function ClickCollect() {
     : products.filter(p => p.category === activeCategory);
 
   const adresseRetrait  = formatAdresseRetrait(boulangerie);
-  const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '09:00', '10:00'];
+  const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '12:00', '16:00'];
 
-  const creneauxLabel = creneauxRetrait
-    .map(c => {
-      const [h, m] = c.split(':');
-      return m === '00' ? `${parseInt(h)}h` : `${parseInt(h)}h${m}`;
-    })
+  // Affichage des plages horaires
+  const plagesLabel = creneauxRetrait
+    .sort()
+    .map(c => heureToPlage(c))
     .join(', ');
 
   const dernierCreneau = creneauxRetrait.length > 0
-    ? creneauxRetrait[creneauxRetrait.length - 1]
-    : '10:00';
-  const dernierCreneauLabel = (() => {
-    const [h, m] = dernierCreneau.split(':');
-    return m === '00' ? `${parseInt(h)}h` : `${parseInt(h)}h${m}`;
-  })();
+    ? [...creneauxRetrait].sort().pop()!
+    : '16:00';
+  const dernierCreneauFin = parseInt(dernierCreneau.split(':')[0], 10) + 4;
 
   return (
     <div className="pt-20 min-h-screen bg-[#FDFBF7]">
@@ -253,7 +254,7 @@ export default function ClickCollect() {
                     <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
                     <p className="flex items-start gap-1">
                       <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                      <span>Retrait disponible à <strong>{creneauxLabel}</strong></span>
+                      <span>Créneaux disponibles : <strong>{plagesLabel}</strong></span>
                     </p>
                   </li>
                   <li className="flex items-start gap-2">
@@ -262,7 +263,7 @@ export default function ClickCollect() {
                   </li>
                   <li className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Commande conservée <strong>jusqu'à {dernierCreneauLabel}</strong>, puis libérée</p>
+                    <p>Commande conservée <strong>jusqu'à {dernierCreneauFin}h</strong>, puis libérée</p>
                   </li>
                   <li className="flex items-start gap-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />

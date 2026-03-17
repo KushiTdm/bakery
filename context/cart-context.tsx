@@ -39,21 +39,16 @@ interface CartContextType {
   pendingProduct:    CartProduct | null;
   setPendingProduct: (p: CartProduct | null) => void;
   logout:            () => Promise<void>;
-  // Slug dynamique — récupéré depuis l'URL ou NEXT_PUBLIC_BAKERY_SLUG
   boulangerieSlug:   string;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
 
-// ── Helper : résout le slug de la boulangerie ─────────────────
-// Priorité : 1) variable d'env  2) hostname (artisandore.fr → artisan-dore)
-//            3) fallback 'artisan-dore'
 function resolveBoulangerieSlug(): string {
   const envSlug = process.env.NEXT_PUBLIC_BAKERY_SLUG;
   if (envSlug) return envSlug;
 
   if (typeof window !== 'undefined') {
-    // Hostname → slug (ex: "mon-pain.fr" → "mon-pain")
     const host = window.location.hostname.replace(/\.(fr|com|net|io)$/, '');
     if (host && host !== 'localhost' && !host.includes('127.0.0.1')) {
       return host;
@@ -63,8 +58,6 @@ function resolveBoulangerieSlug(): string {
   return 'artisan-dore';
 }
 
-// ── Provider ──────────────────────────────────────────────────
-
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems]                   = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen]         = useState(false);
@@ -73,7 +66,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [pendingProduct, setPendingProduct] = useState<CartProduct | null>(null);
   const [boulangerieSlug]                   = useState(resolveBoulangerieSlug);
 
-  // ── Session Supabase ─────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(
       ({ data: { session } }: { data: { session: Session | null } }) => {
@@ -86,8 +78,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const nextUser = session?.user ?? null;
         setUser(nextUser);
 
-        // Produit en attente → ajout automatique après connexion
         if (nextUser && pendingProduct) {
+          // Ajoute le produit en attente après connexion
           setItems(prev => {
             const existing = prev.find(i => i.product.id === pendingProduct.id);
             if (existing) {
@@ -111,6 +103,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Mutations panier ─────────────────────────────────────────
+  // CORRECTION : addItem doit TOUJOURS fonctionner, même sans auth,
+  // pour permettre d'ajouter plusieurs produits différents au panier.
+  // L'auth n'est requise qu'au moment du checkout.
 
   const addItem = useCallback((product: CartProduct) => {
     setItems(prev => {

@@ -29,14 +29,14 @@ export default function LandingClient({
     <>
       {loading && <LoadingScreen onFinish={() => setLoading(false)} />}
       <FlashBanner activeTab={activeTab} setActiveTab={setActiveTab} />
-      <Navbar      activeTab={activeTab} setActiveTab={setActiveTab} />
+
+      {/* Navbar gère maintenant l'espace client en interne */}
+      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="min-h-screen">
         {activeTab === 'vitrine' ? (
           <>
-            {/* Hero reste client (animations framer-motion + CTA interactif) */}
             <Hero />
-            {/* Server Components injectés — déjà rendus par le serveur */}
             {savoirFaire}
             {ingredients}
             <Galerie />
