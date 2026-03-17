@@ -1,5 +1,6 @@
 'use client';
-// app/boulanger/page.tsx — mise à jour avec onglet Flash dans la nav
+// app/boulanger/page.tsx
+// ✅ FIX : Commandes ajoutée dans le drawer "Plus" avec navigation vers /boulanger/commandes
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,8 +8,9 @@ import {
   Sun, Camera, Moon, Zap,
   LogOut, Cloud, CloudOff, Check, Loader2,
   HelpCircle, MoreHorizontal, BookOpen, BarChart2,
-  Settings, X, ChevronRight,
+  Settings, X, ChevronRight, ShoppingBag,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
 import LoginForm    from '@/components/boulanger/login-form';
 import VueMatin     from '@/components/boulanger/vue-matin';
@@ -21,6 +23,8 @@ import Parametres   from '@/components/boulanger/parametres';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import type { ViewType } from '@/context/boulanger-context';
 
+// ── Horloge ───────────────────────────────────────────────────
+
 function LiveClock() {
   const [time, setTime] = useState('');
   useEffect(() => {
@@ -32,6 +36,8 @@ function LiveClock() {
   }, []);
   return <span className="text-white/30 text-xs font-mono tabular-nums">{time}</span>;
 }
+
+// ── Indicateur sync ───────────────────────────────────────────
 
 function SyncIndicator() {
   const { syncStatus } = useBoulanger();
@@ -51,27 +57,66 @@ function SyncIndicator() {
         <span className={`text-[10px] font-medium ${
           syncStatus === 'saved' ? 'text-green-400' :
           syncStatus === 'error' ? 'text-red-400' : 'text-[#C19A6B]/70'
-        }`}>
-          {labels[syncStatus]}
-        </span>
+        }`}>{labels[syncStatus]}</span>
       )}
     </div>
   );
 }
 
 // ─── Drawer "Plus" ─────────────────────────────────────────────
+// Commandes pointe vers /boulanger/commandes (page séparée)
+// Les autres sont des vues internes dans le même shell
 
-const SECONDARY_ITEMS: { id: ViewType; label: string; icon: React.ElementType; desc: string }[] = [
-  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,  desc: 'Gérer votre catalogue' },
-  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2, desc: 'Historique & performance' },
-  { id: 'parametres', label: 'Paramètres',   icon: Settings,  desc: 'Flash, créneaux, adresse' },
+type DrawerItem = {
+  id:       string;
+  label:    string;
+  icon:     React.ElementType;
+  desc:     string;
+  href?:    string;   // si défini → navigation externe (router.push)
+  view?:    ViewType; // si défini → vue interne (setActiveView)
+};
+
+const DRAWER_ITEMS: DrawerItem[] = [
+  {
+    id:    'commandes',
+    label: 'Commandes',
+    icon:  ShoppingBag,
+    desc:  'Click & collect et anti-gaspi du jour',
+    href:  '/boulanger/commandes',
+  },
+  {
+    id:    'catalogue',
+    label: 'Produits',
+    icon:  BookOpen,
+    desc:  'Gérer votre catalogue',
+    view:  'catalogue',
+  },
+  {
+    id:    'dashboard',
+    label: 'Statistiques',
+    icon:  BarChart2,
+    desc:  'Historique & performance',
+    view:  'dashboard',
+  },
+  {
+    id:    'parametres',
+    label: 'Paramètres',
+    icon:  Settings,
+    desc:  'Flash, créneaux, adresse',
+    view:  'parametres',
+  },
 ];
 
 function PlusDrawer({
   open, onClose, onNavigate, activeView,
 }: {
-  open: boolean; onClose: () => void; onNavigate: (v: ViewType) => void; activeView: ViewType;
+  open:       boolean;
+  onClose:    () => void;
+  onNavigate: (v: ViewType) => void;
+  activeView: ViewType;
 }) {
+  const router = useRouter();
+
   return (
     <AnimatePresence>
       {open && (
@@ -91,9 +136,12 @@ function PlusDrawer({
             className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto"
           >
             <div className="bg-[#130B06] border border-white/10 rounded-t-3xl overflow-hidden shadow-2xl">
+              {/* Handle */}
               <div className="flex justify-center pt-3 pb-1">
                 <div className="w-10 h-1 bg-white/20 rounded-full" />
               </div>
+
+              {/* Titre */}
               <div className="flex items-center justify-between px-5 py-3">
                 <p className="text-white/50 text-xs uppercase tracking-widest font-medium">
                   Gestion & paramètres
@@ -105,34 +153,65 @@ function PlusDrawer({
                   <X size={15} />
                 </button>
               </div>
+
+              {/* Items */}
               <div className="px-4 pb-8 space-y-2.5">
-                {SECONDARY_ITEMS.map(item => {
+                {DRAWER_ITEMS.map(item => {
                   const Icon     = item.icon;
-                  const isActive = activeView === item.id;
+                  const isActive = item.view ? activeView === item.view : false;
+                  const isCommandes = item.id === 'commandes';
+
                   return (
                     <motion.button
                       key={item.id}
                       whileTap={{ scale: 0.97 }}
-                      onClick={() => { onNavigate(item.id); onClose(); }}
+                      onClick={() => {
+                        if (item.href) {
+                          router.push(item.href);
+                        } else if (item.view) {
+                          onNavigate(item.view);
+                        }
+                        onClose();
+                      }}
                       className={`
                         w-full flex items-center gap-4 px-4 py-4 rounded-2xl border text-left
                         transition-all touch-manipulation select-none
                         ${isActive
                           ? 'bg-[#C19A6B]/15 border-[#C19A6B]/25'
-                          : 'bg-white/4 border-white/8 active:bg-white/8'
+                          : isCommandes
+                            ? 'bg-[#C19A6B]/8 border-[#C19A6B]/20 hover:bg-[#C19A6B]/15'
+                            : 'bg-white/4 border-white/8 active:bg-white/8'
                         }
                       `}
                     >
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-[#C19A6B]/20' : 'bg-white/8'}`}>
-                        <Icon size={22} className={isActive ? 'text-[#C19A6B]' : 'text-white/60'} strokeWidth={isActive ? 2.2 : 1.8} />
+                      {/* Icône */}
+                      <div className={`
+                        w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
+                        ${isActive     ? 'bg-[#C19A6B]/20' :
+                          isCommandes  ? 'bg-[#C19A6B]/15' :
+                          'bg-white/8'
+                        }
+                      `}>
+                        <Icon
+                          size={22}
+                          className={isActive || isCommandes ? 'text-[#C19A6B]' : 'text-white/60'}
+                          strokeWidth={isActive ? 2.2 : 1.8}
+                        />
                       </div>
+
+                      {/* Texte */}
                       <div className="flex-1">
-                        <p className={`text-base font-semibold ${isActive ? 'text-[#C19A6B]' : 'text-white'}`}>
+                        <p className={`text-base font-semibold ${
+                          isActive || isCommandes ? 'text-[#C19A6B]' : 'text-white'
+                        }`}>
                           {item.label}
                         </p>
                         <p className="text-white/35 text-xs mt-0.5">{item.desc}</p>
                       </div>
-                      <ChevronRight size={16} className={isActive ? 'text-[#C19A6B]/60' : 'text-white/20'} />
+
+                      <ChevronRight size={16} className={
+                        isActive || isCommandes ? 'text-[#C19A6B]/60' : 'text-white/20'
+                      } />
                     </motion.button>
                   );
                 })}
@@ -166,7 +245,7 @@ function AppShell() {
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const isSecondaryActive = ['catalogue', 'dashboard', 'parametres'].includes(activeView);
+  const isSecondaryActive = (['catalogue', 'dashboard', 'parametres'] as ViewType[]).includes(activeView);
 
   if (authLoading) {
     return (
@@ -265,9 +344,7 @@ function AppShell() {
                 <div className={`
                   flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all
                   ${isActive
-                    ? item.flash
-                      ? 'bg-yellow-400/15'
-                      : 'bg-[#C19A6B]/15'
+                    ? item.flash ? 'bg-yellow-400/15' : 'bg-[#C19A6B]/15'
                     : ''
                   }
                 `}>
@@ -275,7 +352,7 @@ function AppShell() {
                     size={22}
                     strokeWidth={isActive ? 2.2 : 1.6}
                     className={isActive
-                      ? item.flash ? 'text-yellow-400 fill-yellow-400/30' : 'text-[#C19A6B]'
+                      ? item.flash ? 'text-yellow-400' : 'text-[#C19A6B]'
                       : 'text-white/50'
                     }
                   />
@@ -291,7 +368,7 @@ function AppShell() {
             );
           })}
 
-          {/* Bouton Plus */}
+          {/* Bouton Plus — ouvre le drawer */}
           <motion.button
             onClick={() => setDrawerOpen(true)}
             whileTap={{ scale: 0.87 }}
@@ -307,7 +384,9 @@ function AppShell() {
                   {activeView === 'dashboard'  && <BarChart2 size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   {activeView === 'parametres' && <Settings  size={22} strokeWidth={2.2} className="text-[#C19A6B]" />}
                   <span className="text-[10px] font-bold leading-none text-[#C19A6B]">
-                    {activeView === 'catalogue' ? 'Produits' : activeView === 'dashboard' ? 'Stats' : 'Config'}
+                    {activeView === 'catalogue' ? 'Produits'
+                      : activeView === 'dashboard' ? 'Stats'
+                      : 'Config'}
                   </span>
                 </>
               ) : (

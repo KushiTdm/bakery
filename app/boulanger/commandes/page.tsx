@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useBoulanger } from '@/context/boulanger-context';
+import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
 import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
 import {
@@ -384,7 +384,7 @@ function OrderCard({
 
 // ── Page principale ───────────────────────────────────────────
 
-export default function CommandesPage() {
+function CommandesPage() {
   const { isAuthenticated, authLoading } = useBoulanger();
 
   const [orders,        setOrders]        = useState<Order[]>([]);
@@ -772,5 +772,17 @@ export default function CommandesPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ── Export enveloppé dans BoulangerProvider ───────────────────
+// La page /boulanger/commandes est une route séparée de /boulanger.
+// Elle a besoin de son propre BoulangerProvider pour que
+// useBoulanger() fonctionne (isAuthenticated, authLoading).
+export default function CommandesPageWrapper() {
+  return (
+    <BoulangerProvider>
+      <CommandesPage />
+    </BoulangerProvider>
   );
 }
