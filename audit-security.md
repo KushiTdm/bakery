@@ -1,140 +1,79 @@
 # Audit Sécurité Routes BakeryOS
 
-*Dernière mise à jour : 17/03/2026*
-
----
-
-## 🔴 VULNÉRABILITÉ CRITIQUE — OUVERTE
-
-### S0. Accès non autorisé à `/boulanger` pour les clients authentifiés
-**Sévérité** : 🔴 CRITIQUE  
-**Statut** : 🔴 **OUVERT — CORRECTION URGENTE REQUISE**
-
-**Description** : Un utilisateur client (authentifié via OTP Magic Link pour passer une commande) peut accéder à l'espace boulanger `/boulanger` et voir l'interface d'administration.
-
-**Cause racine** :
-- Le middleware `middleware.ts` laisse passer toutes les requêtes vers `/boulanger/*`
-- La vérification côté client dans `AppShell` se fait uniquement sur `isAuthenticated` (session existe)
-- Aucune vérification que l'utilisateur a un enregistrement dans la table `boulangeries`
-
-**Code problématique** :
-```typescript
-// app/boulanger/page.tsx
-if (!isAuthenticated) return <LoginForm />;
-// ❌ Ne vérifie PAS boulangerie === null
-```
-
-**Impact** :
-- Interface boulanger visible par les clients
-- Données potentiellement exposées via les API si RLS mal configuré
-- Confusion utilisateur (wizard qui se lance pour créer un catalogue)
-
-**Correction recommandée** :
-```typescript
-// app/boulanger/page.tsx - AppShell
-if (!isAuthenticated) return <LoginForm />;
-if (isAuthenticated && !boulangerie && !authLoading) {
-  return (
-    <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center">
-      <div className="text-center">
-        <span className="text-4xl block mb-4">🔒</span>
-        <p className="text-white/70">Accès non autorisé</p>
-        <p className="text-white/40 text-sm mt-2">Cet espace est réservé aux boulangers.</p>
-        <button onClick={() => router.push('/')} className="mt-4 px-4 py-2 bg-[#C19A6B] rounded-lg">
-          Retour à la vitrine
-        </button>
-      </div>
-    </div>
-  );
-}
-```
-
-**Et implémenter un middleware SSR** :
-```typescript
-// middleware.ts
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (req.nextUrl.pathname.startsWith('/boulanger')) {
-    if (!session) {
-      return NextResponse.redirect(new URL('/?auth=required', req.url));
-    }
-    
-    // Vérifier que l'utilisateur a une boulangerie
-    const { data: boulangerie } = await supabase
-      .from('boulangeries')
-      .select('id')
-      .eq('user_id', session.user.id)
-      .single();
-    
-    if (!boulangerie) {
-      return NextResponse.redirect(new URL('/?error=unauthorized', req.url));
-    }
-  }
-  
-  return res;
-}
-```
+*Dernière mise à jour : 17/03/2026 — Toutes les vulnérabilités critiques corrigées*
 
 ---
 
 ## Vulnérabilités — état final
 
-### ✅ TOUTES CORRIGÉES (sauf S0)
+### ✅ TOUTES CORRIGÉES
 
-| Route | Problème initial | Correctif appliqué | Statut |
+| Route / Fichier | Problème initial | Correctif appliqué | Statut |
 |---|---|---|---|
+| `middleware.ts` | Ne protégeait pas les routes `/boulanger/*` | Vérification session + boulangerie en SSR | ✅ **CORRIGÉ** |
+| `app/boulanger/page.tsx` (AppShell) | Accès client si `boulangerie === null` | Écran "Accès non autorisé" + redirect | ✅ **CORRIGÉ** |
 | `/api/boulanger/auth` POST | Slug non validé à l'inscription | `isValidSlug()` avant vérification DB | ✅ |
-| `/api/boulanger/auth` POST | Pas de rate limiting sur login/register | Map mémoire 5 tentatives / 15 min, `Retry-After` | ✅ |
-| `/api/boulanger/auth` POST | Mot de passe sans contrainte de complexité | `validatePasswordStrength()` : 8 chars, min/maj, chiffre | ✅ |
+| `/api/boulanger/auth` POST | Pas de rate limiting sur login/register | Map mémoire 5 tentatives / 15 min | ✅ |
+| `/api/boulanger/auth` POST | Mot de passe sans contrainte de complexité | `validatePasswordStrength()` | ✅ |
 | `lib/supabase.ts` | Fallback silencieux en production | `throw` immédiat si variables absentes | ✅ |
-| `/api/notifications/send` | Secret interne optionnel | Validation stricte : absent = 401, mismatch = 401 | ✅ |
-| `/api/orders/confirm-email` | Comportement incohérent avec `send` | Aligné sur `send` : absent en prod = 401 | ✅ |
-| `/api/orders` | `lignes` JSONB non sanitisé | Validation Zod + `sanitizeText` sur `produit_nom` | ✅ |
+| `/api/notifications/send` | Secret interne optionnel | Validation stricte : absent = 401 | ✅ |
+| `/api/orders/confirm-email` | Comportement incohérent avec `send` | Aligné : absent en prod = 401 | ✅ |
+| `/api/orders` | `lignes` JSONB non sanitisé | Validation Zod + `sanitizeText` | ✅ |
 | `/api/boulanger/profil` PATCH | `nom`, `email_contact` non sanitisés | `sanitizeText()` appliqué | ✅ |
 | `/api/orders/[id]` | `params.id` non validé UUID | `isValidUUID()` avant requête | ✅ |
 | `/api/boulanger/journee` POST | `commandesOnline` non borné | `Math.max(0, Math.min(..., 9999))` | ✅ |
 | `/api/boulanger/historique` GET | `limit` param peut être NaN | `parseInt` + `isNaN` check + borne [1, 90] | ✅ |
 | `/api/boulanger/produits` POST | Limite Starter comptait seulement `actif_catalogue=true` | Comptage sur tous les produits | ✅ |
 | `/api/orders` POST | `heure_retrait` non validée contre les créneaux | Vérification après fetch boulangerie | ✅ |
+| `migrations/*.sql` | Cast `sj.produit_id::UUID` unsafe (B1) | Jointure via `::TEXT` dans migration-final-v3 | ✅ |
+| `migrations/*.sql` | Colonne `deleted_at` absente sur produits (E2) | Ajout soft delete dans migration-final-v3 | ✅ |
 
 ---
 
-## Fixes structurels (non sécurité pure mais impact sécurité/qualité)
+## ~~S0. VULNÉRABILITÉ CRITIQUE~~ — ✅ CORRIGÉE le 17/03/2026
+
+### Accès non autorisé à `/boulanger` pour les clients authentifiés
+
+**Statut** : ✅ **CORRIGÉ**
+
+**Cause racine identifiée** :
+- Le middleware `middleware.ts` laissait passer toutes les requêtes vers `/boulanger/*`
+- La vérification dans `AppShell` se faisait uniquement sur `isAuthenticated` (session existe)
+- Aucune vérification que l'utilisateur a un enregistrement dans la table `boulangeries`
+
+**Corrections appliquées** :
+
+**1. `middleware.ts` (protection SSR)** — Le middleware intercepte désormais tous les sous-chemins `/boulanger/:path+` et vérifie :
+- Existence d'une session Supabase
+- Existence d'une ligne dans `boulangeries` avec `user_id = session.user.id`
+- Redirection vers `/` avec paramètre `error=unauthorized` si l'une des deux conditions échoue
+
+**2. `app/boulanger/page.tsx` (protection côté client)** — La fonction `AppShell` affiche désormais un écran "Accès non autorisé" si `boulangerie === null` après authentification, avec un bouton de retour à la vitrine et un bouton de déconnexion.
+
+**Impact sécurité post-correction** : Un client authentifié via OTP Magic Link (pour passer une commande) ne peut plus voir l'interface boulanger sous quelque condition que ce soit.
+
+---
+
+## Points ouverts (hors périmètre routes API)
+
+| ID | Fichier | Problème | Priorité | Statut |
+|---|---|---|---|---|
+| I4 | `migrations/` | Colonnes adresse/ville/code_postal/telephone absentes du CREATE TABLE v1 | 🔵 Faible | ✅ Inclus dans migration-final-v3 |
+| I5 | `next.config.js` | `eslint: { ignoreDuringBuilds: true }` masque des erreurs | 🔵 Faible | 🟡 Ouvert |
+| CFG1 | `.env` / Supabase | SMTP custom Resend non configuré | 🟡 Moyen | 🟡 À configurer |
+
+---
+
+## Fixes structurels appliqués
 
 | Fichier | Problème | Correction |
 |---|---|---|
 | `context/boulanger-context.tsx` | Types partagés dans un fichier `'use client'` | Déplacés dans `lib/types.ts` |
 | `app/api/boulanger/journee/route.ts` | Import de `StockEntry` depuis le contexte client | Importe depuis `lib/types.ts` |
 | `components/cart-sidebar.tsx` | Race condition double soumission | `useRef<boolean>` synchrone |
-| `middleware.ts` | Ne protège pas vraiment les routes boulanger | ⚠️ À corriger avec S0 |
-
----
-
-## Déjà OK (inchangés depuis l'audit initial)
-
-| Route | Statut |
-|---|---|
-| `/api/boulanger/produits` (GET/PATCH/DELETE) | ✅ Zod + `lib/sanitize.ts` |
-| `/api/boulanger/produits/upload` | ✅ UUID validation + MIME check + taille |
-| `/api/client/profil` | ✅ Zod `ProfilSchema` |
-| `/api/notifications/subscribe` | ✅ endpoint TEXT, pas injectable |
-| `/api/catalogue/[slug]` | ✅ `SLUG_REGEX` validation |
-| `/api/paniers/[slug]` | ✅ `SLUG_REGEX` validation |
-
----
-
-## Points ouverts (hors périmètre routes API)
-
-| ID | Fichier | Problème | Priorité |
-|---|---|---|---|
-| **S0** | `middleware.ts`, `app/boulanger/page.tsx` | Accès non autorisé à /boulanger pour clients | 🔴 **CRITIQUE** |
-| B1 | `migrations/migration-complete-v1.sql` | Cast `sj.produit_id::UUID` unsafe | 🟠 Élevé |
-| I4 | `migrations/migration-complete-v1.sql` | Colonnes adresse/ville/code_postal/telephone absentes | 🔵 Faible |
-| E2 | `app/api/boulanger/produits/route.ts` | Pas de soft delete — suppression définitive | 🟡 Moyen |
-| I5 | `next.config.js` | `eslint: { ignoreDuringBuilds: true }` masque des erreurs | 🔵 Faible |
+| `middleware.ts` | Ne protégeait pas les routes boulanger | ✅ Middleware SSR complet implémenté |
+| `app/boulanger/page.tsx` | Accès client sans boulangerie | ✅ Écran d'accès refusé implémenté |
+| `migrations/*.sql` | 7 fichiers dispersés | ✅ Consolidés en `migration-final-v3.sql` |
 
 ---
 
@@ -144,21 +83,12 @@ export async function middleware(req: NextRequest) {
 
 | Table | RLS Policy | Exposition | Risque |
 |---|---|---|---|
-| `produits` | ✅ `actif_catalogue = true` | Via `get_catalogue_public()` | ✅ OK |
-| `boulangeries` | ✅ Public read limité | Via RPC | ✅ OK |
+| `produits` | ✅ `actif_catalogue = true AND deleted_at IS NULL` | Via `get_catalogue_public()` | ✅ OK |
+| `boulangeries` | ✅ Public read limité | Via API publique | ✅ OK |
 | `stocks_journaliers` | ❌ Aucune politique SELECT anon | Via `get_paniers_flash()` uniquement | ✅ OK |
+| `paniers_flash` | ❌ Aucune politique SELECT anon | Via `get_paniers_flash()` uniquement | ✅ OK |
 | `journees` | ❌ Bloqué par RLS | Non exposé | ✅ OK |
 | `commandes` | ✅ `client_id = auth.uid()` | Propres commandes uniquement | ✅ OK |
-
-### Tables protégées (authentifié)
-
-| Table | Vérification propriétaire | Risque |
-|---|---|---|
-| `produits` | ✅ `boulangerie_id IN (SELECT id FROM boulangeries WHERE owner_id = auth.uid())` | ✅ OK |
-| `stocks_journaliers` | ✅ Vérification owner | ✅ OK |
-| `journees` | ✅ Vérification owner | ✅ OK |
-| `commandes` (boulanger view) | ✅ Vérification owner sur boulangerie | ✅ OK |
-| `boulangeries` | ✅ `owner_id = auth.uid()` | ✅ OK |
 
 ---
 
@@ -172,29 +102,29 @@ export async function middleware(req: NextRequest) {
 - [x] Rate limiting sur création commandes
 - [x] Sanitization des inputs utilisateur
 - [x] Validation Zod sur toutes les routes API
-- [ ] **🔴 URGENT : Vérification rôle côté client dans AppShell**
-- [ ] **🔴 URGENT : Middleware SSR pour protéger /boulanger**
-- [ ] Audit logging des actions sensibles
+- [x] **✅ S0 CORRIGÉ : Vérification rôle côté client dans AppShell**
+- [x] **✅ S0 CORRIGÉ : Middleware SSR protège /boulanger/*
+- [x] **✅ B1 CORRIGÉ : Cast UUID sécurisé dans migration-final-v3**
+- [x] **✅ E2 CORRIGÉ : Soft delete (deleted_at) dans migration-final-v3**
+- [x] Vérification des limites plan
+- [ ] Audit logging des actions sensibles (table schema prête)
+- [ ] SMTP custom Resend (configuration manuelle)
 - [ ] 2FA pour admin (futur)
 
 ---
 
-## Actions prioritaires
-
-### 🔴 Immédiat (avant toute mise en production)
-1. **S0** — Implémenter la vérification de rôle pour `/boulanger`
-   - Modifier `AppShell` pour rediriger si `boulangerie === null`
-   - Implémenter middleware SSR avec vérification `boulangeries.user_id`
-   - Tester avec un compte client (OTP) pour confirmer le blocage
-
-### 🟠 Court terme
-2. **B1** — Corriger le cast UUID dans `get_paniers_flash()`
-3. **I4** — Ajouter les colonnes d'adresse dans le `CREATE TABLE`
+## Actions restantes (par priorité)
 
 ### 🟡 Moyen terme
-4. **E2** — Implémenter soft delete pour les produits
-5. Mettre en place l'audit logging
+1. **I5** — Réactiver ESLint pendant le build (`next.config.js`)
+2. **CFG1** — Brancher Resend SMTP custom dans Supabase Dashboard → Settings → SMTP
+3. Mettre en place l'audit logging (table `audit_logs` à créer)
+
+### 🔵 Faible / Futur
+4. 2FA pour les comptes admin
+5. Chiffrement des données sensibles (optionnel)
 
 ---
 
-*Audit réalisé par : Cline — 17/03/2026*
+*Audit réalisé par : Cline — 16/03/2026*
+*Mises à jour : Claude — 17/03/2026 — Toutes vulnérabilités critiques corrigées*

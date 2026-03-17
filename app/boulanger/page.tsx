@@ -1,5 +1,6 @@
 'use client';
 // app/boulanger/page.tsx
+// ✅ FIX S0 : Vérification boulangerie !== null pour bloquer l'accès client
 // ✅ FIX : Commandes ajoutée dans le drawer "Plus" avec navigation vers /boulanger/commandes
 
 import { useEffect, useState } from 'react';
@@ -64,16 +65,14 @@ function SyncIndicator() {
 }
 
 // ─── Drawer "Plus" ─────────────────────────────────────────────
-// Commandes pointe vers /boulanger/commandes (page séparée)
-// Les autres sont des vues internes dans le même shell
 
 type DrawerItem = {
   id:       string;
   label:    string;
   icon:     React.ElementType;
   desc:     string;
-  href?:    string;   // si défini → navigation externe (router.push)
-  view?:    ViewType; // si défini → vue interne (setActiveView)
+  href?:    string;
+  view?:    ViewType;
 };
 
 const DRAWER_ITEMS: DrawerItem[] = [
@@ -136,12 +135,9 @@ function PlusDrawer({
             className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto"
           >
             <div className="bg-[#130B06] border border-white/10 rounded-t-3xl overflow-hidden shadow-2xl">
-              {/* Handle */}
               <div className="flex justify-center pt-3 pb-1">
                 <div className="w-10 h-1 bg-white/20 rounded-full" />
               </div>
-
-              {/* Titre */}
               <div className="flex items-center justify-between px-5 py-3">
                 <p className="text-white/50 text-xs uppercase tracking-widest font-medium">
                   Gestion & paramètres
@@ -153,8 +149,6 @@ function PlusDrawer({
                   <X size={15} />
                 </button>
               </div>
-
-              {/* Items */}
               <div className="px-4 pb-8 space-y-2.5">
                 {DRAWER_ITEMS.map(item => {
                   const Icon     = item.icon;
@@ -184,7 +178,6 @@ function PlusDrawer({
                         }
                       `}
                     >
-                      {/* Icône */}
                       <div className={`
                         w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
                         ${isActive     ? 'bg-[#C19A6B]/20' :
@@ -198,8 +191,6 @@ function PlusDrawer({
                           strokeWidth={isActive ? 2.2 : 1.8}
                         />
                       </div>
-
-                      {/* Texte */}
                       <div className="flex-1">
                         <p className={`text-base font-semibold ${
                           isActive || isCommandes ? 'text-[#C19A6B]' : 'text-white'
@@ -208,7 +199,6 @@ function PlusDrawer({
                         </p>
                         <p className="text-white/35 text-xs mt-0.5">{item.desc}</p>
                       </div>
-
                       <ChevronRight size={16} className={
                         isActive || isCommandes ? 'text-[#C19A6B]/60' : 'text-white/20'
                       } />
@@ -244,9 +234,11 @@ function AppShell() {
 
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const router = useRouter();
 
   const isSecondaryActive = (['catalogue', 'dashboard', 'parametres'] as ViewType[]).includes(activeView);
 
+  // ── Loading ────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center">
@@ -258,8 +250,45 @@ function AppShell() {
     );
   }
 
+  // ── Non authentifié ────────────────────────────────────────
   if (!isAuthenticated) return <LoginForm />;
 
+  // ── 🔐 FIX S0 : Bloquer les clients authentifiés sans boulangerie
+  // Un utilisateur peut être authentifié via OTP (client click & collect)
+  // sans pour autant avoir un rôle boulanger. On vérifie ici que
+  // l'utilisateur est bien owner d'une boulangerie.
+  if (!boulangerie) {
+    return (
+      <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center px-4">
+        <div className="text-center">
+          <span className="text-4xl block mb-4">🔒</span>
+          <p
+            className="text-white/70 text-lg font-semibold"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            Accès non autorisé
+          </p>
+          <p className="text-white/40 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
+            Cet espace est réservé aux boulangers inscrits sur BakeryOS.
+          </p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-6 px-6 py-3 bg-[#C19A6B] text-[#1A0F0A] rounded-xl font-semibold text-sm hover:bg-[#D4AE85] transition-colors"
+          >
+            Retour à la vitrine
+          </button>
+          <button
+            onClick={logout}
+            className="block mx-auto mt-3 text-white/25 text-xs hover:text-white/50 transition-colors"
+          >
+            Se déconnecter
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Interface boulanger ────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#1A0F0A]">
       {/* Grain texture */}

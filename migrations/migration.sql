@@ -1,8 +1,24 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- BakeryOS — Migration complète (v1.0 consolidée)
--- Remplace toutes les migrations 1 à 9
+-- BakeryOS — Migration finale consolidée v3.0
+-- Remplace TOUTES les migrations précédentes :
+--   migration-complete-v1.sql
+--   migration-2.sql
+--   migration-3-paniers_flash.sql
+--   migration-4-panier-flash-fix.sql
+--   migration-5-flash-timezone-fix.sql
+--   migration-v2.sql
+--
+-- ✅ Sans Airtable
+-- ✅ Adresse & créneaux de retrait (migration-2)
+-- ✅ Table paniers_flash (migration-3/4)
+-- ✅ get_paniers_flash() lit depuis paniers_flash (migration-4)
+-- ✅ Fuseau horaire Paris cohérent (migration-5)
+-- ✅ Soft delete produits (colonne deleted_at) — fix E2
+-- ✅ Cast UUID sécurisé dans les jointures — fix B1
+-- ✅ Tour guidé boulanger
+-- ✅ Idempotent : peut être ré-exécuté sans risque
+--
 -- Exécuter dans : Supabase Dashboard → SQL Editor
--- Idempotent : peut être ré-exécuté sans risque (IF EXISTS / ON CONFLICT)
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -14,9 +30,10 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ────────────────────────────────────────────────────────────────────────
--- 1. FONCTION update_updated_at (trigger générique)
+-- 1. FONCTIONS UTILITAIRES
 -- ────────────────────────────────────────────────────────────────────────
 
+-- Trigger générique updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -24,6 +41,15 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Trigger set_updated_at (alias compatible avec les anciennes définitions)
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 2. TABLE : boulangeries
@@ -36,16 +62,30 @@ CREATE TABLE IF NOT EXISTS boulangeries (
   slug                     TEXT        UNIQUE NOT NULL,
   email_contact            TEXT,
 
-  -- Clés Airtable (optionnel)
-  airtable_api_key         TEXT,
-  airtable_base_id         TEXT,
-  airtable_api_key_enc     TEXT,
-  airtable_base_id_enc     TEXT,
-
   -- Plan SaaS
   plan                     TEXT        NOT NULL DEFAULT 'starter'
                            CHECK (plan IN ('starter', 'pro', 'multi')),
   actif                    BOOLEAN     DEFAULT TRUE,
+
+  -- Adresse & contact (ajoutés migration-2)
+  adresse                  TEXT        DEFAULT NULL,
+  ville                    TEXT        DEFAULT NULL,
+  code_postal              TEXT        DEFAULT NULL,
+  telephone                TEXT        DEFAULT NULL,
+
+  -- Créneaux de retrait Click & Collect
+  creneaux_retrait         TEXT[]      DEFAULT ARRAY['08:00', '09:00', '10:00'],
+
+  -- Configuration flash
+  flash_heure_debut        INT         NOT NULL DEFAULT 18
+                           CHECK (flash_heure_debut BETWEEN 0 AND 23),
+  flash_heure_fin          INT         NOT NULL DEFAULT 20
+                           CHECK (flash_heure_fin BETWEEN 1 AND 24),
+  flash_remise_pct         INT         NOT NULL DEFAULT 40
+                           CHECK (flash_remise_pct BETWEEN 1 AND 100),
+
+  -- Tour guidé onboarding
+  tour_completed_at        TIMESTAMPTZ DEFAULT NULL,
 
   -- Stripe (optionnel)
   stripe_customer_id       TEXT,
@@ -56,35 +96,38 @@ CREATE TABLE IF NOT EXISTS boulangeries (
                              'inactive','trialing','active','past_due','canceled','unpaid'
                            )),
 
-  -- Configuration flash (personnalisable par boulangerie)
-  flash_heure_debut        INT         NOT NULL DEFAULT 18
-                           CHECK (flash_heure_debut BETWEEN 0 AND 23),
-  flash_heure_fin          INT         NOT NULL DEFAULT 20
-                           CHECK (flash_heure_fin BETWEEN 1 AND 24),
-  flash_remise_pct         INT         NOT NULL DEFAULT 40
-                           CHECK (flash_remise_pct BETWEEN 1 AND 100),
-
-  -- Tour guidé (onboarding wizard)
-  tour_completed_at        TIMESTAMPTZ DEFAULT NULL,
-
-  -- Metadata
   created_at               TIMESTAMPTZ DEFAULT NOW(),
   updated_at               TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ajout des colonnes nouvelles si la table existe déjà sans elles
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS airtable_api_key_enc   TEXT;
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS airtable_base_id_enc   TEXT;
+-- Ajout des colonnes si la table existe déjà
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS adresse          TEXT DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS ville            TEXT DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS code_postal      TEXT DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS telephone        TEXT DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS creneaux_retrait TEXT[] DEFAULT ARRAY['08:00', '09:00', '10:00'];
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_heure_debut INT NOT NULL DEFAULT 18;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_heure_fin   INT NOT NULL DEFAULT 20;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_remise_pct  INT NOT NULL DEFAULT 40;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS tour_completed_at TIMESTAMPTZ DEFAULT NULL;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS stripe_customer_id     TEXT;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS trial_ends_at          TIMESTAMPTZ;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS stripe_status          TEXT NOT NULL DEFAULT 'inactive';
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_heure_debut      INT  NOT NULL DEFAULT 18;
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_heure_fin        INT  NOT NULL DEFAULT 20;
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS flash_remise_pct       INT  NOT NULL DEFAULT 40;
-ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS tour_completed_at      TIMESTAMPTZ DEFAULT NULL;
 
--- Ajout des contraintes CHECK si elles n'existent pas
+-- Suppression des anciennes colonnes Airtable si présentes
+ALTER TABLE boulangeries DROP COLUMN IF EXISTS airtable_api_key;
+ALTER TABLE boulangeries DROP COLUMN IF EXISTS airtable_base_id;
+ALTER TABLE boulangeries DROP COLUMN IF EXISTS airtable_api_key_enc;
+ALTER TABLE boulangeries DROP COLUMN IF EXISTS airtable_base_id_enc;
+
+-- Contraintes CHECK idempotentes
+DO $$ BEGIN
+  ALTER TABLE boulangeries ADD CONSTRAINT chk_code_postal
+    CHECK (code_postal IS NULL OR code_postal ~ '^\d{5}$');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 DO $$ BEGIN
   ALTER TABLE boulangeries ADD CONSTRAINT chk_stripe_status
     CHECK (stripe_status IN ('inactive','trialing','active','past_due','canceled','unpaid'));
@@ -109,20 +152,31 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Valeurs par défaut pour les lignes existantes
+UPDATE boulangeries SET flash_heure_debut = 18 WHERE flash_heure_debut IS NULL;
+UPDATE boulangeries SET flash_heure_fin   = 20 WHERE flash_heure_fin   IS NULL;
+UPDATE boulangeries SET flash_remise_pct  = 40 WHERE flash_remise_pct  IS NULL;
+UPDATE boulangeries
+   SET creneaux_retrait = ARRAY['08:00', '09:00', '10:00']
+ WHERE creneaux_retrait IS NULL;
+
+-- Index
+CREATE INDEX IF NOT EXISTS idx_boulangeries_user_id ON boulangeries(user_id);
+CREATE INDEX IF NOT EXISTS idx_boulangeries_slug     ON boulangeries(slug);
+CREATE INDEX IF NOT EXISTS idx_boulangeries_ville
+  ON boulangeries(ville) WHERE ville IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_boulangeries_tour
+  ON boulangeries(id) WHERE tour_completed_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_boulangeries_stripe_customer
   ON boulangeries(stripe_customer_id)
   WHERE stripe_customer_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_boulangeries_user_id ON boulangeries(user_id);
-CREATE INDEX IF NOT EXISTS idx_boulangeries_slug     ON boulangeries(slug);
-CREATE INDEX IF NOT EXISTS idx_boulangeries_tour
-  ON boulangeries(id) WHERE tour_completed_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_boulangeries_updated_at ON boulangeries;
 CREATE TRIGGER trg_boulangeries_updated_at
   BEFORE UPDATE ON boulangeries
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+-- RLS
 ALTER TABLE boulangeries ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "boulangerie_select_own" ON boulangeries;
@@ -169,12 +223,13 @@ CREATE TRIGGER trg_journees_updated_at
 
 ALTER TABLE journees ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "journee_select_own"   ON journees;
-DROP POLICY IF EXISTS "journee_insert_own"   ON journees;
-DROP POLICY IF EXISTS "journee_update_own"   ON journees;
 DROP POLICY IF EXISTS "journee_owner_select" ON journees;
 DROP POLICY IF EXISTS "journee_owner_insert" ON journees;
 DROP POLICY IF EXISTS "journee_owner_update" ON journees;
+-- Nettoyage des anciennes politiques (nommages différents)
+DROP POLICY IF EXISTS "journee_select_own"   ON journees;
+DROP POLICY IF EXISTS "journee_insert_own"   ON journees;
+DROP POLICY IF EXISTS "journee_update_own"   ON journees;
 
 CREATE POLICY "journee_owner_select"
   ON journees FOR SELECT
@@ -190,7 +245,6 @@ CREATE POLICY "journee_owner_update"
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 4. TABLE : stocks_journaliers
---    Ne jamais exposer via RLS public — SECURITY DEFINER uniquement
 -- ────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS stocks_journaliers (
@@ -214,7 +268,7 @@ CREATE TABLE IF NOT EXISTS stocks_journaliers (
   UNIQUE(journee_id, produit_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_stocks_journee    ON stocks_journaliers(journee_id);
+CREATE INDEX IF NOT EXISTS idx_stocks_journee     ON stocks_journaliers(journee_id);
 CREATE INDEX IF NOT EXISTS idx_stocks_boulangerie ON stocks_journaliers(boulangerie_id);
 
 DROP TRIGGER IF EXISTS trg_stocks_updated_at ON stocks_journaliers;
@@ -224,14 +278,14 @@ CREATE TRIGGER trg_stocks_updated_at
 
 ALTER TABLE stocks_journaliers ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "stocks_select_own"        ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_insert_own"        ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_update_own"        ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_delete_own"        ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_owner_select"      ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_owner_insert"      ON stocks_journaliers;
-DROP POLICY IF EXISTS "stocks_owner_update"      ON stocks_journaliers;
-DROP POLICY IF EXISTS "Service role full access" ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_owner_select"         ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_owner_insert"         ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_owner_update"         ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_select_own"           ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_insert_own"           ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_update_own"           ON stocks_journaliers;
+DROP POLICY IF EXISTS "stocks_delete_own"           ON stocks_journaliers;
+DROP POLICY IF EXISTS "Service role full access"    ON stocks_journaliers;
 
 CREATE POLICY "stocks_owner_select"
   ON stocks_journaliers FOR SELECT
@@ -246,7 +300,8 @@ CREATE POLICY "stocks_owner_update"
   USING (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
 
 -- ────────────────────────────────────────────────────────────────────────
--- 5. TABLE : produits (catalogue natif)
+-- 5. TABLE : produits
+--    ✅ FIX E2 : Ajout colonne deleted_at pour soft delete
 -- ────────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS produits (
@@ -259,41 +314,30 @@ CREATE TABLE IF NOT EXISTS produits (
   emoji                TEXT         DEFAULT '🥖',
   prix_vente           DECIMAL(8,2) NOT NULL CHECK (prix_vente > 0),
   cout_production      DECIMAL(8,2) DEFAULT 0,
-
-  -- Visibilité
   actif                BOOLEAN      DEFAULT TRUE,
   actif_catalogue      BOOLEAN      DEFAULT TRUE,
   actif_flash          BOOLEAN      DEFAULT TRUE,
-
-  -- Flash override (null = calcul auto via remise boulangerie)
   prix_flash_override  DECIMAL(8,2) DEFAULT NULL
                        CHECK (prix_flash_override IS NULL OR prix_flash_override > 0),
-
-  -- Image
   image_url            TEXT,
   image_storage_path   TEXT,
-
-  -- Allergènes (14 allergènes majeurs EU)
   allergenes           TEXT[]       DEFAULT '{}',
-
-  -- Disponibilité saisonnière
   disponible_du        DATE         DEFAULT NULL,
   disponible_au        DATE         DEFAULT NULL,
   CONSTRAINT chk_saisonnalite CHECK (
     (disponible_du IS NULL AND disponible_au IS NULL)
     OR (disponible_du IS NOT NULL AND disponible_au IS NOT NULL AND disponible_du <= disponible_au)
   ),
-
-  -- Divers
   stock_alerte         INT          DEFAULT NULL,
   note_interne         TEXT         DEFAULT NULL,
   ordre                INT          DEFAULT 0,
-
+  -- Soft delete (FIX E2) : null = actif, non-null = supprimé logiquement
+  deleted_at           TIMESTAMPTZ  DEFAULT NULL,
   created_at           TIMESTAMPTZ  DEFAULT NOW(),
   updated_at           TIMESTAMPTZ  DEFAULT NOW()
 );
 
--- Ajout des colonnes nouvelles si la table produits existe déjà
+-- Ajout des colonnes si la table existe déjà
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS actif_catalogue      BOOLEAN      DEFAULT TRUE;
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS actif_flash          BOOLEAN      DEFAULT TRUE;
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS prix_flash_override  DECIMAL(8,2) DEFAULT NULL;
@@ -304,12 +348,7 @@ ALTER TABLE produits ADD COLUMN IF NOT EXISTS disponible_au        DATE         
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS stock_alerte         INT          DEFAULT NULL;
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS note_interne         TEXT         DEFAULT NULL;
 ALTER TABLE produits ADD COLUMN IF NOT EXISTS ordre                INT          DEFAULT 0;
-
-DO $$ BEGIN
-  ALTER TABLE produits ADD CONSTRAINT chk_prix_flash_override
-    CHECK (prix_flash_override IS NULL OR prix_flash_override > 0);
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER TABLE produits ADD COLUMN IF NOT EXISTS deleted_at           TIMESTAMPTZ  DEFAULT NULL;
 
 DO $$ BEGIN
   ALTER TABLE produits ADD CONSTRAINT chk_saisonnalite CHECK (
@@ -319,12 +358,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Index — exclut les produits softdeleted des index actifs
 CREATE INDEX IF NOT EXISTS idx_produits_boulangerie
-  ON produits(boulangerie_id, actif_catalogue, categorie);
+  ON produits(boulangerie_id, actif_catalogue, categorie)
+  WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_produits_actif_catalogue
-  ON produits(boulangerie_id, actif_catalogue) WHERE actif_catalogue = TRUE;
+  ON produits(boulangerie_id, actif_catalogue)
+  WHERE actif_catalogue = TRUE AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_produits_actif_flash
-  ON produits(boulangerie_id, actif_flash) WHERE actif_flash = TRUE;
+  ON produits(boulangerie_id, actif_flash)
+  WHERE actif_flash = TRUE AND deleted_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_produits_updated_at ON produits;
 CREATE TRIGGER trg_produits_updated_at
@@ -367,7 +410,6 @@ CREATE TABLE IF NOT EXISTS commandes (
   heure_retrait     TIME         NOT NULL,
   notes             TEXT         CHECK (length(notes) <= 500),
   montant_total     NUMERIC(8,2) NOT NULL CHECK (montant_total > 0),
-  -- Correctif migration-5 : 'retiree' supprimé, aligné avec le code TypeScript
   statut            TEXT         NOT NULL DEFAULT 'en_attente'
                     CHECK (statut IN ('en_attente', 'confirmee', 'prete', 'recuperee', 'annulee')),
   lignes            JSONB        NOT NULL DEFAULT '[]'::jsonb,
@@ -375,16 +417,13 @@ CREATE TABLE IF NOT EXISTS commandes (
   updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- Migration : statut 'retiree' → 'recuperee' (correctif v1)
+UPDATE commandes SET statut = 'recuperee' WHERE statut = 'retiree';
+
 CREATE INDEX IF NOT EXISTS commandes_boulangerie_date_idx
   ON commandes(boulangerie_id, created_at DESC);
-
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$;
+CREATE INDEX IF NOT EXISTS idx_commandes_email
+  ON commandes(client_email, boulangerie_id, created_at DESC);
 
 DROP TRIGGER IF EXISTS commandes_updated_at ON commandes;
 CREATE TRIGGER commandes_updated_at
@@ -420,10 +459,8 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   updated_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS push_subscriptions_boulangerie_id_idx
-  ON push_subscriptions(boulangerie_id);
-CREATE INDEX IF NOT EXISTS push_subscriptions_user_id_idx
-  ON push_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_push_boulangerie ON push_subscriptions(boulangerie_id);
+CREATE INDEX IF NOT EXISTS idx_push_user        ON push_subscriptions(user_id);
 
 CREATE OR REPLACE FUNCTION update_push_subscription_timestamp()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -495,40 +532,75 @@ CREATE POLICY "client_update_own_profil"
   ON profils_clients FOR UPDATE USING (auth.uid() = user_id);
 
 -- ────────────────────────────────────────────────────────────────────────
--- 9. FONCTIONS DE CHIFFREMENT (clés Airtable)
+-- 9. TABLE : paniers_flash
+--    Source de vérité pour les paniers anti-gaspi (migration-3/4)
+--    Le boulanger sélectionne ses produits via l'onglet Flash.
+--    get_paniers_flash() lit ici, plus dans stocks_journaliers.
 -- ────────────────────────────────────────────────────────────────────────
 
-DROP FUNCTION IF EXISTS encrypt_text(TEXT, TEXT);
-DROP FUNCTION IF EXISTS decrypt_text(TEXT, TEXT);
+CREATE TABLE IF NOT EXISTS paniers_flash (
+  id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  boulangerie_id    UUID         NOT NULL REFERENCES boulangeries(id) ON DELETE CASCADE,
+  date              DATE         NOT NULL DEFAULT CURRENT_DATE,
+  produit_id        TEXT         NOT NULL,
+  produit_nom       TEXT         NOT NULL CHECK (length(produit_nom) BETWEEN 1 AND 150),
+  produit_emoji     TEXT         NOT NULL DEFAULT '🥖',
+  categorie         TEXT         NOT NULL DEFAULT 'boulangerie'
+                    CHECK (categorie IN ('boulangerie', 'viennoiserie', 'patisserie')),
+  prix_original     DECIMAL(8,2) NOT NULL CHECK (prix_original > 0),
+  remise_pct        INT          NOT NULL DEFAULT 40 CHECK (remise_pct BETWEEN 1 AND 100),
+  prix_flash        DECIMAL(8,2) NOT NULL CHECK (prix_flash > 0),
+  quantite_initiale INT          NOT NULL DEFAULT 1 CHECK (quantite_initiale >= 0),
+  quantite_restante INT          NOT NULL DEFAULT 1 CHECK (quantite_restante >= 0),
+  allergenes        TEXT[]       NOT NULL DEFAULT '{}',
+  actif             BOOLEAN      NOT NULL DEFAULT TRUE,
+  created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  -- Un produit par journée par boulangerie
+  UNIQUE (boulangerie_id, date, produit_id)
+);
 
-CREATE FUNCTION encrypt_text(plaintext TEXT, secret TEXT)
-RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-  RETURN encode(pgp_sym_encrypt(plaintext, secret, 'cipher-algo=aes256'), 'base64');
-END;
-$$;
+CREATE INDEX IF NOT EXISTS idx_paniers_flash_boulangerie_date
+  ON paniers_flash (boulangerie_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_paniers_flash_actif
+  ON paniers_flash (boulangerie_id, date, actif)
+  WHERE actif = TRUE;
 
-CREATE FUNCTION decrypt_text(ciphertext TEXT, secret TEXT)
-RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-  RETURN pgp_sym_decrypt(decode(ciphertext, 'base64'), secret);
-EXCEPTION WHEN OTHERS THEN
-  RETURN NULL;
-END;
-$$;
+DO $$ BEGIN
+  CREATE TRIGGER trg_paniers_flash_updated_at
+    BEFORE UPDATE ON paniers_flash
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-REVOKE ALL ON FUNCTION encrypt_text(TEXT, TEXT) FROM PUBLIC;
-REVOKE ALL ON FUNCTION decrypt_text(TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION encrypt_text(TEXT, TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION decrypt_text(TEXT, TEXT) TO service_role;
+ALTER TABLE paniers_flash ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "paniers_flash_owner_select" ON paniers_flash;
+DROP POLICY IF EXISTS "paniers_flash_owner_insert" ON paniers_flash;
+DROP POLICY IF EXISTS "paniers_flash_owner_update" ON paniers_flash;
+DROP POLICY IF EXISTS "paniers_flash_owner_delete" ON paniers_flash;
+
+CREATE POLICY "paniers_flash_owner_select"
+  ON paniers_flash FOR SELECT
+  USING (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
+
+CREATE POLICY "paniers_flash_owner_insert"
+  ON paniers_flash FOR INSERT
+  WITH CHECK (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
+
+CREATE POLICY "paniers_flash_owner_update"
+  ON paniers_flash FOR UPDATE
+  USING (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
+
+CREATE POLICY "paniers_flash_owner_delete"
+  ON paniers_flash FOR DELETE
+  USING (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 10. FONCTIONS PUBLIQUES — SECURITY DEFINER
---     Accès lecture publique (anon key) contrôlé et sécurisé.
---     Ne retournent JAMAIS stocks, invendus réels, CA.
 -- ────────────────────────────────────────────────────────────────────────
 
--- ── 10a. Catalogue public ────────────────────────────────────
+-- ── 10a. Catalogue public ─────────────────────────────────────────────
 
 DROP FUNCTION IF EXISTS get_catalogue_public(TEXT);
 
@@ -577,6 +649,7 @@ BEGIN
     FROM produits p
    WHERE p.boulangerie_id = v_boulangerie_id
      AND p.actif_catalogue = TRUE
+     AND p.deleted_at IS NULL  -- Exclure les produits softdeleted
      AND (
        p.disponible_du IS NULL
        OR (CURRENT_DATE >= p.disponible_du AND CURRENT_DATE <= p.disponible_au)
@@ -589,9 +662,10 @@ REVOKE ALL ON FUNCTION get_catalogue_public(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_catalogue_public(TEXT) TO anon;
 GRANT EXECUTE ON FUNCTION get_catalogue_public(TEXT) TO authenticated;
 
--- ── 10b. Paniers flash ───────────────────────────────────────
--- Correctif B7 : jointure par produit_id (UUID), plus par nom
--- Correctif B8 : heures lues depuis boulangeries, plus hardcodées
+-- ── 10b. Paniers flash ────────────────────────────────────────────────
+-- ✅ FIX B1 : Cast UUID sécurisé (jointure via ::TEXT au lieu de ::UUID)
+-- ✅ FIX migration-5 : Fuseau Paris cohérent (v_today ET v_heure)
+-- ✅ FIX migration-3/4 : Lit depuis paniers_flash (source de vérité)
 
 DROP FUNCTION IF EXISTS get_paniers_flash(TEXT);
 
@@ -602,21 +676,21 @@ AS $$
 DECLARE
   v_boulangerie_id UUID;
   v_actif          BOOLEAN;
-  v_today          DATE    := CURRENT_DATE;
-  v_heure          INT     := EXTRACT(HOUR FROM NOW() AT TIME ZONE 'Europe/Paris')::INT;
+  -- ✅ FIX migration-5 : date ET heure alignées sur le fuseau Paris
+  v_now_paris      TIMESTAMPTZ := NOW() AT TIME ZONE 'Europe/Paris';
+  v_today          DATE        := v_now_paris::DATE;
+  v_heure          INT         := EXTRACT(HOUR FROM v_now_paris)::INT;
   v_heure_debut    INT;
   v_heure_fin      INT;
   v_remise         INT;
   v_invendus       JSON;
-  v_nb_paniers     INT     := 0;
-  v_flash_actif    BOOLEAN := FALSE;
+  v_nb_paniers     INT         := 0;
+  v_flash_actif    BOOLEAN     := FALSE;
 BEGIN
-  -- Lit la config flash depuis la table boulangeries (pas hardcodée)
   SELECT b.id, b.actif, b.flash_heure_debut, b.flash_heure_fin, b.flash_remise_pct
     INTO v_boulangerie_id, v_actif, v_heure_debut, v_heure_fin, v_remise
     FROM boulangeries b WHERE b.slug = p_slug LIMIT 1;
 
-  -- Valeurs par défaut pour les boulangeries créées avant cette migration
   v_heure_debut := COALESCE(v_heure_debut, 18);
   v_heure_fin   := COALESCE(v_heure_fin,   20);
   v_remise      := COALESCE(v_remise,       40);
@@ -639,29 +713,28 @@ BEGIN
     );
   END IF;
 
-  -- Invendus du jour — stock_final intentionnellement absent
+  -- ✅ Lit depuis paniers_flash (source de vérité persistée par le boulanger)
+  -- Seuls les paniers actifs avec quantité restante > 0 sont exposés côté client
   SELECT
-    COUNT(DISTINCT sj.produit_id),
-    json_agg(json_build_object(
-      'nom',          sj.produit_nom,
-      'emoji',        sj.produit_emoji,
-      'categorie',    sj.categorie,
-      'prixOriginal', sj.prix_vente,
-      'prixFlash',    COALESCE(
-        p.prix_flash_override,
-        ROUND(sj.prix_vente * (1.0 - v_remise::DECIMAL / 100), 2)
+    COUNT(*)::INT,
+    json_agg(
+      json_build_object(
+        'nom',          pf.produit_nom,
+        'emoji',        pf.produit_emoji,
+        'categorie',    pf.categorie,
+        'prixOriginal', pf.prix_original,
+        'prixFlash',    pf.prix_flash,
+        'quantite',     pf.quantite_restante,
+        'allergenes',   COALESCE(pf.allergenes, '{}')
       )
-    ) ORDER BY sj.categorie, sj.produit_nom)
+      ORDER BY pf.categorie, pf.produit_nom
+    )
   INTO v_nb_paniers, v_invendus
-  FROM stocks_journaliers sj
-  JOIN journees j ON j.id = sj.journee_id
-  -- Correctif B7 : jointure par produit_id (UUID), pas par nom
-  LEFT JOIN produits p
-    ON p.id = sj.produit_id::UUID
-   AND p.boulangerie_id = v_boulangerie_id
-  WHERE j.boulangerie_id = v_boulangerie_id
-    AND j.date            = v_today
-    AND sj.stock_final   > 0;
+  FROM paniers_flash pf
+  WHERE pf.boulangerie_id   = v_boulangerie_id
+    AND pf.date             = v_today
+    AND pf.actif            = TRUE
+    AND pf.quantite_restante > 0;
 
   RETURN json_build_object(
     'flashActif', v_flash_actif,
@@ -719,10 +792,10 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit    = 5242880,
   allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
 
-DROP POLICY IF EXISTS "produits_photos_public_read"   ON storage.objects;
-DROP POLICY IF EXISTS "produits_photos_owner_insert"  ON storage.objects;
-DROP POLICY IF EXISTS "produits_photos_owner_update"  ON storage.objects;
-DROP POLICY IF EXISTS "produits_photos_owner_delete"  ON storage.objects;
+DROP POLICY IF EXISTS "produits_photos_public_read"  ON storage.objects;
+DROP POLICY IF EXISTS "produits_photos_owner_insert" ON storage.objects;
+DROP POLICY IF EXISTS "produits_photos_owner_update" ON storage.objects;
+DROP POLICY IF EXISTS "produits_photos_owner_delete" ON storage.objects;
 
 CREATE POLICY "produits_photos_public_read"
   ON storage.objects FOR SELECT USING (bucket_id = 'produits-photos');
@@ -758,11 +831,11 @@ CREATE POLICY "produits_photos_owner_delete"
   );
 
 -- ────────────────────────────────────────────────────────────────────────
--- 13. NETTOYAGE — Correctif migration-5
---     Migre l'ancien statut 'retiree' vers 'recuperee'
+-- 13. NETTOYAGE des anciennes fonctions
 -- ────────────────────────────────────────────────────────────────────────
 
-UPDATE commandes SET statut = 'recuperee' WHERE statut = 'retiree';
+DROP FUNCTION IF EXISTS encrypt_text(TEXT, TEXT);
+DROP FUNCTION IF EXISTS decrypt_text(TEXT, TEXT);
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 14. VÉRIFICATION FINALE
@@ -773,13 +846,15 @@ DECLARE
   n_tables    INT;
   n_fonctions INT;
   n_bucket    INT;
+  n_airtable  INT;
+  n_softdelete INT;
 BEGIN
   SELECT COUNT(*) INTO n_tables
     FROM information_schema.tables
    WHERE table_schema = 'public'
      AND table_name IN (
-       'boulangeries', 'journees', 'stocks_journaliers',
-       'produits', 'commandes', 'push_subscriptions', 'profils_clients'
+       'boulangeries', 'journees', 'stocks_journaliers', 'produits',
+       'commandes', 'push_subscriptions', 'profils_clients', 'paniers_flash'
      );
 
   SELECT COUNT(*) INTO n_fonctions
@@ -787,25 +862,41 @@ BEGIN
    WHERE routine_schema = 'public'
      AND routine_name IN (
        'get_catalogue_public', 'get_paniers_flash',
-       'encrypt_text', 'decrypt_text',
        'complete_tour', 'reset_tour'
      );
 
   SELECT COUNT(*) INTO n_bucket
     FROM storage.buckets WHERE id = 'produits-photos';
 
-  RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-  RAISE NOTICE '✅ BakeryOS Migration v1.0 complète';
-  RAISE NOTICE '   Tables    : % / 7', n_tables;
-  RAISE NOTICE '   Fonctions : % / 6', n_fonctions;
-  RAISE NOTICE '   Bucket Storage : %', CASE WHEN n_bucket > 0 THEN '✓' ELSE '✗ manquant' END;
-  RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+  SELECT COUNT(*) INTO n_airtable
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'boulangeries'
+     AND column_name LIKE 'airtable%';
 
-  IF n_tables < 7 THEN
-    RAISE EXCEPTION 'Tables manquantes : % / 7 créées', n_tables;
+  SELECT COUNT(*) INTO n_softdelete
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'produits'
+     AND column_name = 'deleted_at';
+
+  RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+  RAISE NOTICE '✅ BakeryOS Migration finale v3.0';
+  RAISE NOTICE '   Tables     : % / 8 (paniers_flash inclus)', n_tables;
+  RAISE NOTICE '   Fonctions  : % / 4', n_fonctions;
+  RAISE NOTICE '   Storage    : %', CASE WHEN n_bucket > 0 THEN '✓' ELSE '✗ manquant' END;
+  RAISE NOTICE '   Airtable   : % colonne(s) résiduelle(s)', n_airtable;
+  RAISE NOTICE '   Soft delete: %', CASE WHEN n_softdelete > 0 THEN '✓ deleted_at présent' ELSE '✗ manquant' END;
+  RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+  IF n_tables < 8 THEN
+    RAISE EXCEPTION 'Tables manquantes : % / 8 créées', n_tables;
   END IF;
-  IF n_fonctions < 6 THEN
-    RAISE EXCEPTION 'Fonctions manquantes : % / 6 créées', n_fonctions;
+  IF n_fonctions < 4 THEN
+    RAISE EXCEPTION 'Fonctions manquantes : % / 4 créées', n_fonctions;
+  END IF;
+  IF n_airtable > 0 THEN
+    RAISE WARNING '% colonne(s) Airtable encore présente(s) !', n_airtable;
   END IF;
 END $$;
 
