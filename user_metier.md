@@ -681,4 +681,130 @@
 
 ---
 
+## 📊 État d'implémentation par priorité
+
+### 🔴 CRITIQUE — À corriger en urgence
+
+| US | Description | Statut | Problème |
+|---|---|---|---|
+| US-11.2 | Connexion boulanger | 🟡 **Partiel** | Un client authentifié peut accéder à `/boulanger` — Voir S0 |
+
+**Correction requise** : Ajouter vérification que l'utilisateur a une boulangerie avant d'afficher l'interface.
+
+---
+
+### ✅ MUST HAVE — Implémenté (MVP)
+
+| US | Description | Statut | Notes |
+|---|---|---|---|
+| US-1.1 | Découverte de la boulangerie | ✅ | Loading screen, navbar, footer |
+| US-1.2 | Navigation intelligente | ✅ | Navbar transparente → crème au scroll |
+| US-1.3 | Multi-tenant par sous-domaine | ✅ | Résolution slug via sous-domaine |
+| US-2.1 | Consultation du catalogue | ✅ | Filtres par catégorie, grille responsive |
+| US-2.2 | Ajout au panier | ✅ | Boutons +/−, animation, persistance |
+| US-2.3 | Gestion du panier | ✅ | Sidebar animée, TVA 5.5% |
+| US-2.4 | Authentification client | ✅ | OTP Magic Link via Supabase |
+| US-2.5 | Validation de commande | ✅ | Créneaux configurables |
+| US-2.6 | Confirmation de commande | ✅ | Email Resend |
+| US-3.1 | Annonce du flash (Teaser) | ✅ | Bannière avec compte à rebours |
+| US-3.2 | Consultation des paniers flash | ✅ | Temps réel, prix barré |
+| US-3.3 | Achat panier flash | ✅ | Ajout au panier, limite 1 |
+| US-4.1 | Saisie de la production | ✅ | Auto-save 2s |
+| US-6.2 | Saisie du stock final | ✅ | Déclenche le flash |
+| US-8.1 | Consultation du catalogue | ✅ | Liste avec indicateurs |
+| US-8.2 | Ajout d'un produit | ✅ | Formulaire complet |
+| US-8.3 | Modification d'un produit | ✅ | Modal d'édition |
+| US-11.1 | Inscription boulanger | ✅ | Email + password + slug |
+| US-11.4 | Déconnexion | ✅ | Invalidation session |
+
+**MVP complété à : 100%** (hors problème sécurité S0)
+
+---
+
+### 🟡 SHOULD HAVE — Partiellement implémenté (V1)
+
+| US | Description | Statut | Notes |
+|---|---|---|---|
+| US-4.2 | Suggestions ML de production | ✅ | Basées sur historique, confidence levels |
+| US-4.3 | Estimation du CA | ✅ | En temps réel |
+| US-5.1 | Saisie du stock étagère 10h | ✅ | Interface simplifiée |
+| US-5.2 | Saisie du stock étagère 14h | ✅ | Avec alertes |
+| US-5.3 | Alerte risque invendu | ✅ | Badge visuel > 30% |
+| US-6.1 | Visualisation des KPIs | ✅ | CA, taux invendu, pièces |
+| US-6.3 | Génération des paniers flash | ✅ | 3 types automatiques |
+| US-6.4 | Clôture de journée | ✅ | Sauvegarde historique |
+| US-7.1 | Consultation des statistiques | ✅ | Graphiques, filtres |
+| US-7.2 | Analyse par produit | ✅ | Indicateurs colorés |
+| US-8.4 | Suppression d'un produit | 🟡 | Existe mais pas soft delete |
+| US-9.1 | Gestion du profil | ✅ | Adresse, horaires |
+| US-10.1 | Activation notifications push | ✅ | Toggle VAPID |
+
+**V1 (Should Have) complété à : 92%**
+
+---
+
+### 🔵 COULD HAVE — Non implémenté (V2)
+
+| US | Description | Statut | Priorité |
+|---|---|---|---|
+| US-7.3 | Sélection de période | ⚪ | Export données |
+| US-8.5 | Upload de photo avancé | 🟡 | Upload basique existant |
+| US-9.2 | Configuration du flash | ✅ | UI présente |
+| US-9.3 | Tour guidé onboarding | ✅ | 8 étapes Spotlight |
+| US-10.2 | Notification nouvelle commande | ✅ | Push instantané |
+| US-10.3 | Rappel clôture journée | ⚪ | Option configurable |
+| US-11.3 | Réinitialisation mot de passe | ⚪ | Via Supabase |
+
+**V2 (Could Have) complété à : 43%**
+
+---
+
+### ⚪ WON'T HAVE — Futur
+
+| US | Description | Statut | Priorité |
+|---|---|---|---|
+| US-12.1 | Dashboard admin | ⚪ | Long terme |
+| US-12.2 | Gestion des boulangeries | ⚪ | Long terme |
+| US-12.3 | Gestion des plans | ⚪ | Long terme |
+
+---
+
+## 🔧 Actions prioritaires
+
+### 🔴 URGENT — Sécurité (avant mise en production)
+
+1. **Corriger l'accès non autorisé à `/boulanger`**
+   - Ajouter vérification `boulangerie === null` dans `AppShell`
+   - Implémenter middleware SSR
+   - Tester avec compte client OTP
+
+### 🟡 Améliorations V1 (court terme)
+
+2. **US-8.4** — Implémenter soft delete pour les produits
+3. **US-7.3** — Ajouter export des statistiques (plan Pro)
+4. **US-11.3** — Finaliser le flux reset password
+
+### 🔵 Évolutions V2 (moyen terme)
+
+5. **US-10.3** — Rappels de clôture configurable
+6. **US-8.5** — Améliorer l'upload (drag & drop, crop)
+7. **US-12.x** — Dashboard admin platform
+
+---
+
+## 📈 Avancement global
+
+| Phase | US Total | US Implémentées | % |
+|---|---|---|---|
+| MVP (Must) | 18 | 18 | **100%** |
+| V1 (Should) | 12 | 11 | **92%** |
+| V2 (Could) | 7 | 3 | **43%** |
+| Futur (Won't) | 3 | 0 | **0%** |
+| **TOTAL** | **40** | **32** | **80%** |
+
+⚠️ **Note** : Le MVP est fonctionnel mais nécessite la correction critique S0 avant toute mise en production.
+
+---
+
 *BakeryOS — Documentation User Stories © 2026*
+*Mis à jour le 17/03/2026 — Vulnérabilité critique S0 identifiée*

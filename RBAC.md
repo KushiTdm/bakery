@@ -826,16 +826,161 @@ FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 
 ---
 
+## 📊 État d'implémentation
+
+### 🔴 Critique — À implémenter en urgence
+
+| Fonctionnalité | Statut | Fichier | Description |
+|---|---|---|---|
+| **Vérification rôle AppShell** | 🔴 Non implémenté | `app/boulanger/page.tsx` | Un client authentifié peut voir l'interface boulanger |
+| **Middleware SSR protection** | 🔴 Non implémenté | `middleware.ts` | Le middleware laisse passer toutes les requêtes vers `/boulanger/*` |
+
+### ✅ Implémenté
+
+| Fonctionnalité | Statut | Fichier | Notes |
+|---|---|---|---|
+| RLS tables principales | ✅ | Migration SQL | `boulangeries`, `produits`, `stocks_journaliers`, etc. |
+| Isolation multi-tenant | ✅ | API Routes | Vérification `boulangerie_id` dans les requêtes |
+| Auth boulanger | ✅ | `app/api/boulanger/auth/route.ts` | Email + password |
+| Auth client | ✅ | Supabase OTP | Magic Link |
+| Rate limiting auth | ✅ | `app/api/boulanger/auth/route.ts` | 5 tentatives / 15 min |
+| Sanitization inputs | ✅ | `lib/sanitize.ts` | Tous les endpoints |
+| Validation Zod | ✅ | API Routes | Tous les endpoints |
+| Fonctions SECURITY DEFINER | ✅ | Migration SQL | `get_catalogue_public()`, `get_paniers_flash()` |
+| Limites par plan | ✅ | `app/api/boulanger/produits/route.ts` | Limite 20 produits Starter |
+
+### 🟡 Partiellement implémenté
+
+| Fonctionnalité | Statut | Fichier | Reste à faire |
+|---|---|---|---|
+| Rôle Employé | 🟡 | DB schema ready | Table `employes` créée mais non utilisée |
+| Table `employes` | 🟡 | Migration SQL | Existe mais non branchée au code |
+| Audit logging | 🟡 | DB schema ready | Table `audit_logs` à créer + triggers |
+
+### ⚪ Non implémenté (futur)
+
+| Fonctionnalité | Statut | Priorité |
+|---|---|---|
+| Multi-utilisateurs par boulangerie | ⚪ | Long terme |
+| Rôle Admin Platform | ⚪ | Long terme |
+| 2FA | ⚪ | Long terme |
+| Chiffrement données sensibles | ⚪ | Optionnel |
+
+---
+
+## 🔧 Corrections requises
+
+### 1. Protection côté client (URGENT)
+
+```typescript
+// app/boulanger/page.tsx - AppShell
+function AppShell() {
+  const { isAuthenticated, authLoading, boulangerie } = useBoulanger();
+  const router = useRouter();
+
+  if (authLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm />;
+  }
+
+  // 🔴 AJOUTER CETTE VÉRIFICATION
+  if (isAuthenticated && !boulangerie) {
+    return (
+      <div className="min-h-screen bg-[#1A0F0A] flex items-center justify-center">
+        <div className="text-center">
+          <span className="text-4xl block mb-4">🔒</span>
+          <p className="text-white/70 text-lg">Accès non autorisé</p>
+          <p className="text-white/40 text-sm mt-2">
+            Cet espace est réservé aux boulangers inscrits.
+          </p>
+          <button 
+            onClick={() => router.push('/')} 
+            className="mt-6 px-6 py-3 bg-[#C19A6B] text-white rounded-xl"
+          >
+            Retour à la vitrine
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ... reste du composant
+}
+```
+
+### 2. Protection middleware (RECOMMANDÉ)
+
+```typescript
+// middleware.ts
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+  
+  // Routes publiques — ne pas intercepter
+  if (req.nextUrl.pathname === '/' || 
+      req.nextUrl.pathname.startsWith('/api/') ||
+      req.nextUrl.pathname === '/auth/callback') {
+    return res;
+  }
+
+  // Protection /boulanger
+  if (req.nextUrl.pathname.startsWith('/boulanger')) {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { req, res }
+    );
+    
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      const redirectUrl = new URL('/', req.url);
+      redirectUrl.searchParams.set('auth', 'required');
+      return NextResponse.redirect(redirectUrl);
+    }
+    
+    // Vérifier que l'utilisateur a une boulangerie
+    const { data: boulangerie } = await supabase
+      .from('boulangeries')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .single();
+    
+    if (!boulangerie) {
+      const redirectUrl = new URL('/', req.url);
+      redirectUrl.searchParams.set('error', 'unauthorized');
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
+  return res;
+}
+
+export const config = {
+  matcher: ['/boulanger/:path*'],
+};
+```
+
+---
+
 ## Checklist de sécurité
 
 - [x] RLS activé sur toutes les tables
 - [x] Fonctions SECURITY DEFINER pour données publiques
 - [x] Isolation multi-tenant par `boulangerie_id`
-- [x] Validation JWT sur routes protégées
+- [x] Validation JWT sur routes API protégées
 - [x] Rate limiting sur authentification
 - [x] Rate limiting sur création commandes
 - [x] Sanitization des inputs utilisateur
-- [x] Audit logging des actions sensibles
+- [ ] **🔴 URGENT : Vérification rôle côté client dans AppShell**
+- [ ] **🔴 URGENT : Middleware SSR pour protéger /boulanger**
+- [ ] Audit logging des actions sensibles
 - [x] Vérification des limites plan
 - [ ] Chiffrement données sensibles (optionnel)
 - [ ] 2FA pour admin (futur)
@@ -843,3 +988,4 @@ FOR EACH ROW EXECUTE FUNCTION audit_log_trigger();
 ---
 
 *BakeryOS — Documentation RBAC © 2026*
+*Mis à jour le 17/03/2026 — Vulnérabilité critique identifiée*
