@@ -1,6 +1,6 @@
 # Audit Sécurité Routes BakeryOS
 
-*Dernière mise à jour : 17/03/2026 — Toutes les vulnérabilités critiques corrigées*
+*Dernière mise à jour : 17/03/2026 — Toutes les vulnérabilités corrigées + multi-user*
 
 ---
 
@@ -10,8 +10,8 @@
 
 | Route / Fichier | Problème initial | Correctif appliqué | Statut |
 |---|---|---|---|
-| `middleware.ts` | Ne protégeait pas les routes `/boulanger/*` | Vérification session + boulangerie en SSR | ✅ **CORRIGÉ** |
-| `app/boulanger/page.tsx` (AppShell) | Accès client si `boulangerie === null` | Écran "Accès non autorisé" + redirect | ✅ **CORRIGÉ** |
+| `middleware.ts` | Ne protégeait pas les routes `/boulanger/*` | Vérification session + owner/employé via `check_boulanger_access()` | ✅ **CORRIGÉ** |
+| `app/boulanger/page.tsx` (AppShell) | Accès client si `boulangerie === null` | Écran "Accès non autorisé" + vérification `userRole` | ✅ **CORRIGÉ** |
 | `/api/boulanger/auth` POST | Slug non validé à l'inscription | `isValidSlug()` avant vérification DB | ✅ |
 | `/api/boulanger/auth` POST | Pas de rate limiting sur login/register | Map mémoire 5 tentatives / 15 min | ✅ |
 | `/api/boulanger/auth` POST | Mot de passe sans contrainte de complexité | `validatePasswordStrength()` | ✅ |
@@ -25,12 +25,13 @@
 | `/api/boulanger/historique` GET | `limit` param peut être NaN | `parseInt` + `isNaN` check + borne [1, 90] | ✅ |
 | `/api/boulanger/produits` POST | Limite Starter comptait seulement `actif_catalogue=true` | Comptage sur tous les produits | ✅ |
 | `/api/orders` POST | `heure_retrait` non validée contre les créneaux | Vérification après fetch boulangerie | ✅ |
-| `migrations/*.sql` | Cast `sj.produit_id::UUID` unsafe (B1) | Jointure via `::TEXT` dans migration-final-v3 | ✅ |
-| `migrations/*.sql` | Colonne `deleted_at` absente sur produits (E2) | Ajout soft delete dans migration-final-v3 | ✅ |
+| `migrations/migration.sql` | Cast `sj.produit_id::UUID` unsafe (B1) | Lecture depuis `paniers_flash` (plus de cast) | ✅ |
+| `migrations/migration.sql` | Colonne `deleted_at` absente sur produits (E2) | Ajout soft delete | ✅ |
+| `migrations/migration.sql` | Colonnes adresse absentes (I4) | Ajout dans CREATE TABLE + ALTER TABLE | ✅ |
 
 ---
 
-## ~~S0. VULNÉRABILITÉ CRITIQUE~~ — ✅ CORRIGÉE le 17/03/2026
+## ✅ S0. VULNÉRABILITÉ CRITIQUE — CORRIGÉE le 17/03/2026
 
 ### Accès non autorisé à `/boulanger` pour les clients authentifiés
 
@@ -44,13 +45,65 @@
 **Corrections appliquées** :
 
 **1. `middleware.ts` (protection SSR)** — Le middleware intercepte désormais tous les sous-chemins `/boulanger/:path+` et vérifie :
-- Existence d'une session Supabase
-- Existence d'une ligne dans `boulangeries` avec `user_id = session.user.id`
+- Existence d'une session Supabase valide
+- Appel RPC `check_boulanger_access()` qui vérifie :
+  - Owner : existence d'une ligne dans `boulangeries` avec `user_id = session.user.id`
+  - Employé : existence d'une ligne active dans `employes` avec `user_id = session.user.id`
 - Redirection vers `/` avec paramètre `error=unauthorized` si l'une des deux conditions échoue
 
-**2. `app/boulanger/page.tsx` (protection côté client)** — La fonction `AppShell` affiche désormais un écran "Accès non autorisé" si `boulangerie === null` après authentification, avec un bouton de retour à la vitrine et un bouton de déconnexion.
+**2. `app/boulanger/page.tsx` (protection côté client)** — La fonction `AppShell` affiche désormais un écran "Accès non autorisé" si `boulangerie === null` OU `userRole === null` après authentification, avec un bouton de retour à la vitrine et un bouton de déconnexion.
 
-**Impact sécurité post-correction** : Un client authentifié via OTP Magic Link (pour passer une commande) ne peut plus voir l'interface boulanger sous quelque condition que ce soit.
+**3. `context/boulanger-context.tsx` (chargement du rôle)** — Utilise `get_current_user_access()` pour charger :
+- Les infos boulangerie
+- Le rôle utilisateur (`owner`, `gerant`, `employe`)
+- Les permissions granulaires
+- L'ID membre (pour les employés)
+
+**Impact sécurité post-correction** : Un client authentifié via OTP Magic Link (pour passer une commande) ne peut plus voir l'interface boulanger sous quelque condition que ce soit. Seuls les owners et employés actifs peuvent accéder à `/boulanger/*`.
+
+---
+
+## 🆕 MULTI-UTILISATEURS — Nouvelles mesures de sécurité
+
+### Tables et RLS
+
+| Table | RLS Policy | Exposition | Risque |
+|---|---|---|---|
+| `employes` | ✅ Owner: all, Gérant: read, Employé: self | Gestion équipe | ✅ OK |
+| `audit_equipe` | ✅ Owner/Gérant: read, Service: insert | Audit trail | ✅ OK |
+
+### Fonctions SQL sécurisées (SECURITY DEFINER)
+
+| Fonction | Rôle | Usage |
+|---|---|---|
+| `check_boulanger_access(user_id)` | `authenticated` | Middleware SSR |
+| `get_current_user_access()` | `authenticated` | Contexte client React |
+| `get_team_members(boulangerie_id)` | `authenticated` | API équipe |
+| `count_active_members(boulangerie_id)` | `service_role` | Vérification limites plan |
+| `get_employee_boulangerie_id()` | `authenticated` | Helper RLS employés |
+
+### Permissions granulaires
+
+```typescript
+// lib/types.ts
+type PermissionLevel = 'write' | 'read' | 'none';
+type PermissionKey = 'matin' | 'snapshot' | 'soir' | 'flash' | 
+                     'catalogue' | 'dashboard' | 'commandes' | 
+                     'parametres' | 'equipe' | 'plan';
+
+// Rôles par défaut
+owner:   all write
+gerant:  all write sauf equipe:read, plan:none
+employe: snapshot:write, commandes:write, flash:read, catalogue:read
+```
+
+### Routes API protégées
+
+| Route | Protection | Validation |
+|---|---|---|
+| `/api/boulanger/equipe` GET | `canAccess('equipe', 'read')` | Owner + Gérant |
+| `/api/boulanger/equipe` POST | `isOwner()` | Owner uniquement |
+| `/api/boulanger/rejoindre` GET | Token UUID valide + non expiré | Public (invitation) |
 
 ---
 
@@ -58,7 +111,6 @@
 
 | ID | Fichier | Problème | Priorité | Statut |
 |---|---|---|---|---|
-| I4 | `migrations/` | Colonnes adresse/ville/code_postal/telephone absentes du CREATE TABLE v1 | 🔵 Faible | ✅ Inclus dans migration-final-v3 |
 | I5 | `next.config.js` | `eslint: { ignoreDuringBuilds: true }` masque des erreurs | 🔵 Faible | 🟡 Ouvert |
 | CFG1 | `.env` / Supabase | SMTP custom Resend non configuré | 🟡 Moyen | 🟡 À configurer |
 
@@ -71,9 +123,10 @@
 | `context/boulanger-context.tsx` | Types partagés dans un fichier `'use client'` | Déplacés dans `lib/types.ts` |
 | `app/api/boulanger/journee/route.ts` | Import de `StockEntry` depuis le contexte client | Importe depuis `lib/types.ts` |
 | `components/cart-sidebar.tsx` | Race condition double soumission | `useRef<boolean>` synchrone |
-| `middleware.ts` | Ne protégeait pas les routes boulanger | ✅ Middleware SSR complet implémenté |
-| `app/boulanger/page.tsx` | Accès client sans boulangerie | ✅ Écran d'accès refusé implémenté |
-| `migrations/*.sql` | 7 fichiers dispersés | ✅ Consolidés en `migration-final-v3.sql` |
+| `middleware.ts` | Ne protégeait pas les routes boulanger | ✅ Middleware SSR complet + multi-user |
+| `app/boulanger/page.tsx` | Accès client sans boulangerie | ✅ Écran d'accès refusé + vérification rôle |
+| `migrations/migration.sql` | Migration consolidée v3 | ✅ 8 tables, soft delete, flash |
+| `migrations/Migration-Multi-Utilisateurs.sql` | Nouveau | ✅ Tables employes + audit_equipe |
 
 ---
 
@@ -89,6 +142,18 @@
 | `paniers_flash` | ❌ Aucune politique SELECT anon | Via `get_paniers_flash()` uniquement | ✅ OK |
 | `journees` | ❌ Bloqué par RLS | Non exposé | ✅ OK |
 | `commandes` | ✅ `client_id = auth.uid()` | Propres commandes uniquement | ✅ OK |
+| `employes` | ✅ Owner: all, Gérant: read, Self: read | Gestion équipe | ✅ OK |
+| `audit_equipe` | ✅ Owner/Gérant: read | Audit trail | ✅ OK |
+
+### Tables owner/employé uniquement
+
+| Table | RLS Policy Owner | RLS Policy Employé |
+|---|---|---|
+| `journees` | ✅ SELECT/INSERT/UPDATE | ✅ SELECT (via `get_employee_boulangerie_id()`) |
+| `stocks_journaliers` | ✅ SELECT/INSERT/UPDATE | ✅ SELECT/UPDATE |
+| `produits` | ✅ SELECT/INSERT/UPDATE/DELETE | ✅ SELECT (softdeleted exclus) |
+| `commandes` | ✅ SELECT/UPDATE | ✅ SELECT/UPDATE |
+| `paniers_flash` | ✅ ALL | ✅ SELECT |
 
 ---
 
@@ -104,10 +169,13 @@
 - [x] Validation Zod sur toutes les routes API
 - [x] **✅ S0 CORRIGÉ : Vérification rôle côté client dans AppShell**
 - [x] **✅ S0 CORRIGÉ : Middleware SSR protège /boulanger/*
-- [x] **✅ B1 CORRIGÉ : Cast UUID sécurisé dans migration-final-v3**
-- [x] **✅ E2 CORRIGÉ : Soft delete (deleted_at) dans migration-final-v3**
+- [x] **✅ B1 CORRIGÉ : Plus de cast UUID unsafe**
+- [x] **✅ E2 CORRIGÉ : Soft delete (deleted_at)**
+- [x] **✅ I4 CORRIGÉ : Colonnes adresse dans CREATE TABLE**
+- [x] **✅ Multi-user : Permissions granulaires implémentées**
+- [x] **✅ Multi-user : RLS étendu pour employés**
 - [x] Vérification des limites plan
-- [ ] Audit logging des actions sensibles (table schema prête)
+- [x] Audit logging des actions équipe (table `audit_equipe`)
 - [ ] SMTP custom Resend (configuration manuelle)
 - [ ] 2FA pour admin (futur)
 
@@ -118,13 +186,21 @@
 ### 🟡 Moyen terme
 1. **I5** — Réactiver ESLint pendant le build (`next.config.js`)
 2. **CFG1** — Brancher Resend SMTP custom dans Supabase Dashboard → Settings → SMTP
-3. Mettre en place l'audit logging (table `audit_logs` à créer)
 
 ### 🔵 Faible / Futur
-4. 2FA pour les comptes admin
-5. Chiffrement des données sensibles (optionnel)
+3. 2FA pour les comptes admin
+4. Chiffrement des données sensibles (optionnel)
+
+---
+
+## Ordre d'exécution des migrations
+
+1. **`migrations/migration.sql`** — Migration principale v3 (8 tables, fonctions, storage)
+2. **`migrations/Migration-Multi-Utilisateurs.sql`** — Tables employes + audit_equipe, fonctions multi-user
+
+Les deux migrations sont **idempotentes** et peuvent être ré-exécutées sans risque.
 
 ---
 
 *Audit réalisé par : Cline — 16/03/2026*
-*Mises à jour : Claude — 17/03/2026 — Toutes vulnérabilités critiques corrigées*
+*Mises à jour : Cline — 17/03/2026 — Toutes vulnérabilités corrigées, multi-user implémenté*

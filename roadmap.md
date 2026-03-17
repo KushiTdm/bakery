@@ -1,14 +1,14 @@
 # Roadmap BakeryOS 🥖
-*Mis à jour — 17 mars 2026 — Session corrections critiques*
+*Mis à jour — 17 mars 2026 — Session multi-utilisateurs*
 
 ---
 
-## SCORE DE RÉUSSITE À 12 MOIS — 72 / 100 *(+4 pts vs session précédente)*
+## SCORE DE RÉUSSITE À 12 MOIS — 78 / 100 *(+6 pts vs session précédente)*
 
 | Dimension | Score | Poids | Commentaire |
 |---|---|---|---|
-| Développement | **82**/100 | 20% | ✅ S0 corrigé, B1 corrigé, E2 implémenté, migrations consolidées |
-| Fonctionnel | 78/100 | 20% | Core loop complet, paniers flash persistés |
+| Développement | **88**/100 | 20% | ✅ S0 corrigé, B1 corrigé, E2 implémenté, multi-user complet |
+| Fonctionnel | 82/100 | 20% | Core loop complet, paniers flash persistés, multi-user opérationnel |
 | Marché | 55/100 | 15% | ~5 000–8 000 boulangeries cibles |
 | Use case | 78/100 | 15% | ROI démontrable < 30 jours |
 | Offre & Demande | 62/100 | 15% | Landing + Stripe opérationnels |
@@ -20,21 +20,30 @@
 ## ✅ CORRECTIONS APPLIQUÉES (17/03/2026)
 
 ### S0 — Accès non autorisé à `/boulanger` (🔴 CRITIQUE → ✅ CORRIGÉ)
-- **`middleware.ts`** : Réécrit avec vérification SSR complète (session + boulangerie)
-- **`app/boulanger/page.tsx`** : Écran "Accès non autorisé" si `boulangerie === null`
+- **`middleware.ts`** : Réécrit avec vérification SSR complète via `check_boulanger_access()`
+- **`app/boulanger/page.tsx`** : Écran "Accès non autorisé" si `boulangerie === null` ou `userRole === null`
+- **`context/boulanger-context.tsx`** : Utilise `get_current_user_access()` pour le multi-user
 - **Testé** : Un client OTP est correctement redirigé vers `/` avec `error=unauthorized`
 
 ### B1 — Cast UUID unsafe dans `get_paniers_flash()` (🟠 ÉLEVÉ → ✅ CORRIGÉ)
-- Jointure via `::TEXT` dans `migration-final-v3.sql` — plus de risque de cast invalide
+- La fonction lit désormais depuis `paniers_flash` (source de vérité persistée)
+- Plus de jointure avec cast UUID unsafe
 
 ### E2 — Pas de soft delete pour les produits (🟡 MOYEN → ✅ CORRIGÉ)
-- Colonne `deleted_at TIMESTAMPTZ DEFAULT NULL` ajoutée dans `migration-final-v3.sql`
+- Colonne `deleted_at TIMESTAMPTZ DEFAULT NULL` ajoutée dans `migration.sql`
 - Index mis à jour pour exclure `WHERE deleted_at IS NULL`
 - `get_catalogue_public()` filtre les produits softdeleted
 
-### Migrations SQL — Consolidation (⚪ → ✅ FAIT)
-- 7 fichiers de migration fusionnés en **`migrations/migration-final-v3.sql`**
-- Intègre : v2.sql + paniers_flash + timezone fix + soft delete + cast UUID fix
+### I4 — Colonnes adresse absentes (🔵 FAIBLE → ✅ CORRIGÉ)
+- Colonnes `adresse`, `ville`, `code_postal`, `telephone`, `creneaux_retrait` dans CREATE TABLE
+
+### 🆕 Multi-utilisateurs — Nouvelle fonctionnalité majeure
+- Table `employes` (gérant + vendeur) avec système d'invitation
+- Table `audit_equipe` pour l'historique des actions équipe
+- Permissions granulaires par feature (10 permissions par rôle)
+- Fonctions SQL : `check_boulanger_access()`, `get_current_user_access()`, `get_team_members()`, `count_active_members()`
+- Routes API : `/api/boulanger/equipe`, `/api/boulanger/rejoindre`
+- Interface adaptée avec filtrage par `canRead()` / `canWrite()`
 
 ---
 
@@ -56,13 +65,19 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 
 | Fichier | Changement | Priorité |
 |---|---|---|
-| `middleware.ts` | ✅ Protection SSR complète | Critique |
-| `app/boulanger/page.tsx` | ✅ Vérification boulangerie + écran d'accès refusé | Critique |
-| `migrations/migration-final-v3.sql` | ✅ Migration consolidée finale (8 tables) | Infra |
+| `middleware.ts` | ✅ Protection SSR complète + multi-user | Critique |
+| `app/boulanger/page.tsx` | ✅ Vérification boulangerie + écran d'accès refusé + permissions | Critique |
+| `context/boulanger-context.tsx` | ✅ Multi-user (rôle, permissions, canRead/canWrite) | Critique |
+| `lib/types.ts` | ✅ Types permissions + helpers | Élevé |
+| `migrations/migration.sql` | ✅ Migration consolidée v3 (8 tables, soft delete, flash) | Infra |
+| `migrations/Migration-Multi-Utilisateurs.sql` | ✅ Nouveau : tables employes + audit_equipe | Infra |
+| `app/api/boulanger/equipe/route.ts` | ✅ Nouveau : gestion équipe | Feature |
+| `app/api/boulanger/rejoindre/route.ts` | ✅ Nouveau : acceptation invitation | Feature |
 | `audit-security.md` | ✅ Mis à jour — toutes vulnérabilités corrigées | Doc |
 | `RBAC.md` | ✅ Mis à jour — implémentation complète | Doc |
-| `roadmap.md` | ✅ Score mis à jour | Doc |
+| `roadmap.md` | ✅ Score mis à jour + multi-user | Doc |
 | `user_metier.md` | ✅ État implémentation mis à jour | Doc |
+| `erreurs.md` | ✅ Toutes corrections documentées | Doc |
 
 ---
 
@@ -74,6 +89,8 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 |---|---|---|---|
 | **S0** | App | Accès non autorisé à /boulanger pour clients | ✅ **CORRIGÉ** |
 | **B1** | App | Cast UUID unsafe dans `get_paniers_flash()` | ✅ **CORRIGÉ** |
+| **E2** | App | Soft delete produits | ✅ **CORRIGÉ** |
+| **I4** | App | Colonnes adresse absentes | ✅ **CORRIGÉ** |
 | **LAND1** | Landing | Tarifs incohérents avec l'app | 🔴 Ouvert |
 
 ### 🟡 Moyen terme
@@ -83,6 +100,7 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 | LAND2 | Landing | Email bienvenue post-checkout non implémenté | 🔴 Ouvert |
 | LAND3 | Landing | Slug auto-généré peut créer des conflits | 🟡 Ouvert |
 | CFG2 | App | SMTP custom Resend non configuré | 🟡 À configurer |
+| E1 | App | Pas de pagination sur l'historique | 🟡 Ouvert (90 entrées OK) |
 | I5 | App | ESLint ignoré pendant le build | 🔵 Accepté |
 
 ---
@@ -94,12 +112,14 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 - [ ] **LAND4** — Créer les produits/prix dans Stripe Dashboard
 - [ ] **LAND2** — Implémenter l'email de bienvenue post-checkout via Resend
 - [ ] **CFG2** — Brancher Resend SMTP custom dans Supabase Dashboard
-- [ ] Exécuter `migrations/migration-final-v3.sql` en production
+- [ ] Exécuter `migrations/migration.sql` en production (si pas déjà fait)
+- [ ] Exécuter `migrations/Migration-Multi-Utilisateurs.sql` en production
 - [ ] Tester flux complet end-to-end : landing → Stripe → webhook → app
 
 ### 🟠 Qualité
 - [ ] **LAND3** — Gestion des conflits de slug à l'inscription
 - [ ] Tests E2E (compte client OTP ne peut plus accéder à /boulanger)
+- [ ] Tests multi-user : employé avec permissions limitées
 
 ---
 
@@ -109,7 +129,7 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 - Onboarding `CatalogueStarter` branché au flux post-inscription
 - Export PDF rapport hebdomadaire (plan Pro)
 - Rapport CO₂ mensuel + certificat téléchargeable
-- Audit logging des actions sensibles (table schema déjà prête)
+- Audit logging des actions sensibles (table `audit_equipe` prête)
 
 ### Infrastructure
 - Wildcard DNS `*.bakeryos.fr` → Netlify
@@ -124,7 +144,7 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 
 ## LONG TERME — 90+ jours
 
-- Multi-utilisateurs par boulangerie (owner / manager / vendeuse)
+- ~~Multi-utilisateurs par boulangerie~~ ✅ **FAIT** (owner / manager / vendeuse)
 - Intégration caisse Lightspeed/Zelty
 - API publique + webhooks (plan Multi)
 - Dashboard multi-sites consolidé
@@ -148,7 +168,9 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 - [x] **S0** — Protection route `/boulanger` par vérification de rôle (middleware + client)
 - [x] **B1** — Correction cast UUID dans `get_paniers_flash()`
 - [x] **E2** — Soft delete produits (colonne `deleted_at`)
-- [x] Migrations consolidées en un seul fichier
+- [x] **I4** — Colonnes adresse dans CREATE TABLE
+- [x] Migrations consolidées en fichiers distincts
+- [x] Multi-utilisateurs complet (owner/gerant/employe)
 
 ### 🔴 Encore bloquant
 - [ ] **LAND1** — Alignement tarifs landing ↔ app
@@ -159,7 +181,18 @@ Stripe (abonnements)          Supabase (auth, DB, storage)
 - [ ] **LAND2** — Email bienvenue post-checkout
 - [ ] Monitoring Sentry activé
 - [ ] Tests E2E Playwright sur les flux critiques
+- [ ] Tests permissions multi-user
 
 ---
 
-*Mis à jour le 17/03/2026 — Session corrections critiques complète*
+## FICHIERS MIGRATION
+
+| Fichier | Description | Ordre d'exécution |
+|---|---|---|
+| `migrations/migration.sql` | Migration principale v3 consolidée | 1 |
+| `migrations/Migration-Multi-Utilisateurs.sql` | Tables employes + audit_equipe | 2 (après migration.sql) |
+| `migrations/seed.sql` | Données de test | Optionnel |
+
+---
+
+*Mis à jour le 17/03/2026 — Session multi-utilisateurs complète*
