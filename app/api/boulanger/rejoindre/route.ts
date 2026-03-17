@@ -1,23 +1,13 @@
 // app/api/boulanger/rejoindre/route.ts
-// ─────────────────────────────────────────────────────────────
-// POST — Accepte une invitation via token.
-//
-// Sécurité :
-//   - Token UUID validé (regex + existence DB)
-//   - Token non expiré
-//   - Utilisateur doit être authentifié (via Authorization header)
-//   - L'utilisateur ne doit pas déjà être owner d'une boulangerie
-//   - L'utilisateur ne doit pas déjà être membre de CETTE boulangerie
-//   - Token invalidé après acceptation (nettoyage)
-// ─────────────────────────────────────────────────────────────
+// GET  — info invitation (affichage avant acceptation)
+// POST — accepter l'invitation via token
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { isValidUUID } from '@/lib/sanitize';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ── GET — info sur l'invitation (pour affichage avant acceptation) ─
+// ── GET — info sur l'invitation ──────────────────────────────
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -30,13 +20,15 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
 
   try {
+    // Étape 1 : récupérer l'invitation
     const { data: invite, error } = await admin
       .from('employes')
-      .select('id, role, statut, invite_email, invite_expires_at, boulangeries!inner(nom, slug)')
+      .select('id, role, statut, invite_email, invite_expires_at, boulangerie_id')
       .eq('invite_token', token)
       .single();
 
     if (error || !invite) {
+      console.error('[GET /api/boulanger/rejoindre] invite not found:', error?.message);
       return NextResponse.json({ error: 'Invitation introuvable ou déjà utilisée' }, { status: 404 });
     }
 
@@ -48,21 +40,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Cette invitation a expiré' }, { status: 410 });
     }
 
-    const boulangerie = (invite.boulangeries as unknown as { nom: string; slug: string }[])[0];
+    // Étape 2 : récupérer la boulangerie séparément
+    const { data: boulangerie, error: bErr } = await admin
+      .from('boulangeries')
+      .select('nom, slug')
+      .eq('id', invite.boulangerie_id)
+      .single();
+
+    if (bErr || !boulangerie) {
+      console.error('[GET /api/boulanger/rejoindre] boulangerie not found:', bErr?.message);
+      return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
+    }
 
     return NextResponse.json({
       valid: true,
       invite: {
-        email:          invite.invite_email,
-        role:           invite.role,
-        expiresAt:      invite.invite_expires_at,
-        boulangerieNom: boulangerie.nom,
+        email:           invite.invite_email,
+        role:            invite.role,
+        expiresAt:       invite.invite_expires_at,
+        boulangerieNom:  boulangerie.nom,
         boulangerieSlug: boulangerie.slug,
       },
     });
 
   } catch (err) {
-    console.error('[GET /api/boulanger/rejoindre]', err);
+    console.error('[GET /api/boulanger/rejoindre] unexpected:', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
   }
 }
@@ -70,7 +72,6 @@ export async function GET(req: NextRequest) {
 // ── POST — accepter l'invitation ─────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // L'utilisateur doit être authentifié
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -93,17 +94,18 @@ export async function POST(req: NextRequest) {
 
     const inviteToken = body.token;
     if (!inviteToken || !UUID_REGEX.test(inviteToken)) {
-      return NextResponse.json({ error: 'Token d\'invitation invalide' }, { status: 400 });
+      return NextResponse.json({ error: "Token d'invitation invalide" }, { status: 400 });
     }
 
     // Récupérer l'invitation
     const { data: invite, error: inviteError } = await admin
       .from('employes')
-      .select('id, role, statut, invite_email, invite_expires_at, boulangerie_id, boulangeries!inner(nom)')
+      .select('id, role, statut, invite_email, invite_expires_at, boulangerie_id')
       .eq('invite_token', inviteToken)
       .single();
 
     if (inviteError || !invite) {
+      console.error('[POST /api/boulanger/rejoindre] invite not found:', inviteError?.message);
       return NextResponse.json({ error: 'Invitation introuvable ou déjà utilisée' }, { status: 404 });
     }
 
@@ -115,7 +117,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Cette invitation a expiré. Demandez une nouvelle invitation.' }, { status: 410 });
     }
 
-    // Sécurité : l'utilisateur ne doit pas être owner d'une boulangerie
+    // Vérifier que l'utilisateur n'est pas déjà owner d'une boulangerie
     const { data: ownedBoulangerie } = await admin
       .from('boulangeries')
       .select('id, nom')
@@ -129,7 +131,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Sécurité : l'utilisateur ne doit pas déjà être actif dans cette boulangerie
+    // Vérifier que l'utilisateur n'est pas déjà actif dans cette boulangerie
     const { data: existingMembership } = await admin
       .from('employes')
       .select('id, statut')
@@ -151,14 +153,14 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id)
       .single();
 
-    // Accepter l'invitation : lier l'utilisateur et activer
+    // Accepter : lier l'utilisateur, activer, invalider le token
     const { data: updated, error: updateError } = await admin
       .from('employes')
       .update({
-        user_id:          user.id,
-        statut:           'actif',
-        prenom:           profil?.prenom ?? null,
-        invite_token:     null,  // Invalider le token immédiatement
+        user_id:           user.id,
+        statut:            'actif',
+        prenom:            profil?.prenom ?? null,
+        invite_token:      null,
         invite_expires_at: null,
       })
       .eq('id', invite.id)
@@ -166,9 +168,16 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (updateError || !updated) {
-      console.error('[POST /api/boulanger/rejoindre] update:', updateError);
-      return NextResponse.json({ error: 'Erreur acceptation invitation' }, { status: 500 });
+      console.error('[POST /api/boulanger/rejoindre] update:', updateError?.message);
+      return NextResponse.json({ error: "Erreur acceptation invitation" }, { status: 500 });
     }
+
+    // Récupérer le nom de la boulangerie pour la réponse
+    const { data: boulangerie } = await admin
+      .from('boulangeries')
+      .select('nom')
+      .eq('id', invite.boulangerie_id)
+      .single();
 
     // Audit
     await admin.from('audit_equipe').insert({
@@ -176,19 +185,17 @@ export async function POST(req: NextRequest) {
       acteur_id:      user.id,
       cible_id:       invite.id,
       action:         'accept',
-      details: { email: user.email, role: invite.role },
+      details:        { email: user.email, role: invite.role },
     });
-
-    const boulangerie = (invite.boulangeries as unknown as { nom: string }[])[0];
 
     return NextResponse.json({
       success:        true,
       role:           updated.role,
-      boulangerieNom: boulangerie.nom,
+      boulangerieNom: boulangerie?.nom ?? '',
     });
 
   } catch (err) {
-    console.error('[POST /api/boulanger/rejoindre]', err);
+    console.error('[POST /api/boulanger/rejoindre] unexpected:', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
   }
 }
