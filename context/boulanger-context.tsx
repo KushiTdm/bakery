@@ -379,7 +379,10 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         if (slot === '10h') {
           return { ...p, snapshot10h: Math.max(0, Math.min(val, p.production)) };
         } else {
-          const max14h = p.snapshot10hDone && p.snapshot10h > 0 ? p.snapshot10h : p.production;
+          // FIX : max14h basé sur snapshot10hDone uniquement (pas snapshot10h > 0)
+          // Si snapshot10hDone=true et snapshot10h=0 → max=0 (tout vendu à 10h)
+          // Si snapshot10hDone=false → max=production (pas encore de snapshot 10h)
+          const max14h = p.snapshot10hDone ? p.snapshot10h : p.production;
           return { ...p, snapshot14h: Math.max(0, Math.min(val, max14h)) };
         }
       });

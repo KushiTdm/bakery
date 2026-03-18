@@ -2,6 +2,8 @@
 // components/boulanger/vue-snapshot.tsx
 // ✅ Valeur de départ = 0 (vendeuse saisit ce qui reste, pas ce qui était)
 // ✅ Gros boutons tactiles pour usage au comptoir
+// ✅ FIX : snapshot14h limité par snapshot10h même quand snapshot10h === 0
+//          (si snapshot10hDone=true et snapshot10h=0, max14h=0, pas production)
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
@@ -14,7 +16,6 @@ type Slot = '10h' | '14h';
 const SEUIL_ALERTE_PCT = 30; // % restant au-delà duquel on alerte
 
 // ─── Cellule tactile ──────────────────────────────────────────
-// Affiche 0 par défaut + gros boutons +/−
 
 function SnapshotCellTouch({
   value,
@@ -136,7 +137,6 @@ export default function VueSnapshot() {
   const alertes = todayStocks.filter(s => {
     const reste = slotActif === '10h' ? s.snapshot10h : s.snapshot14h;
     if (s.production === 0) return false;
-    // N'alerte que si la valeur a été saisie (> 0)
     return reste > 0 && (reste / s.production) * 100 > SEUIL_ALERTE_PCT;
   });
 
@@ -258,9 +258,20 @@ export default function VueSnapshot() {
         {todayStocks.map(stock => {
           const isDone = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
           const reste  = slotActif === '10h' ? stock.snapshot10h : stock.snapshot14h;
-          // Fallback sur production si snapshot10h non encore saisi (= 0)
-          const base   = slotActif === '10h' ? stock.production : (stock.snapshot10h > 0 ? stock.snapshot10h : stock.production);
+
+          // ── FIX : max14h basé sur snapshot10hDone (pas snapshot10h > 0)
+          // Si snapshot10hDone=true et snapshot10h=0 → max=0 (tout vendu à 10h)
+          // Si snapshot10hDone=false → max=production (pas encore de snapshot 10h)
+          const base = slotActif === '10h'
+            ? stock.production
+            : (stock.snapshot10hDone ? stock.snapshot10h : stock.production);
+
           const vendus = base - reste;
+
+          // Label de référence affiché
+          const refLabel = slotActif === '14h' && stock.snapshot10hDone
+            ? `Snapshot 10h : ${stock.snapshot10h} restants`
+            : `${stock.production} produits (base production)`;
 
           return (
             <div
@@ -276,9 +287,13 @@ export default function VueSnapshot() {
                 <div className="min-w-0">
                   <p className="text-white text-sm font-medium truncate">{stock.name}</p>
                   <p className="text-white/35 text-[10px] tabular-nums">
-                    Produit : {base} pcs
+                    {refLabel}
                     {vendus > 0 && (
                       <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>
+                    )}
+                    {/* Indicateur 14h bloqué si tout vendu à 10h */}
+                    {slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0 && (
+                      <span className="text-white/30 ml-2 italic">· tout vendu à 10h</span>
                     )}
                   </p>
                 </div>
@@ -290,7 +305,7 @@ export default function VueSnapshot() {
                   value={reste}
                   max={base}
                   onChange={val => handleChange(stock, slotActif, val)}
-                  disabled={isDone}
+                  disabled={isDone || (slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0)}
                 />
               </div>
             </div>

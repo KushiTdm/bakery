@@ -2,10 +2,11 @@
 // ─────────────────────────────────────────────────────────────
 // Protection SSR des routes /boulanger/:path+
 //
-// Vérifie en un seul appel RPC (check_boulanger_access) si l'utilisateur
-// est owner OU employé actif. Owner = entrée dans boulangeries.
-// Employé = entrée actif dans employes.
-// La page /boulanger (exact) gère son propre état (LoginForm/AppShell).
+// NOTE ARCHITECTURE : Le boulanger s'authentifie via supabase.signInWithPassword()
+// côté client, qui stocke la session en localStorage (pas en cookies).
+// Le createServerClient lit les cookies → incompatible pour les sous-pages.
+// Les sous-pages gèrent leur propre auth via BoulangerProvider (client-side).
+// Seules les pages sans leur propre guard méritent la protection SSR.
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,10 +17,13 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   // Routes publiques — jamais interceptées
+  // Les sous-pages /boulanger/* gèrent leur propre auth via BoulangerProvider
+  // (session stockée en localStorage, pas en cookies → SSR blind)
   if (
     path === '/boulanger' ||
     path.startsWith('/boulanger/login') ||
     path.startsWith('/boulanger/rejoindre') || // Acceptation invitation
+    path.startsWith('/boulanger/commandes') ||  // Auth gérée client-side par useBoulanger
     path.startsWith('/api/') ||
     path === '/auth/callback'
   ) {
