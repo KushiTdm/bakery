@@ -13,6 +13,7 @@ import {
 import { useCart } from '@/context/cart-context';
 import { supabase } from '@/lib/supabase';
 import { useSlug } from '@/hooks/use-slug';
+import ClientPushToggle from '@/components/client-push-toggle';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -88,9 +89,9 @@ function CommandeDetail({
   onCancel,
   cancelling,
 }: {
-  commande: Commande;
-  onClose:  () => void;
-  onCancel: (id: string) => void;
+  commande:   Commande;
+  onClose:    () => void;
+  onCancel:   (id: string) => void;
   cancelling: boolean;
 }) {
   const canCancel = commande.statut === 'en_attente';
@@ -195,11 +196,11 @@ function CommandeDetail({
 
 function OngletCommandes({ boulangerieSlug }: { boulangerieSlug: string }) {
   const { user } = useCart();
-  const [commandes, setCommandes]         = useState<Commande[]>([]);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState<string | null>(null);
-  const [selected, setSelected]           = useState<Commande | null>(null);
-  const [cancelling, setCancelling]       = useState(false);
+  const [commandes, setCommandes]   = useState<Commande[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [selected, setSelected]     = useState<Commande | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const loadCommandes = useCallback(async () => {
     if (!user) return;
@@ -209,11 +210,13 @@ function OngletCommandes({ boulangerieSlug }: { boulangerieSlug: string }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { setError('Non authentifié'); return; }
 
-      // Récupère les commandes via l'API client
-      const res = await fetch(`/api/client/commandes?email=${encodeURIComponent(user.email ?? '')}&slug=${boulangerieSlug}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: 'no-store',
-      });
+      const res = await fetch(
+        `/api/client/commandes?email=${encodeURIComponent(user.email ?? '')}&slug=${boulangerieSlug}`,
+        {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: 'no-store',
+        }
+      );
 
       if (!res.ok) {
         const j = await res.json().catch(() => ({})) as { error?: string };
@@ -288,7 +291,9 @@ function OngletCommandes({ boulangerieSlug }: { boulangerieSlug: string }) {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-[#2C1810]/50 text-sm">{commandes.length} commande{commandes.length > 1 ? 's' : ''}</p>
+        <p className="text-[#2C1810]/50 text-sm">
+          {commandes.length} commande{commandes.length > 1 ? 's' : ''}
+        </p>
         <button
           onClick={loadCommandes}
           className="text-[#C19A6B] text-xs flex items-center gap-1.5 hover:opacity-80 transition-opacity"
@@ -340,7 +345,6 @@ function OngletCommandes({ boulangerieSlug }: { boulangerieSlug: string }) {
         ))}
       </div>
 
-      {/* Modal détail */}
       <AnimatePresence>
         {selected && (
           <CommandeDetail
@@ -359,16 +363,26 @@ function OngletCommandes({ boulangerieSlug }: { boulangerieSlug: string }) {
 
 function OngletParametres() {
   const { user } = useCart();
-  const [profil, setProfil]               = useState<ProfilClient | null>(null);
-  const [loading, setLoading]             = useState(true);
-  const [saving, setSaving]               = useState(false);
-  const [saved, setSaved]                 = useState(false);
-  const [error, setError]                 = useState<string | null>(null);
+  const resolution = useSlug();
+  const slug = resolution?.slug ?? '';
 
-  // Champs du formulaire
-  const [prenom, setPrenom]               = useState('');
-  const [telephone, setTelephone]         = useState('');
-  const [email, setEmail]                 = useState('');
+  const [profil, setProfil]       = useState<ProfilClient | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [token, setToken]         = useState<string | null>(null);
+
+  const [prenom, setPrenom]       = useState('');
+  const [telephone, setTelephone] = useState('');
+  const [email, setEmail]         = useState('');
+
+  // Récupère le token JWT pour le passer aux composants enfants
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setToken(data.session?.access_token ?? null);
+    });
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -404,7 +418,6 @@ function OngletParametres() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
 
-      // Mise à jour du profil client (prénom, téléphone)
       const res = await fetch('/api/client/profil', {
         method: 'POST',
         headers: {
@@ -412,11 +425,11 @@ function OngletParametres() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          prenom:         prenom.trim(),
-          telephone:      telephone.trim() || null,
-          optin_flash:    profil?.optin_flash ?? false,
+          prenom:          prenom.trim(),
+          telephone:       telephone.trim() || null,
+          optin_flash:     profil?.optin_flash ?? false,
           optin_marketing: false,
-          rgpd_accepted:  true,
+          rgpd_accepted:   true,
         }),
       });
 
@@ -452,8 +465,13 @@ function OngletParametres() {
 
   return (
     <div className="space-y-5">
+
+      {/* ── Informations personnelles ─────────────────────── */}
       <div className="bg-white border border-[#E8E0D5] rounded-2xl p-5 space-y-4">
-        <h3 className="text-[#2C1810] font-semibold text-sm" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <h3
+          className="text-[#2C1810] font-semibold text-sm"
+          style={{ fontFamily: 'Playfair Display, serif' }}
+        >
           Informations personnelles
         </h3>
 
@@ -532,10 +550,35 @@ function OngletParametres() {
         </motion.button>
       </div>
 
-      {/* Info compte */}
+      {/* ── Notifications push ─────────────────────────────── */}
+      <div className="bg-white border border-[#E8E0D5] rounded-2xl p-5 space-y-3">
+        <div>
+          <h3
+            className="text-[#2C1810] font-semibold text-sm"
+            style={{ fontFamily: 'Playfair Display, serif' }}
+          >
+            Alertes paniers invendus
+          </h3>
+          <p className="text-[#2C1810]/45 text-xs mt-1 leading-relaxed">
+            Recevez une notification sur votre téléphone dès qu'un panier flash
+            est disponible dans cette boulangerie.
+          </p>
+        </div>
+
+        {token && slug ? (
+          <ClientPushToggle token={token} boulangerieSlug={slug} />
+        ) : !token ? (
+          <p className="text-[#2C1810]/40 text-xs italic">Chargement de la session…</p>
+        ) : (
+          <p className="text-[#2C1810]/40 text-xs italic">Boulangerie non identifiée.</p>
+        )}
+      </div>
+
+      {/* ── Info compte ───────────────────────────────────── */}
       <div className="bg-[#F5F0E8] border border-[#E8E0D5] rounded-2xl p-4">
         <p className="text-[#2C1810]/40 text-xs">
-          Compte créé avec l'adresse <strong className="text-[#2C1810]/60">{user?.email}</strong>.
+          Compte créé avec l'adresse{' '}
+          <strong className="text-[#2C1810]/60">{user?.email}</strong>.
           Pour supprimer votre compte, contactez-nous directement.
         </p>
       </div>
@@ -579,7 +622,10 @@ export default function ClientSpace({ onClose }: ClientSpaceProps) {
           <div className="bg-[#2C1810] px-5 py-4 flex-shrink-0">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
+                <h2
+                  className="text-white font-bold text-lg"
+                  style={{ fontFamily: 'Playfair Display, serif' }}
+                >
                   Mon Espace
                 </h2>
                 <p className="text-white/40 text-xs mt-0.5">{user.email}</p>
