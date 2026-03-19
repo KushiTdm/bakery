@@ -6,6 +6,11 @@
 // POST   → upsert en masse (remplace tous les paniers du jour)
 // PATCH  → mise à jour partielle d'un panier (quantité, actif)
 // DELETE → supprime tous les paniers flash du jour
+//
+// FIX FUSEAU : la date du jour est calculée dans le fuseau
+// configuré via BAKERY_TIMEZONE (défaut: Europe/Paris).
+// Cela évite le décalage entre la date UTC du serveur Node.js
+// et la date locale de la boulangerie.
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -33,7 +38,18 @@ async function getAuth(req: NextRequest) {
   return { admin, boulangerieId: boulangerie.id as string, config: boulangerie };
 }
 
-const today = () => new Date().toISOString().split('T')[0];
+// ── Date locale boulangerie ───────────────────────────────────
+// Configurable via variable d'environnement BAKERY_TIMEZONE.
+// Défaut : Europe/Paris (prod France).
+// Pour tester depuis un autre fuseau sans modifier le code,
+// positionner BAKERY_TIMEZONE=UTC ou le fuseau voulu dans .env.local.
+
+const BAKERY_TIMEZONE = process.env.BAKERY_TIMEZONE ?? 'Europe/Paris';
+
+function todayInBakeryTimezone(): string {
+  // 'sv' (suédois) produit le format YYYY-MM-DD nativement
+  return new Date().toLocaleDateString('sv', { timeZone: BAKERY_TIMEZONE });
+}
 
 // ── Schémas Zod ───────────────────────────────────────────────
 
@@ -68,13 +84,14 @@ export async function GET(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const { admin, boulangerieId } = auth;
+  const dateAujourd = todayInBakeryTimezone();
 
   try {
     const { data, error } = await admin
       .from('paniers_flash')
       .select('*')
       .eq('boulangerie_id', boulangerieId)
-      .eq('date', today())
+      .eq('date', dateAujourd)
       .order('categorie')
       .order('produit_nom');
 
@@ -118,11 +135,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { paniers } = parsed.data;
-  const dateAujourd = today();
+  const dateAujourd = todayInBakeryTimezone();
 
   try {
     if (paniers.length === 0) {
-      // Supprimer tous les paniers du jour si tableau vide
       await admin
         .from('paniers_flash')
         .delete()
@@ -132,7 +148,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, count: 0 });
     }
 
-    // Sanitize + prépare les lignes
     const rows = paniers.map(p => ({
       boulangerie_id:    boulangerieId,
       date:              dateAujourd,
@@ -159,7 +174,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Erreur sauvegarde' }, { status: 500 });
     }
 
-    // Supprimer les produits qui ne sont plus dans la sélection
     const produitIds = rows.map(r => r.produit_id);
     await admin
       .from('paniers_flash')
@@ -198,6 +212,7 @@ export async function PATCH(req: NextRequest) {
 
   const { produit_id, quantite_restante, actif } = parsed.data;
   const updates: Record<string, unknown> = {};
+  const dateAujourd = todayInBakeryTimezone();
 
   if (quantite_restante !== undefined) {
     updates.quantite_restante = Math.max(0, Math.floor(quantite_restante));
@@ -215,7 +230,7 @@ export async function PATCH(req: NextRequest) {
       .from('paniers_flash')
       .update(updates)
       .eq('boulangerie_id', boulangerieId)
-      .eq('date', today())
+      .eq('date', dateAujourd)
       .eq('produit_id', produit_id)
       .select()
       .single();
@@ -239,13 +254,14 @@ export async function DELETE(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const { admin, boulangerieId } = auth;
+  const dateAujourd = todayInBakeryTimezone();
 
   try {
     const { error } = await admin
       .from('paniers_flash')
       .delete()
       .eq('boulangerie_id', boulangerieId)
-      .eq('date', today());
+      .eq('date', dateAujourd);
 
     if (error) {
       return NextResponse.json({ error: 'Erreur suppression' }, { status: 500 });
