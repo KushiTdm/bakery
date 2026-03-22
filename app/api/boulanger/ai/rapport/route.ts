@@ -2,18 +2,10 @@
 // ─────────────────────────────────────────────────────────────
 // POST → Génère le rapport IA de clôture + prévisions de production
 //
-// Flux :
-//   1. Auth JWT boulanger
-//   2. Récupère boulangerie (timezone, coords) + données journée + historique
-//   3. Fetch météo Open-Meteo (async, non bloquant si erreur)
-//   4. Stocke la météo en DB
-//   5. Anonymise les données (RGPD) — aucune PII envoyée à l'IA
-//   6. Appelle z.ai GLM
-//   7. Parse la réponse JSON + dé-anonymise les textes (P1→vrai nom)
-//   8. Sauvegarde rapport + prévisions en base
-//   9. Notification push (non bloquant)
-//
-// GET → Récupère le rapport du jour (ou d'une date donnée)
+// Nouveautés v2 :
+//   - Intègre les données du wizard pré-rapport (consignes owner, événement)
+//   - Intègre le retour vendeuse (feedback_journee) dans le prompt Levain
+//   - Rapport dual : section boulanger + section vendeuse
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -32,10 +24,8 @@ import { fetchMeteo, analyserImpactMeteo } from '@/lib/weather';
 // ── Config z.ai ───────────────────────────────────────────────
 const ZHIPU_API_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZHIPU_MODEL   = process.env.ZHIPU_MODEL ?? 'glm-4.5-air';
-const ZHIPU_MAX_TOK = 2500;
-const ZHIPU_TIMEOUT = 90_000; // 90s
-
-// ── Utilitaires ───────────────────────────────────────────────
+const ZHIPU_MAX_TOK = 3000; // +500 pour les nouvelles sections
+const ZHIPU_TIMEOUT = 90_000;
 
 function extractJSON(raw: string): string {
   let c = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -45,8 +35,6 @@ function extractJSON(raw: string): string {
   if (s !== -1 && e > s) return c.slice(s, e + 1);
   return c;
 }
-
-// ── Auth helper ───────────────────────────────────────────────
 
 interface BoulangerieInfo {
   id:        string;
@@ -87,13 +75,9 @@ async function getAuth(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const auth = await getAuth(req);
   if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-
   const { admin, boulangerie } = auth;
   const { searchParams } = new URL(req.url);
-
-  // Utilise le timezone de la boulangerie si pas de date fournie
   const date = searchParams.get('date') ?? getTodayInTimezone(boulangerie.timezone);
-
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: 'Format date invalide (YYYY-MM-DD)' }, { status: 400 });
   }
@@ -106,7 +90,6 @@ export async function GET(req: NextRequest) {
       .eq('date', date)
       .single();
 
-    // Prévisions pour demain (J+1)
     const demainDate = (() => {
       const d = new Date(date + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() + 1);
@@ -121,7 +104,22 @@ export async function GET(req: NextRequest) {
       .order('produit_categorie')
       .order('produit_nom');
 
-    return NextResponse.json({ rapport: rapport ?? null, previsions: previsions ?? [] });
+    // Récupère aussi le feedback vendeuse du jour
+    let feedbackVendeuse = null;
+    if (rapport?.journee_id) {
+      const { data: fb } = await admin
+        .from('feedback_journee')
+        .select('*')
+        .eq('journee_id', rapport.journee_id)
+        .single();
+      feedbackVendeuse = fb;
+    }
+
+    return NextResponse.json({
+      rapport: rapport ?? null,
+      previsions: previsions ?? [],
+      feedback_vendeuse: feedbackVendeuse,
+    });
   } catch (err) {
     console.error('[GET /api/boulanger/ai/rapport]', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
@@ -133,7 +131,6 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await getAuth(req);
   if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-
   const { admin, boulangerie } = auth;
   const boulangerieId = boulangerie.id;
 
@@ -142,12 +139,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Clé API z.ai non configurée' }, { status: 503 });
   }
 
-  // ── Date dans le timezone de la boulangerie ───────────────
-  const today = getTodayInTimezone(boulangerie.timezone);
-  console.info(`[AI rapport] Boulangerie ${boulangerieId} | Timezone: ${boulangerie.timezone} | Aujourd'hui: ${today}`);
+  // ── Données wizard pré-rapport (optionnelles, envoyées dans le body) ──
+  let wizardData: {
+    consignes_boulanger?: string;
+    consignes_vendeuse?:  string;
+    evenement_demain?:    string;
+    evenement_impact?:    'hausse' | 'neutre' | 'baisse';
+    evenement_pct?:       number;
+  } = {};
 
   try {
-    // ── 1. Vérifier qu'un rapport n'existe pas déjà ────────
+    const body = await req.json().catch(() => ({}));
+    wizardData = body ?? {};
+  } catch {}
+
+  const today = getTodayInTimezone(boulangerie.timezone);
+
+  try {
+    // ── 1. Vérifier rapport existant ──────────────────────────
     const { data: existingRapport } = await admin
       .from('ai_rapports')
       .select('id, statut')
@@ -158,25 +167,49 @@ export async function POST(req: NextRequest) {
     if (existingRapport?.statut === 'genere') {
       const { data: rapport } = await admin
         .from('ai_rapports').select('*').eq('id', existingRapport.id).single();
-      const demainDate = (() => { const d=new Date(today+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+1); return d.toISOString().split('T')[0]; })();
-      const { data: previsions } = await admin.from('production_forecasts').select('*').eq('boulangerie_id', boulangerieId).eq('date_production', demainDate);
+      const demainDate = (() => {
+        const d = new Date(today + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        return d.toISOString().split('T')[0];
+      })();
+      const { data: previsions } = await admin
+        .from('production_forecasts').select('*')
+        .eq('boulangerie_id', boulangerieId).eq('date_production', demainDate);
       return NextResponse.json({ rapport, previsions: previsions ?? [], cached: true });
     }
 
-    // ── 2. Crée / met à jour le rapport en statut "en_cours" ─
+    // ── 2. Crée/met à jour le rapport en statut "en_cours" ────
     let rapportId: string;
     if (existingRapport) {
       rapportId = existingRapport.id;
-      await admin.from('ai_rapports').update({ statut: 'en_cours', erreur_msg: null }).eq('id', rapportId);
+      await admin.from('ai_rapports').update({
+        statut: 'en_cours',
+        erreur_msg: null,
+        // Sauvegarde les données du wizard
+        consignes_boulanger: wizardData.consignes_boulanger ?? null,
+        consignes_vendeuse:  wizardData.consignes_vendeuse ?? null,
+        wizard_evenement:    wizardData.evenement_demain ?? null,
+        wizard_impact:       wizardData.evenement_impact ?? null,
+        wizard_impact_pct:   wizardData.evenement_pct ?? 0,
+      }).eq('id', rapportId);
     } else {
       const { data: nr } = await admin
         .from('ai_rapports')
-        .insert({ boulangerie_id: boulangerieId, date: today, statut: 'en_cours' })
+        .insert({
+          boulangerie_id: boulangerieId,
+          date: today,
+          statut: 'en_cours',
+          consignes_boulanger: wizardData.consignes_boulanger ?? null,
+          consignes_vendeuse:  wizardData.consignes_vendeuse ?? null,
+          wizard_evenement:    wizardData.evenement_demain ?? null,
+          wizard_impact:       wizardData.evenement_impact ?? null,
+          wizard_impact_pct:   wizardData.evenement_pct ?? 0,
+        })
         .select('id').single();
       rapportId = nr!.id;
     }
 
-    // ── 3. Récupère les données de la journée ──────────────
+    // ── 3. Récupère les données de la journée ──────────────────
     const { data: journee } = await admin
       .from('journees')
       .select('*, stocks_journaliers(*)')
@@ -185,11 +218,21 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!journee?.stocks_journaliers?.length) {
-      await admin.from('ai_rapports').update({ statut: 'erreur', erreur_msg: 'Aucune donnée de production.' }).eq('id', rapportId);
+      await admin.from('ai_rapports').update({
+        statut: 'erreur',
+        erreur_msg: 'Aucune donnée de production.',
+      }).eq('id', rapportId);
       return NextResponse.json({ error: 'Aucune production saisie pour aujourd\'hui.' }, { status: 400 });
     }
 
-    // Historique 14j (clôturés)
+    // Feedback vendeuse du jour (si disponible)
+    const { data: feedbackVendeuse } = await admin
+      .from('feedback_journee')
+      .select('*')
+      .eq('journee_id', journee.id)
+      .single();
+
+    // Historique 14j
     const { data: historique } = await admin
       .from('journees')
       .select('date, ca_estime, taux_invendu, total_produit, total_invendu, commandes_online')
@@ -199,7 +242,6 @@ export async function POST(req: NextRequest) {
       .order('date', { ascending: false })
       .limit(14);
 
-    // Catalogue produits actifs
     const { data: produits } = await admin
       .from('produits')
       .select('id, nom, emoji, categorie, prix_vente')
@@ -210,7 +252,7 @@ export async function POST(req: NextRequest) {
 
     await admin.from('ai_rapports').update({ journee_id: journee.id }).eq('id', rapportId);
 
-    // ── 4. Fetch météo (non bloquant) ─────────────────────
+    // ── 4. Fetch météo ─────────────────────────────────────────
     let meteoComplet = null;
     let meteoId: string | null = null;
 
@@ -218,8 +260,7 @@ export async function POST(req: NextRequest) {
       try {
         meteoComplet = await fetchMeteo(boulangerie.latitude, boulangerie.longitude, boulangerie.timezone);
         if (meteoComplet) {
-          const impact = analyserImpactMeteo(meteoComplet);
-          const { data: meteoRow, error: meteoErr } = await admin
+          const { data: meteoRow } = await admin
             .from('meteo_journees')
             .upsert({
               boulangerie_id:    boulangerieId,
@@ -242,19 +283,14 @@ export async function POST(req: NextRequest) {
               fetched_at:        new Date().toISOString(),
             }, { onConflict: 'boulangerie_id,date' })
             .select('id').single();
-          if (!meteoErr && meteoRow) {
-            meteoId = meteoRow.id as string;
-            console.info(`[AI rapport] Météo récupérée: ${meteoComplet.actuelle.icone} ${meteoComplet.actuelle.description} | Demain: ${meteoComplet.demain.icone} ${meteoComplet.demain.description}`);
-          }
+          if (meteoRow) meteoId = meteoRow.id as string;
         }
       } catch (meteoErr) {
         console.warn('[AI rapport] Erreur météo (non bloquante):', meteoErr);
       }
-    } else {
-      console.warn('[AI rapport] Coordonnées GPS non configurées — météo désactivée');
     }
 
-    // ── 5. Anonymiser les données (RGPD) ──────────────────
+    // ── 5. Anonymiser les données ──────────────────────────────
     const payload = anonymiserDonnees(
       journee as JourneeRaw,
       (historique ?? []) as JourneeRaw[],
@@ -262,14 +298,17 @@ export async function POST(req: NextRequest) {
       boulangerie.timezone,
       meteoComplet,
     );
-
-    // _mapping ne quitte JAMAIS ce serveur
     const { _mapping, ...payloadSansMapping } = payload;
 
-    // Log de debug du contexte envoyé à l'IA
-    console.info(`[AI rapport] Demain: ${payload.demain_info.jour_semaine} (weekend: ${payload.demain_info.est_weekend}) | Historique même jour: ${payload.histo_meme_jour.length} entrées`);
+    // ── 6. Construire le prompt enrichi ────────────────────────
+    const systemPrompt = buildSystemPromptEnrichi();
+    const userPrompt   = buildUserPromptEnrichi(
+      payloadSansMapping,
+      feedbackVendeuse,
+      wizardData,
+    );
 
-    // ── 6. Appel z.ai ─────────────────────────────────────
+    // ── 7. Appel z.ai ─────────────────────────────────────────
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), ZHIPU_TIMEOUT);
     let aiResponse: string;
@@ -278,15 +317,18 @@ export async function POST(req: NextRequest) {
     try {
       const response = await fetch(ZHIPU_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${zhipuApiKey}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${zhipuApiKey}`,
+        },
         body: JSON.stringify({
           model:           ZHIPU_MODEL,
           messages: [
-            { role: 'system', content: buildSystemPrompt() },
-            { role: 'user',   content: buildUserPrompt(payloadSansMapping) },
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userPrompt },
           ],
-          thinking:        { type: 'disabled' }, // GLM-4.5 : évite le <think>...</think>
-          temperature:     0.25,                 // Plus déterministe pour les données chiffrées
+          thinking:        { type: 'disabled' },
+          temperature:     0.25,
           max_tokens:      ZHIPU_MAX_TOK,
           response_format: { type: 'json_object' },
         }),
@@ -302,12 +344,11 @@ export async function POST(req: NextRequest) {
       };
       aiResponse     = data.choices?.[0]?.message?.content ?? '';
       tokensUtilises = data.usage?.total_tokens ?? null;
-      console.info(`[AI rapport] Modèle: ${ZHIPU_MODEL} | Tokens: ${tokensUtilises}`);
     } finally {
       clearTimeout(timeoutId);
     }
 
-    // ── 7. Parse + dé-anonymise ────────────────────────────
+    // ── 8. Parse + dé-anonymise ────────────────────────────────
     let rapportJSON: Record<string, unknown>;
     try {
       const cleaned = extractJSON(aiResponse);
@@ -318,17 +359,16 @@ export async function POST(req: NextRequest) {
         statut: 'erreur',
         erreur_msg: `Non parsable: ${String(parseErr).slice(0, 200)}`,
       }).eq('id', rapportId);
-      console.error('[AI rapport] Parse échec:', preview);
       return NextResponse.json({ error: 'Réponse IA invalide.', debug_preview: preview }, { status: 502 });
     }
 
-    // ── CLEF : remplace P1/P2/P3 par vrais noms dans les textes ─
     const rapportDeanonymise = deanonymiserRapport(rapportJSON, _mapping);
+    const score   = typeof rapportDeanonymise.score === 'number'
+      ? Math.max(0, Math.min(100, Math.round(rapportDeanonymise.score))) : null;
+    const verdict = typeof rapportDeanonymise.verdict === 'string'
+      ? rapportDeanonymise.verdict.slice(0, 200) : null;
 
-    const score   = typeof rapportDeanonymise.score   === 'number' ? Math.max(0, Math.min(100, Math.round(rapportDeanonymise.score))) : null;
-    const verdict = typeof rapportDeanonymise.verdict === 'string' ? rapportDeanonymise.verdict.slice(0, 200) : null;
-
-    // ── 8. Sauvegarde le rapport ───────────────────────────
+    // ── 9. Sauvegarde le rapport ───────────────────────────────
     await admin.from('ai_rapports').update({
       statut:            'genere',
       score_performance: score,
@@ -337,10 +377,17 @@ export async function POST(req: NextRequest) {
       modele_ia:         ZHIPU_MODEL,
       tokens_utilises:   tokensUtilises,
       erreur_msg:        null,
+      // Sauvegarde aussi le feedback vendeuse dans le rapport pour référence
+      feedback_vendeuse: feedbackVendeuse ? JSON.stringify({
+        rating:           feedbackVendeuse.rating_journee,
+        points_forts:     feedbackVendeuse.points_forts,
+        points_ameliorer: feedbackVendeuse.points_ameliorer,
+        commentaire:      feedbackVendeuse.commentaire_libre,
+      }) : null,
       ...(meteoId ? { meteo_id: meteoId } : {}),
     }).eq('id', rapportId);
 
-    // ── 9. Prévisions de production ────────────────────────
+    // ── 10. Prévisions de production ───────────────────────────
     const demainDate = (() => {
       const d = new Date(today + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() + 1);
@@ -358,7 +405,8 @@ export async function POST(req: NextRequest) {
         const mapped = _mapping[idx];
         if (!mapped) return null;
         const qte  = Math.max(0, Math.round(Number(p.quantite_suggeree) || 0));
-        const base = (journee.stocks_journaliers as StockRow[])?.find(s => s.produit_id === mapped.id)?.production ?? 0;
+        const base = (journee.stocks_journaliers as StockRow[])
+          ?.find(s => s.produit_id === mapped.id)?.production ?? 0;
         return {
           boulangerie_id:    boulangerieId,
           rapport_id:        rapportId,
@@ -369,17 +417,19 @@ export async function POST(req: NextRequest) {
           produit_emoji:     mapped.emoji,
           quantite_suggeree: qte,
           quantite_base:     base,
-          variation_pct:     typeof p.variation_pct === 'number' ? p.variation_pct : (base > 0 ? Math.round(((qte-base)/base)*100) : 0),
+          variation_pct:     typeof p.variation_pct === 'number'
+            ? p.variation_pct
+            : (base > 0 ? Math.round(((qte - base) / base) * 100) : 0),
           raison:            typeof p.raison === 'string' ? (p.raison as string).slice(0, 300) : null,
           appliquee:         false,
         };
       })
       .filter(Boolean);
 
-    // Produits du catalogue non couverts par l'IA → quantité identique
     const couverts = new Set(previsionsRows.map(r => r?.produit_id));
     const manquants = (produits ?? []).filter(p => !couverts.has(p.id)).map(p => {
-      const base = (journee.stocks_journaliers as StockRow[])?.find(s => s.produit_id === p.id)?.production ?? 0;
+      const base = (journee.stocks_journaliers as StockRow[])
+        ?.find(s => s.produit_id === p.id)?.production ?? 0;
       return {
         boulangerie_id:    boulangerieId,
         rapport_id:        rapportId,
@@ -402,8 +452,8 @@ export async function POST(req: NextRequest) {
         .upsert(allPrevisions, { onConflict: 'boulangerie_id,date_production,produit_id' });
     }
 
-    // ── 10. Notification push (non bloquante) ──────────────
-    const appUrl        = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    // ── 11. Notification push ──────────────────────────────────
+    const appUrl         = process.env.NEXT_PUBLIC_APP_URL ?? '';
     const internalSecret = process.env.INTERNAL_API_SECRET ?? '';
     if (appUrl && internalSecret) {
       fetch(`${appUrl}/api/notifications/send`, {
@@ -420,8 +470,9 @@ export async function POST(req: NextRequest) {
       }).catch(e => console.warn('[AI rapport] Push non envoyé:', e));
     }
 
-    // ── 11. Retourne le résultat ───────────────────────────
-    const { data: rapportFinal } = await admin.from('ai_rapports').select('*').eq('id', rapportId).single();
+    // ── 12. Retourne le résultat ───────────────────────────────
+    const { data: rapportFinal } = await admin
+      .from('ai_rapports').select('*').eq('id', rapportId).single();
     const { data: previsionsFinal } = await admin
       .from('production_forecasts')
       .select('*')
@@ -429,7 +480,11 @@ export async function POST(req: NextRequest) {
       .eq('date_production', demainDate)
       .order('produit_categorie').order('produit_nom');
 
-    return NextResponse.json({ rapport: rapportFinal, previsions: previsionsFinal ?? [], cached: false });
+    return NextResponse.json({
+      rapport:   rapportFinal,
+      previsions: previsionsFinal ?? [],
+      cached:    false,
+    });
 
   } catch (err) {
     console.error('[POST /api/boulanger/ai/rapport]', err);
@@ -444,3 +499,135 @@ export async function POST(req: NextRequest) {
 
 // ── Type helper interne ───────────────────────────────────────
 interface StockRow { produit_id: string; production: number; }
+
+// ── Prompt système enrichi v2 ─────────────────────────────────
+
+function buildSystemPromptEnrichi(): string {
+  return `Tu es Levain, l'assistant IA du boulanger artisanal de BakeryOS.
+
+TON RÔLE :
+Chaque soir après la clôture, tu analyses la journée et prépares un rapport dual :
+- Une section BOULANGER (technique, production, matières premières, plan demain)
+- Une section VENDEUSE (relation client, retour terrain, conseils pratiques au comptoir)
+
+RÈGLES ABSOLUES :
+1. Dans les textes → UTILISE les vrais noms des produits. JAMAIS "P1", "P2" etc.
+2. Dans "previsions_production" uniquement → utilise les produit_index numériques.
+3. Intègre le retour vendeuse si disponible — c'est de l'information terrain précieuse.
+4. Intègre les consignes de l'owner (boulanger/gérant) s'il en a laissé.
+5. Intègre l'événement du lendemain dans les prévisions.
+6. Réponse en JSON pur uniquement. En français. Chaque phrase actionnable.
+
+FORMAT JSON OBLIGATOIRE :
+{
+  "score": <0-100>,
+  "verdict": "<20 mots max>",
+  "succes": ["<succès avec vrais noms>"],
+  "flops": ["<problème avec vrais noms>"],
+  "analyse_contextuelle": "<2-3 phrases>",
+  "previsions_production": [
+    { "produit_index": <n>, "quantite_suggeree": <int>, "variation_pct": <int>, "raison": "<raison courte>" }
+  ],
+  "anti_gaspillage": ["<conseil>"],
+  "opportunites": ["<opportunité>"],
+  "alerte_ingredients": ["<alerte si pertinente>"],
+  "matieres_premieres": {
+    "resume": "<phrase>",
+    "details": [{ "ingredient": "<>", "quantite": "<>", "observation": "<>" }]
+  },
+  "briefing_matin": {
+    "titre": "<titre pour le boulanger>",
+    "contexte_jour": "<type de journée demain>",
+    "meteo_resume": "<météo demain avec emoji>",
+    "impact_meteo_vente": "<impact concret>",
+    "top3_a_produire": ["<produit 1 avec qté>", "<produit 2>", "<produit 3>"],
+    "point_vigilance": "<1 chose critique>",
+    "fiabilite_previsions": "<indication fiabilité>",
+    "conseil_ouverture": "<conseil pratique>"
+  },
+  "briefing_vendeuse": {
+    "titre": "<titre pour la vendeuse/vendeur>",
+    "accueil_client": "<conseil relation client pour demain>",
+    "produits_a_mettre_en_avant": ["<produit à valoriser au comptoir>"],
+    "gestion_fin_journee": "<conseil pour gérer les invendus de demain soir>",
+    "retour_integre": "<si retour vendeuse disponible : comment il a été pris en compte>",
+    "message_encouragement": "<message court et chaleureux pour la vendeuse>"
+  },
+  "consignes_transmises": {
+    "au_boulanger": "<consignes de l'owner pour le boulanger, vide si aucune>",
+    "a_la_vendeuse": "<consignes de l'owner pour la vendeuse, vide si aucune>"
+  },
+  "message_levain": "<message personnel court au boulanger>"
+}`;
+}
+
+// ── Prompt utilisateur enrichi v2 ─────────────────────────────
+
+function buildUserPromptEnrichi(
+  payload: ReturnType<typeof import('@/lib/ai-anonymize').anonymiserDonnees> extends infer P
+    ? P extends { _mapping: unknown } ? Omit<P, '_mapping'> : P : never,
+  feedbackVendeuse: Record<string, unknown> | null,
+  wizardData: {
+    consignes_boulanger?: string;
+    consignes_vendeuse?:  string;
+    evenement_demain?:    string;
+    evenement_impact?:    string;
+    evenement_pct?:       number;
+  },
+): string {
+  // Section retour vendeuse
+  let sectionFeedback = '';
+  if (feedbackVendeuse) {
+    const humeurs: Record<number, string> = { 1: '😞 Journée difficile', 2: '😐 Journée correcte', 3: '😊 Bonne journée', 4: '🌟 Excellente journée' };
+    const rating = feedbackVendeuse.rating_journee as number;
+    sectionFeedback = `
+=== RETOUR DE LA VENDEUSE ===
+Humeur globale : ${humeurs[rating] ?? '—'}
+Points forts : ${(feedbackVendeuse.points_forts as string[] ?? []).join(', ') || 'Aucun'}
+Points à améliorer : ${(feedbackVendeuse.points_ameliorer as string[] ?? []).join(', ') || 'Aucun'}
+${feedbackVendeuse.commentaire_libre ? `Commentaire libre : "${feedbackVendeuse.commentaire_libre}"` : ''}
+⚠️ Ce retour terrain est précieux — intègre-le dans l'analyse et le briefing vendeuse.`;
+  }
+
+  // Section événement
+  let sectionEvenement = '';
+  if (wizardData.evenement_demain) {
+    const impactLabel = wizardData.evenement_impact === 'hausse'
+      ? `+${wizardData.evenement_pct ?? '?'}% de fréquentation estimée`
+      : wizardData.evenement_impact === 'baisse'
+        ? `-${wizardData.evenement_pct ?? '?'}% de fréquentation estimée`
+        : 'Impact neutre';
+    sectionEvenement = `
+=== ÉVÉNEMENT DEMAIN ===
+Description : ${wizardData.evenement_demain}
+Impact estimé : ${impactLabel}
+⚠️ Tiens compte de cet événement dans les prévisions de production et le briefing matin.`;
+  }
+
+  // Section consignes owner
+  let sectionConsignes = '';
+  if (wizardData.consignes_boulanger || wizardData.consignes_vendeuse) {
+    sectionConsignes = `
+=== CONSIGNES DU PROPRIÉTAIRE ===`;
+    if (wizardData.consignes_boulanger) {
+      sectionConsignes += `\nPour le boulanger : "${wizardData.consignes_boulanger}"`;
+    }
+    if (wizardData.consignes_vendeuse) {
+      sectionConsignes += `\nPour la vendeuse : "${wizardData.consignes_vendeuse}"`;
+    }
+    sectionConsignes += `\n⚠️ Inclus ces consignes mot pour mot dans le champ "consignes_transmises".`;
+  }
+
+  // Utilise le prompt de base et l'enrichit
+  const basePrompt = buildUserPrompt(payload as Parameters<typeof buildUserPrompt>[0]);
+
+  return `${basePrompt}
+
+${sectionFeedback}
+${sectionEvenement}
+${sectionConsignes}
+
+→ Génère le JSON complet avec les sections briefing_matin, briefing_vendeuse ET consignes_transmises.
+→ Dans briefing_vendeuse, utilise le retour vendeuse s'il est disponible pour personnaliser le message.
+→ Dans consignes_transmises, reprends les consignes de l'owner telles quelles (ou vide si aucune).`;
+}

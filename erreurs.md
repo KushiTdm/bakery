@@ -1,6 +1,6 @@
 # Rapport d'analyse — BakeryOS
 
-*Généré automatiquement le 16/03/2026 — mis à jour le 17/03/2026 (session multi-user)*
+*Généré automatiquement le 16/03/2026 — mis à jour le 22/03/2026 (analyse complète)*
 
 ---
 
@@ -16,211 +16,159 @@
 
 ---
 
-## 🔴 SÉCURITÉ — PRIORITÉ 1
+## 🟡 MOYEN — En attente
 
-### S0. ✅ CORRIGÉ — Accès non autorisé à /boulanger pour les clients
-**Fichier** : `app/boulanger/page.tsx`, `middleware.ts`, `context/boulanger-context.tsx`
-**Statut** : ✅ **CORRIGÉ le 17/03/2026**
-
-**Problème initial** : Un client authentifié (via OTP Magic Link) pouvait accéder à `/boulanger` et voir l'interface du boulanger.
-
-**Corrections appliquées** :
-1. **`middleware.ts`** — Vérification SSR complète via RPC `check_boulanger_access()` :
-   - Vérifie l'existence d'une session Supabase valide
-   - Vérifie que l'utilisateur est owner OU employé actif
-   - Redirige vers `/?error=unauthorized` si accès non autorisé
-2. **`app/boulanger/page.tsx`** — Écran "Accès non autorisé" si `boulangerie === null` ou `userRole === null`
-3. **`context/boulanger-context.tsx`** — Utilise `get_current_user_access()` pour charger le rôle et les permissions
-
----
-
-### S1. ✅ CORRIGÉ — Validation du slug côté register
-**Fichier** : `app/api/boulanger/auth/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
-`isValidSlug()` est appliqué avant toute vérification d'existence en base.
-
----
-
-### S2. ✅ CORRIGÉ — Rate limiting sur l'authentification
-**Fichier** : `app/api/boulanger/auth/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
-Système Map mémoire : 5 tentatives / 15 min, reset après succès, header `Retry-After`.
-
----
-
-### S3. ✅ CORRIGÉ — Fallback unsafe dans lib/supabase.ts
-**Fichier** : `lib/supabase.ts`
-**Statut** : ✅ Corrigé le 16/03/2026 (v2 — simplification)
-
----
-
-### S4. ✅ CORRIGÉ — Validation de la complexité du mot de passe
-**Fichier** : `app/api/boulanger/auth/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
-`validatePasswordStrength()` vérifie 8 chars min, minuscule, majuscule, chiffre.
-
----
-
-### S5. ✅ CORRIGÉ — Secret interne aligné entre les deux routes
-**Fichiers** : `app/api/notifications/send/route.ts`, `app/api/orders/confirm-email/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026 (v2 — alignement)
-
----
-
-## 🐛 BUGS — PRIORITÉ 2
-
-### B1. ✅ CORRIGÉ — Cast `produit_id::UUID` potentiellement invalide
-**Fichier** : `migrations/migration.sql`
-**Statut** : ✅ **CORRIGÉ le 17/03/2026**
-
-**Problème initial** : Dans `get_paniers_flash()`, le cast `sj.produit_id::UUID` pouvait échouer si `produit_id` contenait une valeur non-UUID.
-
-**Correction appliquée** : La fonction `get_paniers_flash()` lit désormais depuis la table `paniers_flash` (source de vérité persistée) au lieu de joindre `stocks_journaliers`. Plus de cast UUID unsafe.
-
----
-
-### B2. 🟡 MOYEN — `client_telephone` non collecté côté client
-**Fichier** : `components/cart-sidebar.tsx`
-**Statut** : ⚪ Accepté (incohérence fonctionnelle volontaire — pas un bug technique)
-Le champ existe en base mais n'est pas exposé dans le formulaire de commande.
-À traiter lors de l'évolution UX du tunnel de commande si besoin.
-
----
-
-### B3. ✅ CORRIGÉ — Race condition double soumission
-**Fichier** : `components/cart-sidebar.tsx`
-**Statut** : ✅ Corrigé le 16/03/2026
-
----
-
-### B4. ✅ CORRIGÉ — Gestion d'erreur silencieuse dans cart-sidebar
-**Fichier** : `components/cart-sidebar.tsx`
-**Statut** : ✅ Corrigé le 16/03/2026
-
----
-
-### B5. 🔵 FAIBLE — TVA calculée mais pas stockée en base
-**Fichier** : `components/cart-sidebar.tsx`
-**Statut** : ⚪ Accepté — évolution future
-
----
-
-## ⚠️ INCOHÉRENCES — PRIORITÉ 3
-
-### I1. ✅ CORRIGÉ — Middleware quasi-vide
-**Fichier** : `middleware.ts`
-**Statut** : ✅ Corrigé le 17/03/2026
-Middleware SSR complet avec vérification session + rôle via `check_boulanger_access()`.
-
----
-
-### I2. ✅ CORRIGÉ — Types partagés importés depuis un fichier 'use client'
-**Fichiers** : `lib/types.ts` (nouveau), `context/boulanger-context.tsx`, `app/api/boulanger/journee/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
-
----
-
-### I3. ✅ CORRIGÉ — Limite Starter comptait seulement les produits actifs
-**Fichier** : `app/api/boulanger/produits/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
-
----
-
-### I4. ✅ CORRIGÉ — Colonnes d'adresse absentes du CREATE TABLE initial
-**Fichier** : `migrations/migration.sql`
-**Statut** : ✅ Corrigé le 17/03/2026
-Les colonnes `adresse`, `ville`, `code_postal`, `telephone`, `creneaux_retrait` sont maintenant dans le CREATE TABLE avec `ALTER TABLE IF NOT EXISTS` pour rétrocompatibilité.
-
----
-
-### I5. 🔵 FAIBLE — ESLint ignoré pendant le build
-**Fichier** : `next.config.js`
-**Statut** : ⚪ Accepté pour l'instant — à activer avant la mise en production finale
-
----
-
-## 📝 GRAMMAIRE/ORTHOGRAPHE — PRIORITÉ 4
-
-### G1. ⚪ INFO — Messages d'erreur cohérents
-Aucune correction nécessaire.
-
-### G2. 🔵 FAIBLE — Commentaires mixtes (FR/EN) dans certains fichiers
-**Statut** : ⚪ Accepté — harmonisation possible lors d'une future passe de style.
-
----
-
-## 🎯 ERREURS STRATÉGIQUES — PRIORITÉ 5
-
-### E1. 🟡 MOYEN — Pas de pagination sur l'historique
+### E1. Pagination sur l'historique
 **Fichier** : `app/api/boulanger/historique/route.ts`
-**Statut** : 🟡 Ouvert — limite actuelle de 90 entrées suffit à court terme.
+**Statut** : 🟡 Ouvert
+
+**Contexte** : Limite actuelle de 90 entrées. Suffisante à court terme, mais une pagination cursor-based sera nécessaire si le volume augmente.
+
+**Action recommandée** : Implémenter pagination `cursor` avec `?before=uuid` pour les boulangeries avec > 90 jours d'historique.
 
 ---
 
-### E2. ✅ CORRIGÉ — Soft delete pour les produits
-**Fichier** : `migrations/migration.sql`, `app/api/boulanger/produits/route.ts`
-**Statut** : ✅ **CORRIGÉ le 17/03/2026**
+## 🔵 FAIBLE — Améliorations suggérées
 
-**Correction appliquée** :
-- Colonne `deleted_at TIMESTAMPTZ DEFAULT NULL` ajoutée dans `migration.sql`
-- Index mis à jour pour exclure `WHERE deleted_at IS NULL`
-- `get_catalogue_public()` filtre les produits softdeleted
+### B2. Collecte du téléphone client
+**Fichier** : `components/cart-sidebar.tsx`
+**Statut** : 🔵 Optionnel
+
+**Contexte** : Le champ `client_telephone` existe en base mais n'est pas exposé dans le formulaire de commande. Peut être utile pour les notifications SMS ou le support.
+
+**Action recommandée** : Ajouter un champ téléphone optionnel lors de l'évolution UX du tunnel de commande.
 
 ---
 
-### E3. 🔵 FAIBLE — Images externes Unsplash comme fallback
+### B5. TVA non stockée
+**Fichier** : `components/cart-sidebar.tsx`
+**Statut** : 🔵 À planifier
+
+**Contexte** : La TVA est calculée côté client mais pas persistée en base. Pour la facturation, il faudra stocker `tva_pct` et `tva_montant` dans la table `commandes`.
+
+**Action recommandée** : Ajouter colonnes `tva_pct`, `tva_montant` dans `commandes` lors de l'implémentation des factures.
+
+---
+
+### E3. Images fallback externes
 **Fichier** : `app/api/catalogue/[slug]/route.ts`
-**Statut** : 🔵 Ouvert
+**Statut** : 🔵 Amélioration
+
+**Contexte** : Les images de fallback viennent d'Unsplash (externe). Pour la stabilité et le RGPD, il faudrait héberger ces images localement.
+
+**Action recommandée** : Créer un set d'images par défaut dans `/public/images/products/` (baguette.jpg, croissant.jpg, etc.).
 
 ---
 
-### E4. ✅ CORRIGÉ — heure_retrait non validée contre les créneaux configurés
-**Fichier** : `app/api/orders/route.ts`
-**Statut** : ✅ Corrigé le 16/03/2026
+### I5. ESLint ignoré au build
+**Fichier** : `next.config.js`
+**Statut** : 🔵 À activer avant production
+
+**Contexte** : `eslint.ignoreDuringBuilds: true` dans `next.config.js`. Permet un développement plus rapide mais masque des warnings potentiellement utiles.
+
+**Action recommandée** : Réactiver ESLint et corriger les warnings avant la mise en production finale.
 
 ---
 
-## 🆕 NOUVELLES FONCTIONNALITÉS (session multi-user)
+## ✅ FONCTIONNALITÉS IMPLÉMENTÉES (22/03/2026)
 
-### Multi-utilisateurs par boulangerie
-**Fichiers** : `migrations/Migration-Multi-Utilisateurs.sql`, `app/api/boulanger/equipe/route.ts`, `app/api/boulanger/rejoindre/route.ts`
+### 🤖 IA Levain — Assistant Boulanger
+**Fichiers** : `components/boulanger/vue-rapport-ia.tsx`, `app/api/boulanger/ai/*`
 **Statut** : ✅ Implémenté
 
-**Nouveautés** :
-- Table `employes` (gérant + vendeur) avec invitations
-- Table `audit_equipe` pour l'historique des actions
-- Permissions granulaires par feature (`lib/types.ts`)
-- Fonctions SQL sécurisées : `check_boulanger_access()`, `get_current_user_access()`, `get_team_members()`, `count_active_members()`
-- RLS étendu pour les employés actifs
-- Routes API : GET/POST `/api/boulanger/equipe`, GET `/api/boulanger/rejoindre`
-- Limites par plan : starter=1, pro=3, multi=∞
+**Détails** :
+- Rapport quotidien avec score de performance (0-100)
+- Briefing matin pour J+1 (contexte, météo, top 3 produits, vigilance)
+- Prévisions de production par produit avec variation %
+- Application en 1 clic du plan de production
+- Analyse anti-gaspillage et opportunités
+- Alertes ingrédients et matières premières
+- Modèle GLM-4-Flash (z.ai) — RGPD conforme
 
 ---
 
-## 📊 RÉSUMÉ
+### 🌤️ Météo Journalière
+**Fichiers** : `migrations/migration-meteo-timezone.sql`, `lib/weather.ts`
+**Statut** : ✅ Implémenté
+
+**Détails** :
+- Table `meteo_journees` avec données du jour + prévisions J+1
+- Coordonnées GPS par boulangerie (`latitude`, `longitude`)
+- Intégration Open-Meteo (gratuit, sans API key)
+- Impact météo sur les ventes analysé par l'IA
+
+---
+
+### 📋 Workflow Journée — 7 Étapes
+**Fichiers** : `lib/workflow.ts`, `hooks/use-workflow-journee.ts`, `components/boulanger/workflow-guard.tsx`
+**Statut** : ✅ Implémenté
+
+**Détails** :
+- Étapes chronologiques avec déblocage horaire
+- Guards de protection sur chaque onglet
+- Compte à rebours jusqu'à minuit
+- Progression de la journée (0-100%)
+- Suggestions d'étape courante
+
+---
+
+### 👥 Multi-utilisateurs
+**Fichiers** : `migrations/migration-v4.sql`, `app/api/boulanger/equipe/*`, `context/boulanger-context.tsx`
+**Statut** : ✅ Implémenté
+
+**Détails** :
+- Rôles : Owner / Gérant / Employé
+- Permissions granulaires par feature
+- Système d'invitation par email
+- Audit trail dans `audit_equipe`
+- RLS étendu pour les employés
+
+---
+
+### 🔒 Sécurité (corrections)
+**Statut** : ✅ Toutes vulnérabilités critiques corrigées
+
+- S0 : Protection route `/boulanger` (middleware + client)
+- S1 : Validation slug côté register
+- S2 : Rate limiting authentification
+- S3 : Fallback supabase sécurisé
+- S4 : Validation force mot de passe
+- S5 : Secret interne aligné
+- B1 : Cast UUID sécurisé
+- B3 : Race condition double soumission
+- B4 : Gestion d'erreur silencieuse
+- I1 : Middleware SSR complet
+- I2 : Types partagés isolés
+- I3 : Limite Starter corrigée
+- I4 : Colonnes adresse présentes
+- E2 : Soft delete produits
+- E4 : Validation créneaux retrait
+
+---
+
+## 📊 RÉSUMÉ ACTUEL
 
 | Catégorie | 🔴 Critique | 🟠 Élevé | 🟡 Moyen | 🔵 Faible | ⚪ Info | ✅ Corrigé |
 |-----------|-------------|----------|----------|-----------|---------|-----------|
 | Sécurité  | 0 | 0 | 0 | 0 | 0 | **6** |
-| Bugs      | 0 | 0 | 0 | 1 | 2 | **3** |
-| Incohérences | 0 | 0 | 0 | 1 | 1 | **4** |
-| Grammaire | 0 | 0 | 0 | 1 | 1 | 0 |
+| Bugs      | 0 | 0 | 0 | 1 | 0 | **4** |
+| Incohérences | 0 | 0 | 0 | 1 | 0 | **4** |
 | Stratégique | 0 | 0 | 1 | 1 | 0 | **2** |
-| **TOTAL** | **0** | **0** | **1** | **4** | **3** | **15** |
+| **TOTAL** | **0** | **0** | **1** | **3** | **0** | **16** |
 
 ---
 
-## 🔧 ACTIONS RESTANTES (par priorité)
+## 🔧 ACTIONS RESTANTES
 
 ### 🟡 MOYEN
-1. **E1** — Pagination cursor-based sur l'historique (si volume important)
+- **E1** — Pagination cursor-based sur l'historique (si volume important)
 
 ### 🔵 FAIBLE
-2. **E3** — Images fallback hébergées localement (pas Unsplash)
-3. **I5** — Réactiver ESLint au build
-4. **B2** — Collecter `client_telephone` dans le formulaire de commande (optionnel)
+- **B2** — Collecter `client_telephone` (optionnel)
+- **B5** — Stocker TVA dans les commandes (pour facturation)
+- **E3** — Images fallback locales
+- **I5** — Réactiver ESLint au build
 
 ---
 
-*Analyse initiale : Cline — 16/03/2026*
-*Mises à jour : Cline — 17/03/2026 — Toutes les vulnérabilités critiques corrigées, système multi-user implémenté*
+*Mis à jour le 22/03/2026 — Toutes les vulnérabilités critiques corrigées, nouvelles fonctionnalités documentées*

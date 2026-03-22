@@ -13,6 +13,7 @@ import {
   Package2, Sun, CloudRain, Thermometer, Eye, Coffee,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import type { WizardPreRapportData } from './wizard-pre-rapport';
 
 // ── Types ──────────────────────────────────────────────────────
 interface BriefingMatin {
@@ -214,7 +215,7 @@ function BriefingMatinCard({ bm, previsions, onApply, applying, applied, isToday
 }
 
 // ── Composant principal ───────────────────────────────────────
-export default function VueRapportIA({onClose}:{onClose?:()=>void}) {
+export default function VueRapportIA({ onClose, wizardData }: { onClose?: () => void; wizardData?: WizardPreRapportData | null }) {
   const [currentRapport, setCR]       = useState<AiRapport|null>(null);
   const [previsions,     setPrev]     = useState<ProductionForecast[]>([]);
   const [historique,     setHisto]    = useState<AiRapport[]>([]);
