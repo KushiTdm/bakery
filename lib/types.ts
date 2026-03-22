@@ -2,15 +2,13 @@
 // ─────────────────────────────────────────────────────────────
 // Types partagés entre le contexte client et les routes API serveur.
 // Importable des deux côtés (pas de directive 'use client').
-//
-// I2 : Ces types étaient dans context/boulanger-context.tsx ('use client'),
-// isolés ici pour éviter les erreurs de bundling côté serveur.
 // ─────────────────────────────────────────────────────────────
 
 // ── Vues & sync ───────────────────────────────────────────────
 
 // 'flash' ajouté pour l'onglet paniers anti-gaspi dans la nav du bas
-export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres' | 'equipe';
+// 'ia' ajouté pour l'onglet rapport IA Levain
+export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres' | 'equipe' | 'ia';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 // ── Stocks ────────────────────────────────────────────────────

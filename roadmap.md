@@ -19,18 +19,27 @@
 
 ## ✅ FONCTIONNALITÉS IMPLÉMENTÉES
 
-### 🤖 IA Levain — Assistant Boulanger (NOUVEAU)
-- **Rapport quotidien** avec score de performance (0-100)
-- **Briefing matin** pour J+1 avec :
-  - Contexte du jour et impact météo
-  - Top 3 des produits à produire
-  - Points de vigilance
-  - Conseil d'ouverture
-- **Prévisions de production** par produit avec variation %
-- **Analyse contextuelle** (succès, flops, opportunités)
-- **Alertes ingrédients** et matières premières
+### 🤖 IA Levain — Assistant Boulanger (NOUVEAU — v3)
+- **Rapport quotidien complet** avec score de performance (0-100)
+- **Accès direct** via navigation (drawer "Plus" → Rapport IA)
+- **Briefings séparés** pour chaque rôle :
+  - 🥖 **Boulanger** : technique, production, MP, optimisation fourneaux
+  - 🧑‍💼 **Vendeuse** : relation client, produits à valoriser, gestion invendus
+  - 📊 **Gérant** : tendances CA, rentabilité, opportunités business
+- **Analyse complète des données** :
+  - ✅ Performance par produit avec **vrais noms** (plus d'anonymisation)
+  - ✅ Top ventes et invendus critiques avec causes probables
+  - ✅ Historique 14j + comparaison même jour semaine précédente
+  - ✅ Météo et impact sur les ventes
+  - ✅ **Commandes Click & Collect** (nb, CA, panier moyen, heures pointe, top produits)
+  - ✅ **Paniers anti-gaspi** (invendus sauvés, CA généré, taux de vente)
+  - ✅ **Nouveaux clients en ligne** (jour, semaine, mois, rétention)
+  - ✅ **Événements externes** (vacances, fêtes, jours fériés)
+  - ✅ **Matières premières** consommées (farine, beurre, œufs, sucre)
+- **Prévisions de production** par produit avec variation % et justification
 - **Application en 1 clic** du plan de production
-- Modèle : GLM-4-Flash (z.ai) — RGPD conforme (données anonymisées)
+- **Message personnalisé** de Levain au boulanger
+- Modèle : GLM-4.5-Air (z.ai) — RGPD conforme (données réelles, non anonymisées)
 
 ### 🌤️ Météo Journalière (NOUVEAU)
 - Table `meteo_journees` avec données du jour + prévisions J+1
