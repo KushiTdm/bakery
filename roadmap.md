@@ -1,315 +1,284 @@
-# Roadmap BakeryOS 🥖
-*Mis à jour — 22 mars 2026 — Analyse complète du codebase*
+# 🥖 BakeryOS — Roadmap & Plan de Mise en Production
+*Version 4.0 — Mise à jour 22 mars 2026*
 
 ---
 
-## SCORE DE RÉUSSITE À 12 MOIS — 85 / 100 *(+7 pts vs session précédente)*
+## Score de Maturité Produit — 91 / 100
 
-| Dimension | Score | Poids | Commentaire |
+| Dimension | Score | État | Commentaire |
 |---|---|---|---|
-| Développement | **94**/100 | 20% | ✅ IA Levain complète, météo, workflow 7 étapes, multi-user, GPS |
-| Fonctionnel | 88/100 | 20% | Core loop complet, briefing matin IA, prévisions production J+1 |
-| Marché | 55/100 | 15% | ~5 000–8 000 boulangeries cibles |
-| Use case | 82/100 | 15% | ROI démontrable < 30 jours, assistant IA opérationnel |
-| Offre & Demande | 62/100 | 15% | Landing + Stripe opérationnels |
-| Économique | 48/100 | 10% | Tarification à aligner landing ↔ app |
-| Concurrence | 62/100 | 5% | Pas de concurrent direct sur le segment artisanal FR |
+| Core Produit & IA Levain | 97/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user |
+| Architecture & Sécurité | 82/100 | 🟠 Partiel | Headers HTTP, soft delete, timezone, magic bytes |
+| Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
+| Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
+| Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
+| Feature Gate (plans) | 35/100 | 🔴 Absent | Levain accessible à tous sans contrôle plan |
+| Tests & Qualité | 0/100 | 🔴 Absent | 0% de coverage, aucun test automatisé |
 
 ---
 
-## ✅ FONCTIONNALITÉS IMPLÉMENTÉES
+## ✅ Corrections sécurité effectuées
 
-### 🤖 IA Levain — Assistant Boulanger (NOUVEAU — v3)
-- **Rapport quotidien complet** avec score de performance (0-100)
-- **Accès direct** via navigation (drawer "Plus" → Rapport IA)
-- **Briefings séparés** pour chaque rôle :
-  - 🥖 **Boulanger** : technique, production, MP, optimisation fourneaux
-  - 🧑‍💼 **Vendeuse** : relation client, produits à valoriser, gestion invendus
-  - 📊 **Gérant** : tendances CA, rentabilité, opportunités business
-- **Analyse complète des données** :
-  - ✅ Performance par produit avec **vrais noms** (plus d'anonymisation)
-  - ✅ Top ventes et invendus critiques avec causes probables
-  - ✅ Historique 14j + comparaison même jour semaine précédente
-  - ✅ Météo et impact sur les ventes
-  - ✅ **Commandes Click & Collect** (nb, CA, panier moyen, heures pointe, top produits)
-  - ✅ **Paniers anti-gaspi** (invendus sauvés, CA généré, taux de vente)
-  - ✅ **Nouveaux clients en ligne** (jour, semaine, mois, rétention)
-  - ✅ **Événements externes** (vacances, fêtes, jours fériés)
-  - ✅ **Matières premières** consommées (farine, beurre, œufs, sucre)
-- **Prévisions de production** par produit avec variation % et justification
-- **Application en 1 clic** du plan de production
-- **Message personnalisé** de Levain au boulanger
-- Modèle : GLM-4.5-Air (z.ai) — RGPD conforme (données réelles, non anonymisées)
+- **P0-1** `confirm-email/route.ts` — fichier réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env
+- **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu avec `isAuthRateLimited()` / `resetAuthRateLimit()`, singleton Upstash, fallback mémoire, stores séparés par namespace. `auth/route.ts` migré, Map locale supprimée, body validé par Zod `discriminatedUnion`
+- **P0-3** `INTERNAL_API_SECRET` — vérification longueur ≥ 32 + `timingSafeEqual()` dans `confirm-email/route.ts` ✅
 
-### 🌤️ Météo Journalière (NOUVEAU)
-- Table `meteo_journees` avec données du jour + prévisions J+1
-- Coordonnées GPS par boulangerie (`latitude`, `longitude`)
-- Intégration Open-Meteo (gratuit, sans API key)
-- Impact météo sur les ventes analysé par l'IA
+---
 
-### 📋 Workflow Journée — 7 Étapes Chronologiques
-| Étape | Rôle | Déblocage | Description |
+## 1. Corrections Sécurité Restantes
+
+### 🔴 P0 — Critiques (avant tout déploiement prod)
+
+**P0-4 : Feature Gate Levain absent**
+
+L'IA Levain est accessible à tous sans vérification du plan. Un compte Starter peut générer des rapports illimités gratuitement. **Perte de revenus directe.**
+- Vérifier `boulangerie.plan` avant génération dans `/api/boulanger/ai/rapport`
+- Plan Starter : 1 rapport/semaine — score + verdict visible, analyse complète masquée
+- Modal upgrade in-app quand quota atteint
+
+### 🟠 P1 — Importants (dans les 48h post-déploiement)
+
+**P1-1 : Headers de sécurité HTTP absents**
+
+`next.config.js` ne définit aucun header de sécurité. Risque : clickjacking, MIME sniffing, XSS.
+- Ajouter : `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `CSP`, `Permissions-Policy`, `Strict-Transport-Security`
+
+**P1-2 : Tokens de refresh non révoqués lors du logout**
+
+`context/boulanger-context.tsx` → `logout()` sans scope. Un employé révoqué peut continuer à utiliser son refresh_token.
+- Utiliser `supabase.auth.signOut({ scope: 'global' })`
+
+**P1-3 : Soft delete non utilisé dans route DELETE produits**
+
+`app/api/boulanger/produits/route.ts` fait un DELETE physique. Casse les `stocks_journaliers` historiques.
+- Remplacer `DELETE` par `UPDATE { deleted_at: now(), actif_catalogue: false, actif_flash: false }`
+
+**P1-4 : Validation payload taille manquante sur `/api/orders`**
+
+Aucune vérification de `Content-Length`. Attaque DoS possible.
+- Ajouter vérification `Content-Length < 50 000 bytes` en début de route
+
+**P1-5 : Validation magic bytes upload absente**
+
+`upload/route.ts` valide le MIME via `file.type` (client) sans vérifier les bytes réels.
+- Valider les premiers octets du buffer contre signatures JPEG/PNG/WebP
+
+**P1-6 : `journee/route.ts` utilise `new Date()` sans timezone**
+
+UTC au lieu du timezone boulangerie — journée créée sur la mauvaise date autour de minuit.
+- Remplacer par `getTodayInTimezone(timezone)` depuis `lib/ai-anonymize.ts`
+
+### 🔵 P2 — Améliorations (sprint suivant)
+
+- Export données RGPD (Art. 20) — route `GET /api/boulanger/export` manquante
+- Table `audit_logs` générique (login, export, clôture, delete)
+- Cron Supabase nettoyage invitations expirées (`pg_cron`)
+- Timeout connexion Supabase admin (`AbortSignal.timeout(10_000)`)
+- Origin validation sur `/api/orders` (protection CSRF basique)
+
+---
+
+## 2. Monétisation — Bloquant Lancement
+
+Sans Stripe actif, zéro revenu possible.
+
+### 2.1 Stripe Checkout à Créer
+
+Les colonnes `stripe_customer_id`, `stripe_subscription_id`, `stripe_status` existent déjà en base.
+
+Fichiers à créer :
+- `app/api/billing/checkout/route.ts` — session Stripe Checkout
+- `app/api/billing/portal/route.ts` — portail client self-service
+- `app/api/billing/webhook/route.ts` — événements Stripe (signature obligatoire)
+- `components/boulanger/upgrade-modal.tsx` — modal conversion Starter → Pro
+- `lib/billing.ts` — helpers `createCustomer`, `getSubscription`, `updatePlan`
+
+Événements Stripe à gérer :
+- `checkout.session.completed` → activer plan, updater `boulangerie.plan`
+- `customer.subscription.updated` → changement de plan
+- `customer.subscription.deleted` → downgrade vers Starter
+- `invoice.payment_failed` → email alerte + grace period 7 jours
+- `invoice.payment_succeeded` → confirmer renouvellement
+
+### 2.2 Feature Gates Plans
+
+| Feature | Starter | Pro | Multi |
 |---|---|---|---|
-| Production matin | Boulanger | Ouverture | Quantités par fournée et catégorie |
-| Snapshot 10h | Vendeur | 9h | Stock en rayon |
-| Sandwichs midi | Both | 11h | Déduit du stock pain |
-| Snapshot 14h | Vendeur | 13h | Stock en rayon |
-| Paniers flash | Both | 17h | Anti-gaspi |
-| Invendus soir | Vendeur | 17h | Comptage fermeture |
-| Clôture | Both | Après inventaire | Rapport Levain |
-
-### 👥 Multi-utilisateurs (implémenté)
-- **Rôles** : Owner / Gérant / Employé
-- **Permissions granulaires** (10 permissions par rôle)
-- **Système d'invitation** par email avec token
-- **Audit trail** dans `audit_equipe`
-- Fonctions SQL : `check_boulanger_access()`, `get_current_user_access()`, `get_team_members()`
-
-### 🔒 Sécurité
-- **Middleware SSR** avec vérification `check_boulanger_access()`
-- **RLS** activé sur toutes les tables
-- **Soft delete** produits (colonne `deleted_at`)
-- **Cast UUID sécurisé** dans les jointures
-- **Timezone configurable** par boulangerie
-
-### 📱 Notifications Push
-- API `/api/notifications/subscribe/` et `/api/notifications/send/`
-- Composant `push-notification-toggle.tsx`
-- Compatible VAPID (Web Push)
+| Produits catalogue | 20 max ✅ | Illimité ✅ | Illimité ✅ |
+| IA Levain (rapports) | 1/semaine 🔴 à implémenter | Illimité ✅ | Illimité ✅ |
+| Membres équipe | 1 ✅ | 3 ✅ | Illimités ✅ |
+| Historique stats | 30j ✅ | 90j 🟠 à implémenter | Illimité |
+| Export CSV données | Non 🔴 à créer | Oui 🔴 à créer | Oui + API |
 
 ---
 
-## ARCHITECTURE GLOBALE
+## 3. Fonctionnalités Préconisées
 
-```
-bakery-saas-landing/          bakery-app/ (project-boulangerie)
-─────────────────────         ────────────────────────────────
-Next.js 16 / React 19         Next.js 13 / React 18
-Tailwind 4                    Tailwind 3 + Framer Motion
-Stripe (abonnements)          Supabase (auth, DB, storage)
-                              Netlify (hébergement)
-                              *.bakeryos.fr (multi-tenant)
-```
+### 3.1 Court Terme — Avant Beta (< 2 semaines)
+
+**Notifications push commandes temps réel**
+
+L'infra push est prête mais le trigger sur `/api/orders` manque.
+- Dans `POST /api/orders` : déclencher `fetch` vers `/api/notifications/send` après insertion
+- Payload : `titre '🛒 Nouvelle commande — X€', url '/boulanger/commandes'`
+
+**Email bienvenue post-inscription**
+
+Aucun email envoyé après `register`. Taux d'activation probablement faible.
+- Envoyer via Resend en fin de `POST /api/boulanger/auth?action=register`
+
+**Page pricing publique (`/pricing`)**
+
+Inexistante. Impossible de convertir un visiteur sans page de tarifs.
+- `app/pricing/page.tsx` avec tableau 3 plans + calculateur ROI + CTA register
+
+### 3.2 Moyen Terme — Rétention (2-6 semaines)
+
+- **Export RGPD** (Art. 20 — obligation légale) : ZIP `journees.csv`, `stocks.csv`, `commandes.csv` depuis Paramètres
+- **Rapport hebdomadaire Levain** : analyse des 7 derniers jours, score semaine, meilleur/pire jour
+- **Dashboard gérant** : dernière connexion par employé, snapshot fait/non fait
+- **Commandes récurrentes** : table `commandes_recurrentes` pour abonnements clients (baguettes chaque samedi)
+
+### 3.3 Long Terme (> 6 semaines)
+
+- API publique documentée (webhooks, intégration caisse)
+- Dashboard multi-boulangeries consolidé (plan Multi)
+- Intégration caisse SumUp/iZettle (import ventes auto)
+- Application mobile native (iOS push natif)
+- Programme ambassadeurs (code referral tracké)
+- Rapport CO₂ mensuel + certificat (argument RSE)
 
 ---
 
-## FICHIERS MIGRATION (à jour)
+## 4. Dette Technique
 
-| Fichier | Description | Ordre |
+### 4.1 Auth Multi-User incomplète
+
+Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risque : employés accédant à des routes owner.
+
+À migrer vers `getBoulangerSession()` + `canAccess()` :
+- `app/api/boulanger/ai/appliquer/route.ts` — owner uniquement
+- `app/api/boulanger/ai/historique/route.ts` — lecture seule employés
+- `app/api/boulanger/flash/route.ts` — vérifier permission `flash`
+- `app/api/boulanger/historique/route.ts` — vérifier permission `dashboard`
+- `app/api/boulanger/commandes/route.ts` — vérifier permission `commandes`
+
+### 4.2 Pagination manquante sur l'historique
+
+`historique/route.ts` charge 90 jours × 30 produits = 2 700 rows en une requête.
+- Paginer par tranches de 14 jours
+- Lazy loading graphiques
+
+### 4.3 0% de coverage tests
+
+- Priorité 1 : E2E Playwright — register → clôture → rapport IA
+- Priorité 2 : tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit`
+- Priorité 3 : tests permissions (employé ne peut pas accéder route owner)
+
+### 4.4 Monitoring production absent
+
+- Sentry Next.js (plan gratuit suffisant)
+- Alertes Supabase (Dashboard → Monitoring → Alerts)
+- Upstash Dashboard pour visualiser les rate limits
+
+---
+
+## 5. Timeline — Vers la Beta Commerciale
+
+*Estimation solo dev 4-6h/jour. Avec 2 devs, diviser par 1.6.*
+
+### ⚡ SEMAINE 1 — Sécurité & Monétisation Core
+
+| Tâche | Durée | Priorité |
 |---|---|---|
-| `migrations/migration-v4.sql` | Consolidée : 10 tables, multi-user, soft delete, flash, timezone | 1 |
-| `migrations/migration-v5.sql` | Catégorie sandwich + workflow + feedback vendeuse | 2 |
-| `migrations/migration-ia-glm_zai.sql` | Tables `ai_rapports` + `production_forecasts` | 3 |
-| `migrations/migration-meteo-timezone.sql` | Table `meteo_journees` + GPS | 4 |
-| `migrations/seed.sql` | Données de test | Optionnel |
+| Feature gate Levain (`/api/boulanger/ai/rapport`) | 2h | 🔴 P0 |
+| Headers sécurité HTTP (`next.config.js`) | 1h | 🟠 P1 |
+| Logout scope global (`boulanger-context.tsx`) | 30 min | 🟠 P1 |
+| Soft delete produits (route DELETE) | 30 min | 🟠 P1 |
+| Content-Length check `/api/orders` | 30 min | 🟠 P1 |
+| Magic bytes upload | 1h | 🟠 P1 |
+| Timezone `journee/route.ts` | 1h | 🟠 P1 |
+| Stripe Checkout + webhook + portal | 2 jours | 🔴 P0 Revenue |
+| Modal upgrade in-app | 3h | 🟠 P1 |
+
+**Durée estimée S1 : 3-4 jours**
 
 ---
 
-## ROUTES API IMPLÉMENTÉES
+### 🌐 SEMAINE 2 — Infrastructure Prod
 
-### Boulanger (authentifié)
-| Route | Méthode | Description |
+| Tâche | Durée | Priorité |
 |---|---|---|
-| `/api/boulanger/auth` | POST | Authentification |
-| `/api/boulanger/profil` | GET/PUT | Profil boulangerie |
-| `/api/boulanger/produits` | CRUD | Gestion catalogue |
-| `/api/boulanger/produits/upload` | POST | Upload photo produit |
-| `/api/boulanger/commandes` | GET | Liste commandes |
-| `/api/boulanger/flash` | GET/POST | Paniers flash |
-| `/api/boulanger/journee` | GET/POST | État journée |
-| `/api/boulanger/journee/feedback` | POST | Feedback vendeuse |
-| `/api/boulanger/historique` | GET | Historique journées |
-| `/api/boulanger/equipe` | GET/POST | Gestion équipe |
-| `/api/boulanger/equipe/[id]` | PUT/DELETE | Membre équipe |
-| `/api/boulanger/rejoindre` | POST | Acceptation invitation |
-| `/api/boulanger/ai/rapport` | GET/POST | Rapport IA Levain |
-| `/api/boulanger/ai/historique` | GET | Historique rapports |
-| `/api/boulanger/ai/appliquer` | POST | Appliquer prévisions |
-| `/api/boulanger/ai/today` | GET | Rapport du jour |
+| Migrations SQL prod (v4 → v5 → ia → meteo) | 2h | 🔴 P0 |
+| DNS wildcard `*.bakeryos.fr` → Netlify | 2h | 🔴 P0 |
+| SMTP Resend dans Supabase Dashboard | 1h | 🔴 P0 |
+| Notifications push commandes temps réel | 2h | 🟠 P1 |
+| Email bienvenue post-inscription | 2h | 🟠 P1 |
+| Page `/pricing` publique | 4h | 🟠 P1 |
+| Sentry + alertes Supabase | 2h | 🟠 P1 |
+| Migrer 5 routes vers `getBoulangerSession()` | 3h | 🟠 P1 |
 
-### Public
-| Route | Méthode | Description |
+**Durée estimée S2 : 4 jours**
+
+---
+
+### 🧪 SEMAINE 3 — Tests & Recrutement Beta
+
+| Tâche | Durée | Priorité |
 |---|---|---|
-| `/api/boulangerie/[slug]` | GET | Infos boulangerie |
-| `/api/catalogue/[slug]` | GET | Catalogue public |
-| `/api/paniers/[slug]` | GET | Paniers flash publics |
-| `/api/orders` | POST | Créer commande |
-| `/api/orders/[id]` | GET | Détail commande |
-| `/api/orders/confirm-email` | POST | Confirmation email |
+| Tests Playwright : register → clôture → rapport IA | 1 jour | 🟠 P1 |
+| Tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit` | 1 jour | 🔵 P2 |
+| Export données RGPD (Art. 20) | 4h | 🟠 P1 (légal) |
+| Revue permissions owner/gérant/employé | 1 jour | 🔴 P0 |
+| Onboarding 5-10 boulangers beta | 1 jour | Business |
+| Feedback (formulaire + appel 15min) | Continu | Business |
 
-### Client (authentifié OTP)
-| Route | Méthode | Description |
+**Durée estimée S3 : 5 jours**
+
+---
+
+### 🚀 SEMAINES 4-6 — Itérations Beta
+
+- Rapport hebdomadaire Levain
+- Notifications push améliorées (résumé 7h, rappel retrait)
+- Dashboard gérant
+- Programme referral
+- P2 : audit_logs, CSRF, cron invitations, timeout Supabase admin
+
+---
+
+### Résumé Timeline
+
+| Phase | Durée | Milestone |
 |---|---|---|
-| `/api/client/profil` | GET/PUT | Profil client |
-| `/api/client/commandes` | GET | Commandes client |
-| `/api/client/commandes/[id]` | GET | Détail commande |
+| S1 — Sécurité restante + Stripe | 4 jours | Paiements fonctionnels, Levain verrouillé |
+| S2 — Infra Prod | 4 jours | Multi-tenant opérationnel, emails, monitoring |
+| S3 — Tests + Beta 0 | 5 jours | 5-10 boulangers onboardés |
+| S4-6 — Itérations | 3 semaines | Corrections retours, nouvelles features |
+| 🏁 **Beta Publique** | **~5 semaines** | **Acquisition active, 20-30 payants ciblés** |
 
-### Notifications
-| Route | Méthode | Description |
+---
+
+## 6. KPIs & Projections MRR
+
+| KPI | Définition | Cible |
 |---|---|---|
-| `/api/notifications/subscribe` | POST | Subscribe push |
-| `/api/notifications/send` | POST | Envoyer notification |
+| DAU/MAU | Boulangeries actives quotidiennement / mensuellement | > 65% |
+| Rapports Levain/semaine | % clients Pro générant ≥ 1 rapport/semaine | > 70% |
+| Flash activé | % boulangeries configurant les paniers flash | > 60% |
+| Temps onboarding | Inscription → première clôture | < 48h |
+| Taux clôture | % jours ouvrables avec clôture faite | > 80% |
+| Starter → Pro | Taux conversion | > 20% à M3 |
+| Churn mensuel | Taux d'annulation | < 5% |
+
+| Scénario | M3 clients | M3 MRR | M12 clients | M12 MRR |
+|---|---|---|---|---|
+| 🔴 Pessimiste | 5-10 | 200-400€ | 20-40 | 800-1 600€ |
+| 🟠 **Réaliste** | **15-30** | **600-1 200€** | **60-100** | **2 400-4 000€** |
+| 🟢 Optimiste | 50-80 | 2 000-3 200€ | 180-250 | 7 200-10 000€ |
+
+> Tarification recommandée : Pro 39€/mois, Multi 79€/mois.
 
 ---
 
-## COMPOSANTS BOULANGER
-
-| Composant | Description |
-|---|---|
-| `dashboard.tsx` | Tableau de bord principal |
-| `vue-matin.tsx` | Saisie production matin |
-| `vue-snapshot.tsx` | Snapshots 10h/14h |
-| `vue-sandwichs.tsx` | Sandwichs & snacking |
-| `vue-flash.tsx` | Paniers anti-gaspi |
-| `vue-soir.tsx` | Clôture journée |
-| `vue-rapport-ia.tsx` | Rapport Levain + briefing |
-| `catalogue.tsx` | Gestion catalogue |
-| `catalogue-starter.tsx` | Onboarding catalogue |
-| `equipe-manager.tsx` | Gestion équipe |
-| `parametres.tsx` | Paramètres boulangerie |
-| `feedback-vendeuse.tsx` | Retour vendeuse |
-| `fin-journee-modal.tsx` | Modal clôture |
-| `tour-wizard.tsx` | Tour guidé |
-| `workflow-guard.tsx` | Guard étapes workflow |
-| `day-countdown.tsx` | Compte à rebours |
-
----
-
-## BUGS & VULNÉRABILITÉS — ÉTAT ACTUEL
-
-### ✅ Tout résolu en critique/élevé
-
-| ID | Projet | Description | Statut |
-|---|---|---|---|
-| **S0** | App | Accès non autorisé à /boulanger | ✅ **CORRIGÉ** |
-| **B1** | App | Cast UUID unsafe | ✅ **CORRIGÉ** |
-| **E2** | App | Soft delete produits | ✅ **CORRIGÉ** |
-| **I4** | App | Colonnes adresse absentes | ✅ **CORRIGÉ** |
-
-### 🟡 À traiter
-
-| ID | Projet | Description | Priorité |
-|---|---|---|---|
-| LAND1 | Landing | Tarifs incohérents landing ↔ app | 🔴 Bloquant |
-| LAND2 | Landing | Email bienvenue post-checkout | 🟡 Moyen |
-| LAND3 | Landing | Conflits de slug possibles | 🟡 Moyen |
-| LAND4 | Landing | Price IDs Stripe à configurer | 🔴 Bloquant |
-| CFG2 | App | SMTP Resend à configurer | 🟡 Moyen |
-| E1 | App | Pas de pagination historique | 🔵 Faible |
-
----
-
-## COURT TERME — Prochaines étapes
-
-### 🔴 Bloquant lancement
-- [ ] **LAND1** — Aligner tarifs landing ↔ app (39/69/119€ vs 19/49/99€)
-- [ ] **LAND4** — Créer produits/prix dans Stripe Dashboard
-- [ ] **LAND2** — Implémenter email bienvenue post-checkout via Resend
-- [ ] **CFG2** — Configurer SMTP Resend dans Supabase Dashboard
-- [ ] Exécuter les migrations en production (v4 → v5 → ia → meteo)
-- [ ] Tester flux complet : landing → Stripe → webhook → app
-
-### 🟠 Qualité
-- [ ] **LAND3** — Gestion des conflits de slug
-- [ ] Tests E2E Playwright sur flux critiques
-- [ ] Tests permissions multi-user
-- [ ] Monitoring Sentry
-
----
-
-## MOYEN TERME — 30 à 90 jours
-
-### Produit
-- [ ] Export PDF rapport hebdomadaire (plan Pro)
-- [ ] Rapport CO₂ mensuel + certificat téléchargeable
-- [ ] Gestion stock matières premières (base présente dans IA)
-
-### Infrastructure
-- [ ] Wildcard DNS `*.bakeryos.fr` → Netlify
-- [ ] Supabase Pro ($25/mois) dès 20 boulangers
-- [ ] Monitoring Sentry
-
-### Acquisition
-- [ ] Témoignages vidéo boulangers beta
-- [ ] Programme referral : 2 mois offerts par parrainage
-
----
-
-## LONG TERME — 90+ jours
-
-- [x] ~~Multi-utilisateurs par boulangerie~~ ✅ **FAIT**
-- [x] ~~IA pour rapports et prévisions~~ ✅ **FAIT** (Levain)
-- [x] ~~Workflow journée chronologique~~ ✅ **FAIT**
-- [x] ~~Météo et impact ventes~~ ✅ **FAIT**
-- [ ] Intégration caisse Lightspeed/Zelty
-- [ ] API publique + webhooks (plan Multi)
-- [ ] Dashboard multi-sites consolidé
-- [ ] Application mobile native (React Native)
-
----
-
-## PROJECTION MRR À 12 MOIS
-
-| Scénario | Clients | MRR | Probabilité |
-|---|---|---|---|
-| Pessimiste (solo, 0 budget) | 15–30 | 600–1 200€ | 25% |
-| **Réaliste (referral + 1 salon)** | **40–80** | **1 600–3 100€** | **50%** |
-| Optimiste (partenariat meunier) | 150–250 | 5 800–9 700€ | 25% |
-
----
-
-## CHECKLIST AVANT MISE EN PRODUCTION
-
-### ✅ Implémenté
-- [x] Protection route `/boulanger` (middleware + client)
-- [x] Multi-utilisateurs complet (owner/gerant/employe)
-- [x] Soft delete produits
-- [x] Colonnes adresse + GPS
-- [x] Timezone configurable
-- [x] Workflow journée 7 étapes
-- [x] IA Levain (rapports + briefing + prévisions)
-- [x] Météo journalière + prévisions J+1
-- [x] Notifications push
-- [x] Tour guidé
-- [x] Paniers flash persistés
-- [x] Catalogue public
-- [x] Espace client OTP
-
-### 🔴 Encore bloquant
-- [ ] Alignement tarifs landing ↔ app
-- [ ] Price IDs Stripe configurés
-- [ ] SMTP Resend configuré
-
-### 🟠 Recommandé
-- [ ] Email bienvenue post-checkout
-- [ ] Monitoring Sentry
-- [ ] Tests E2E
-
----
-
-## BASE DE DONNÉES — SCHÉMA COMPLET
-
-### Tables principales (10)
-| Table | Description |
-|---|---|
-| `boulangeries` | Boulangeries avec timezone, GPS, Stripe |
-| `journees` | Journées avec workflow state |
-| `stocks_journaliers` | Stocks par produit et journée |
-| `produits` | Catalogue (soft delete, saisonnalité) |
-| `commandes` | Commandes clients |
-| `paniers_flash` | Paniers anti-gaspi du jour |
-| `employes` | Équipe (rôles, permissions) |
-| `audit_equipe` | Historique actions équipe |
-| `profils_clients` | Profils clients OTP |
-| `push_subscriptions` | Abonnements push |
-
-### Tables IA & Météo (3)
-| Table | Description |
-|---|---|
-| `ai_rapports` | Rapports Levain (JSON structuré) |
-| `production_forecasts` | Prévisions par produit |
-| `meteo_journees` | Météo du jour + prévisions J+1 |
-
----
-
-*Mis à jour le 22/03/2026 — Analyse complète du codebase*
+*Mis à jour le 22 mars 2026 — corrections P0-1, P0-2, P0-3 effectuées.*

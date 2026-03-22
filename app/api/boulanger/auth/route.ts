@@ -2,23 +2,30 @@
 // Auth boulanger — email + password (pas d'OTP).
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { isValidSlug } from '@/lib/sanitize';
+import { isAuthRateLimited, resetAuthRateLimit } from '@/lib/rate-limit';
 
-// ── Rate Limiting (memory-based, simple) ───────────────────────
-// Pour une production à grande échelle, utiliser Upstash Redis
+// ── Schémas Zod ───────────────────────────────────────────────
 
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const LoginSchema = z.object({
+  action:   z.literal('login'),
+  email:    z.string().email('Email invalide'),
+  password: z.string().min(1, 'Mot de passe requis'),
+});
 
-// Nettoyage automatique des entrées expirées
-setInterval(() => {
-  const now = Date.now();
-  Array.from(loginAttempts.entries()).forEach(([key, entry]) => {
-    if (entry.resetAt < now) loginAttempts.delete(key);
-  });
-}, 60 * 1000);
+const RegisterSchema = z.object({
+  action:   z.literal('register'),
+  email:    z.string().email('Email invalide'),
+  password: z.string().min(1, 'Mot de passe requis'),
+  nom:      z.string().min(1).max(100),
+  slug:     z.string().min(1).max(60),
+});
+
+const AuthBodySchema = z.discriminatedUnion('action', [LoginSchema, RegisterSchema]);
+
+// ── Helpers ───────────────────────────────────────────────────
 
 function getClientIp(req: NextRequest): string {
   return (
@@ -30,64 +37,29 @@ function getClientIp(req: NextRequest): string {
   );
 }
 
-function checkRateLimit(ip: string): { allowed: boolean; remainingMs: number } {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-
-  if (!entry || entry.resetAt < now) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, remainingMs: 0 };
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX_ATTEMPTS) {
-    return { allowed: false, remainingMs: entry.resetAt - now };
-  }
-
-  entry.count++;
-  return { allowed: true, remainingMs: 0 };
-}
-
-function resetRateLimit(ip: string): void {
-  loginAttempts.delete(ip);
-}
-
-// ── S4 : Validation de la complexité du mot de passe ───────────
+// ── Validation mot de passe ───────────────────────────────────
 
 interface PasswordValidationResult {
-  valid: boolean;
+  valid:  boolean;
   errors: string[];
 }
 
 function validatePasswordStrength(password: string): PasswordValidationResult {
   const errors: string[] = [];
 
-  if (password.length < 8) {
-    errors.push('au moins 8 caractères');
-  }
+  if (password.length < 8)     errors.push('au moins 8 caractères');
+  if (!/[a-z]/.test(password)) errors.push('une lettre minuscule');
+  if (!/[A-Z]/.test(password)) errors.push('une lettre majuscule');
+  if (!/[0-9]/.test(password)) errors.push('un chiffre');
 
-  if (!/[a-z]/.test(password)) {
-    errors.push('une lettre minuscule');
-  }
-
-  if (!/[A-Z]/.test(password)) {
-    errors.push('une lettre majuscule');
-  }
-
-  if (!/[0-9]/.test(password)) {
-    errors.push('un chiffre');
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-  };
+  return { valid: errors.length === 0, errors };
 }
 
 // ── GET — Vérifie la session depuis le token JWT ───────────────
 
 export async function GET(req: NextRequest) {
   try {
-    const admin = getSupabaseAdmin();
+    const admin      = getSupabaseAdmin();
     const authHeader = req.headers.get('Authorization');
 
     if (!authHeader?.startsWith('Bearer ')) {
@@ -111,6 +83,7 @@ export async function GET(req: NextRequest) {
       user: { id: user.id, email: user.email },
       boulangerie,
     });
+
   } catch (err) {
     console.error('[/api/boulanger/auth GET]', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
@@ -122,43 +95,59 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const clientIp = getClientIp(req);
 
+  // 1. Rate limiting — avant tout traitement, avant même le parsing
+  const rateCheck = await isAuthRateLimited(clientIp);
+  if (rateCheck.blocked) {
+    const retryMinutes = Math.ceil(rateCheck.retryAfterMs / 60_000);
+    return NextResponse.json(
+      { error: `Trop de tentatives. Réessayez dans ${retryMinutes} minute(s).` },
+      {
+        status:  429,
+        headers: { 'Retry-After': String(Math.ceil(rateCheck.retryAfterMs / 1000)) },
+      }
+    );
+  }
+
+  // 2. Parsing JSON
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 });
+  }
+
+  // 3. Validation Zod — discriminatedUnion sur 'action'
+  const parsed = AuthBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Données invalides', details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const body = parsed.data;
+
   try {
     const admin = getSupabaseAdmin();
-    const body  = await req.json();
-    const { action, email, password, nom, slug } = body;
 
-    // ── Login ──────────────────────────────────────────────────
+    // ── Login ────────────────────────────────────────────────
 
-    if (action === 'login') {
-      if (!email || !password) {
-        return NextResponse.json(
-          { error: 'Email et mot de passe requis' },
-          { status: 400 }
-        );
-      }
+    if (body.action === 'login') {
+      const { data, error } = await admin.auth.signInWithPassword({
+        email:    body.email,
+        password: body.password,
+      });
 
-      // Rate limiting sur les tentatives de login
-      const rateCheck = checkRateLimit(clientIp);
-      if (!rateCheck.allowed) {
-        const retryMinutes = Math.ceil(rateCheck.remainingMs / 60000);
-        return NextResponse.json(
-          { error: `Trop de tentatives. Réessayez dans ${retryMinutes} minute(s).` },
-          { status: 429, headers: { 'Retry-After': String(Math.ceil(rateCheck.remainingMs / 1000)) } }
-        );
-      }
-
-      const { data, error } = await admin.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        // Ne pas reset le rate limit en cas d'échec (laisser le compteur incrémenté)
+      if (error || !data.session) {
+        // Compteur conservé en cas d'échec — pas de reset
         return NextResponse.json(
           { error: 'Email ou mot de passe incorrect' },
           { status: 401 }
         );
       }
 
-      // Succès : reset le rate limit pour cette IP
-      resetRateLimit(clientIp);
+      // Succès : réinitialiser le compteur pour cette IP
+      resetAuthRateLimit(clientIp);
 
       const { data: boulangerie } = await admin
         .from('boulangeries')
@@ -167,43 +156,28 @@ export async function POST(req: NextRequest) {
         .single();
 
       return NextResponse.json({
-        access_token:  data.session?.access_token,
-        refresh_token: data.session?.refresh_token,
+        access_token:  data.session.access_token,
+        refresh_token: data.session.refresh_token,
         user:          { id: data.user.id, email: data.user.email },
         boulangerie,
       });
     }
 
-    // ── Register ───────────────────────────────────────────────
+    // ── Register ─────────────────────────────────────────────
 
-    if (action === 'register') {
-      // Rate limiting sur les inscriptions également
-      const rateCheck = checkRateLimit(clientIp);
-      if (!rateCheck.allowed) {
-        const retryMinutes = Math.ceil(rateCheck.remainingMs / 60000);
+    if (body.action === 'register') {
+      if (!isValidSlug(body.slug)) {
         return NextResponse.json(
-          { error: `Trop de tentatives. Réessayez dans ${retryMinutes} minute(s).` },
-          { status: 429, headers: { 'Retry-After': String(Math.ceil(rateCheck.remainingMs / 1000)) } }
-        );
-      }
-
-      if (!email || !password || !nom || !slug) {
-        return NextResponse.json(
-          { error: 'Email, mot de passe, nom et slug requis' },
+          {
+            error:
+              'Slug invalide. Utilisez uniquement des lettres minuscules, chiffres et tirets. ' +
+              'Certains slugs sont réservés (api, admin, www…)',
+          },
           { status: 400 }
         );
       }
 
-      // S1 : Validation du slug avec isValidSlug()
-      if (!isValidSlug(slug)) {
-        return NextResponse.json(
-          { error: 'Slug invalide. Utilisez uniquement des lettres minuscules, chiffres et tirets. Certains slugs sont réservés (api, admin, www...).' },
-          { status: 400 }
-        );
-      }
-
-      // S4 : Validation de la complexité du mot de passe
-      const passwordValidation = validatePasswordStrength(password);
+      const passwordValidation = validatePasswordStrength(body.password);
       if (!passwordValidation.valid) {
         return NextResponse.json(
           { error: `Le mot de passe doit contenir : ${passwordValidation.errors.join(', ')}.` },
@@ -214,19 +188,16 @@ export async function POST(req: NextRequest) {
       const { data: existing } = await admin
         .from('boulangeries')
         .select('id')
-        .eq('slug', slug)
+        .eq('slug', body.slug)
         .single();
 
       if (existing) {
-        return NextResponse.json(
-          { error: 'Ce slug est déjà utilisé' },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: 'Ce slug est déjà utilisé' }, { status: 409 });
       }
 
       const { data: authData, error: authError } = await admin.auth.admin.createUser({
-        email,
-        password,
+        email:         body.email,
+        password:      body.password,
         email_confirm: true,
       });
 
@@ -238,9 +209,9 @@ export async function POST(req: NextRequest) {
         .from('boulangeries')
         .insert({
           user_id:       authData.user.id,
-          nom,
-          slug,
-          email_contact: email,
+          nom:           body.nom,
+          slug:          body.slug,
+          email_contact: body.email,
           plan:          'starter',
           actif:         true,
         })
@@ -248,24 +219,26 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (boulangerieError) {
+        // Rollback : supprimer l'utilisateur Supabase créé
         await admin.auth.admin.deleteUser(authData.user.id);
-        return NextResponse.json(
-          { error: 'Erreur création boulangerie' },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: 'Erreur création boulangerie' }, { status: 500 });
       }
 
-      const { data: session } = await admin.auth.signInWithPassword({ email, password });
+      const { data: session } = await admin.auth.signInWithPassword({
+        email:    body.email,
+        password: body.password,
+      });
 
-      return NextResponse.json({
-        access_token:  session?.session?.access_token,
-        refresh_token: session?.session?.refresh_token,
-        user:          { id: authData.user.id, email },
-        boulangerie,
-      }, { status: 201 });
+      return NextResponse.json(
+        {
+          access_token:  session?.session?.access_token,
+          refresh_token: session?.session?.refresh_token,
+          user:          { id: authData.user.id, email: body.email },
+          boulangerie,
+        },
+        { status: 201 }
+      );
     }
-
-    return NextResponse.json({ error: 'Action inconnue' }, { status: 400 });
 
   } catch (err) {
     console.error('[/api/boulanger/auth POST]', err);
