@@ -8,11 +8,11 @@
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
 | Core Produit & IA Levain | 97/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user |
-| Architecture & Sécurité | 82/100 | 🟠 Partiel | Headers HTTP, soft delete, timezone, magic bytes |
+| Architecture & Sécurité | 85/100 | 🟠 Partiel | Headers HTTP, soft delete, magic bytes |
 | Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
 | Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
 | Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
-| Feature Gate (plans) | 35/100 | 🔴 Absent | Levain accessible à tous sans contrôle plan |
+| Feature Gate (plans) | 70/100 | 🟢 Corrigé | Quota Levain implémenté, filtrage Starter actif |
 | Tests & Qualité | 0/100 | 🔴 Absent | 0% de coverage, aucun test automatisé |
 
 ---
@@ -22,19 +22,12 @@
 - **P0-1** `confirm-email/route.ts` — fichier réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env
 - **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu avec `isAuthRateLimited()` / `resetAuthRateLimit()`, singleton Upstash, fallback mémoire, stores séparés par namespace. `auth/route.ts` migré, Map locale supprimée, body validé par Zod `discriminatedUnion`
 - **P0-3** `INTERNAL_API_SECRET` — vérification longueur ≥ 32 + `timingSafeEqual()` dans `confirm-email/route.ts` ✅
+- **P0-4** Feature Gate Levain — `check_and_increment_levain_quota()` atomique implémenté dans `/api/boulanger/ai/rapport`. Plan Starter : 1 rapport/semaine, score + verdict visibles, analyse complète masquée. Modal upgrade déclenchée sur quota atteint (HTTP 402). ✅
+- **P1-6** Timezone `journee/route.ts` — `getTodayInTimezone(auth.timezone)` utilisé pour calculer la date correcte selon le timezone de la boulangerie. ✅
 
 ---
 
 ## 1. Corrections Sécurité Restantes
-
-### 🔴 P0 — Critiques (avant tout déploiement prod)
-
-**P0-4 : Feature Gate Levain absent**
-
-L'IA Levain est accessible à tous sans vérification du plan. Un compte Starter peut générer des rapports illimités gratuitement. **Perte de revenus directe.**
-- Vérifier `boulangerie.plan` avant génération dans `/api/boulanger/ai/rapport`
-- Plan Starter : 1 rapport/semaine — score + verdict visible, analyse complète masquée
-- Modal upgrade in-app quand quota atteint
 
 ### 🟠 P1 — Importants (dans les 48h post-déploiement)
 
@@ -62,11 +55,6 @@ Aucune vérification de `Content-Length`. Attaque DoS possible.
 
 `upload/route.ts` valide le MIME via `file.type` (client) sans vérifier les bytes réels.
 - Valider les premiers octets du buffer contre signatures JPEG/PNG/WebP
-
-**P1-6 : `journee/route.ts` utilise `new Date()` sans timezone**
-
-UTC au lieu du timezone boulangerie — journée créée sur la mauvaise date autour de minuit.
-- Remplacer par `getTodayInTimezone(timezone)` depuis `lib/ai-anonymize.ts`
 
 ### 🔵 P2 — Améliorations (sprint suivant)
 
@@ -105,7 +93,7 @@ Fichiers à créer :
 | Feature | Starter | Pro | Multi |
 |---|---|---|---|
 | Produits catalogue | 20 max ✅ | Illimité ✅ | Illimité ✅ |
-| IA Levain (rapports) | 1/semaine 🔴 à implémenter | Illimité ✅ | Illimité ✅ |
+| IA Levain (rapports) | 1/semaine ✅ implémenté | Illimité ✅ | Illimité ✅ |
 | Membres équipe | 1 ✅ | 3 ✅ | Illimités ✅ |
 | Historique stats | 30j ✅ | 90j 🟠 à implémenter | Illimité |
 | Export CSV données | Non 🔴 à créer | Oui 🔴 à créer | Oui + API |
@@ -191,17 +179,17 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 
 | Tâche | Durée | Priorité |
 |---|---|---|
-| Feature gate Levain (`/api/boulanger/ai/rapport`) | 2h | 🔴 P0 |
+| ~~Feature gate Levain (`/api/boulanger/ai/rapport`)~~ | ~~2h~~ | ✅ **Corrigé** |
 | Headers sécurité HTTP (`next.config.js`) | 1h | 🟠 P1 |
 | Logout scope global (`boulanger-context.tsx`) | 30 min | 🟠 P1 |
 | Soft delete produits (route DELETE) | 30 min | 🟠 P1 |
 | Content-Length check `/api/orders` | 30 min | 🟠 P1 |
 | Magic bytes upload | 1h | 🟠 P1 |
-| Timezone `journee/route.ts` | 1h | 🟠 P1 |
+| ~~Timezone `journee/route.ts`~~ | ~~1h~~ | ✅ **Corrigé** |
 | Stripe Checkout + webhook + portal | 2 jours | 🔴 P0 Revenue |
 | Modal upgrade in-app | 3h | 🟠 P1 |
 
-**Durée estimée S1 : 3-4 jours**
+**Durée estimée S1 : 2-3 jours** (réduit grâce aux corrections P0-4 et P1-6)
 
 ---
 
@@ -281,4 +269,4 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 
 ---
 
-*Mis à jour le 22 mars 2026 — corrections P0-1, P0-2, P0-3 effectuées.*
+*Mis à jour le 22 mars 2026 — corrections P0-1, P0-2, P0-3, P0-4, P1-6 effectuées.*
