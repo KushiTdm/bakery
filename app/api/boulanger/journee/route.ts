@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 // I2 : import depuis lib/types.ts (neutre) et non depuis context/boulanger-context ('use client')
 import type { StockEntry } from '@/lib/types';
+import { getTodayInTimezone } from '@/lib/ai-anonymize';
 
-async function getBoulangerieId(req: NextRequest): Promise<string | null> {
+async function getBoulangerieId(req: NextRequest): Promise<{ id: string; timezone: string } | null> {
   const admin = getSupabaseAdmin();
   const authHeader = req.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
@@ -14,23 +15,24 @@ async function getBoulangerieId(req: NextRequest): Promise<string | null> {
 
   const { data: boulangerie } = await admin
     .from('boulangeries')
-    .select('id')
+    .select('id, timezone')
     .eq('user_id', user.id)
     .single();
 
-  return boulangerie?.id ?? null;
+  if (!boulangerie) return null;
+  return { id: boulangerie.id, timezone: (boulangerie.timezone as string) ?? 'Europe/Paris' };
 }
 
 // ── GET ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
-    const boulangerieId = await getBoulangerieId(req);
-    if (!boulangerieId) {
+    const auth = await getBoulangerieId(req);
+    if (!auth) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
-
-    const today = new Date().toISOString().split('T')[0];
+    const boulangerieId = auth.id;
+    const today = getTodayInTimezone(auth.timezone);
 
     const { data: journee, error } = await admin
       .from('journees')
@@ -56,10 +58,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
-    const boulangerieId = await getBoulangerieId(req);
-    if (!boulangerieId) {
+    const auth = await getBoulangerieId(req);
+    if (!auth) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
+    const boulangerieId = auth.id;
 
     let body: unknown;
     try {
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
       coutProduction: Math.max(0, Math.min(Math.round(Number(s.coutProduction)   * 100) / 100, 9999.99)),
     }));
 
-    const today       = new Date().toISOString().split('T')[0];
+    const today = getTodayInTimezone(auth.timezone);
     const totalProduit = stocksSafe.reduce((s, p) => s + p.production, 0);
     const totalInvendu = stocksSafe.reduce((s, p) => s + p.stockFinal, 0);
     const caEstime     = stocksSafe.reduce(
@@ -159,12 +162,12 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
-    const boulangerieId = await getBoulangerieId(req);
-    if (!boulangerieId) {
+    const auth = await getBoulangerieId(req);
+    if (!auth) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
-
-    const today = new Date().toISOString().split('T')[0];
+    const boulangerieId = auth.id;
+    const today = getTodayInTimezone(auth.timezone);
 
     const { error } = await admin
       .from('journees')

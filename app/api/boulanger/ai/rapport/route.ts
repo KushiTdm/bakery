@@ -1,17 +1,19 @@
 // app/api/boulanger/ai/rapport/route.ts
 // ─────────────────────────────────────────────────────────────
 // POST → Génère le rapport IA de clôture + prévisions de production
+// GET  → Récupère le rapport du jour (ou d'une date passée)
 //
-// v3 :
-//   - Analyse complète : produits, click & collect, anti-gaspi, clients
-//   - Données réelles (plus d'anonymisation nécessaire)
-//   - Briefings séparés : boulanger, vendeuse, gérant
-//   - Lignes commandes lues depuis le JSONB commandes.lignes (pas commande_lignes)
-//   - Clients filtrés par boulangerie via commandes (multi-tenant correct)
+// v5 — Corrections sécurité :
+//   - getBoulangerSession() depuis lib/auth-boulanger.ts (owner + employés)
+//   - Fonction atomique check_and_increment_levain_quota() (race condition éliminée)
+//   - get_levain_quota() pour le GET (lecture seule, pas d'incrément)
+//   - Filtre Starter appliqué aussi sur le GET
+//   - canAccess(session, 'dashboard', 'read') — rapport accessible aux gérants
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger';
 import {
   anonymiserDonnees,
   deanonymiserRapport,
@@ -27,6 +29,7 @@ import {
 import { fetchMeteo } from '@/lib/weather';
 
 // ── Config z.ai ───────────────────────────────────────────────
+
 const ZHIPU_API_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
 const ZHIPU_MODEL   = process.env.ZHIPU_MODEL ?? 'glm-4.5-air';
 const ZHIPU_MAX_TOK = 4000;
@@ -41,57 +44,96 @@ function extractJSON(raw: string): string {
   return c;
 }
 
-interface BoulangerieInfo {
-  id:        string;
-  plan:      string;
-  timezone:  string;
-  latitude:  number | null;
-  longitude: number | null;
-  ville:     string | null;
+// ── Types internes ────────────────────────────────────────────
+
+interface StockRow { produit_id: string; production: number; }
+
+interface QuotaInfo {
+  can_generate:    boolean;
+  plan:            string;
+  quota_limit:     number;   // -1 = illimité
+  quota_used:      number;
+  quota_remaining: number;   // -1 = illimité
+  week_start:      string;
 }
 
-async function getAuth(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const admin = getSupabaseAdmin();
-  const { data: { user }, error } = await admin.auth.getUser(authHeader.slice(7));
-  if (error || !user) return null;
-  const { data: boulangerie } = await admin
-    .from('boulangeries')
-    .select('id, plan, timezone, latitude, longitude, ville')
-    .eq('user_id', user.id)
-    .single();
-  if (!boulangerie) return null;
+// ── Helpers quota ─────────────────────────────────────────────
+
+/** Lecture seule — pour le GET */
+async function getLevainQuota(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  boulangerieId: string
+): Promise<QuotaInfo> {
+  const { data, error } = await admin.rpc('get_levain_quota', {
+    p_boulangerie_id: boulangerieId,
+  });
+  if (error || !data) {
+    return { can_generate: true, plan: 'starter', quota_limit: 1, quota_used: 0, quota_remaining: 1, week_start: '' };
+  }
+  return data as QuotaInfo;
+}
+
+/** Atomique check + incrément — pour le POST uniquement */
+async function checkAndIncrementLevainQuota(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  boulangerieId: string
+): Promise<QuotaInfo> {
+  const { data, error } = await admin.rpc('check_and_increment_levain_quota', {
+    p_boulangerie_id: boulangerieId,
+  });
+  if (error || !data) {
+    return { can_generate: true, plan: 'starter', quota_limit: 1, quota_used: 0, quota_remaining: 1, week_start: '' };
+  }
+  return data as QuotaInfo;
+}
+
+/** Filtre le rapport JSON pour les comptes Starter (score + verdict uniquement) */
+function filterRapportForStarter(rapportJson: Record<string, unknown>): Record<string, unknown> {
   return {
-    admin,
-    boulangerie: {
-      id:        boulangerie.id       as string,
-      plan:      (boulangerie.plan    ?? 'starter') as string,
-      timezone:  (boulangerie.timezone ?? 'Europe/Paris') as string,
-      latitude:  boulangerie.latitude  as number | null,
-      longitude: boulangerie.longitude as number | null,
-      ville:     boulangerie.ville     as string | null,
-    } satisfies BoulangerieInfo,
+    score:           rapportJson.score,
+    verdict:         rapportJson.verdict,
+    message_levain:  rapportJson.message_levain,
+    _starter_preview:  true,
+    _upgrade_message: 'Passez au plan Pro pour débloquer l\'analyse complète, les briefings et les prévisions de production.',
   };
 }
 
 // ── GET — récupère le rapport du jour ─────────────────────────
 
 export async function GET(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-  const { admin, boulangerie } = auth;
+  // Auth partagée — owner + employés actifs
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'dashboard', 'read')) {
+    return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+  }
+
+  const { boulangerieId } = session;
+  const admin = getSupabaseAdmin();
+
   const { searchParams } = new URL(req.url);
-  const date = searchParams.get('date') ?? getTodayInTimezone(boulangerie.timezone);
+
+  // Récupérer le timezone de la boulangerie pour la date par défaut
+  const { data: boulangerie } = await admin
+    .from('boulangeries')
+    .select('timezone, plan')
+    .eq('id', boulangerieId)
+    .single();
+
+  const timezone = (boulangerie?.timezone as string | null) ?? 'Europe/Paris';
+  const date = searchParams.get('date') ?? getTodayInTimezone(timezone);
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json({ error: 'Format date invalide (YYYY-MM-DD)' }, { status: 400 });
   }
+
+  const isStarterPlan = (boulangerie?.plan ?? 'starter') === 'starter';
 
   try {
     const { data: rapport } = await admin
       .from('ai_rapports')
       .select('*')
-      .eq('boulangerie_id', boulangerie.id)
+      .eq('boulangerie_id', boulangerieId)
       .eq('date', date)
       .single();
 
@@ -104,7 +146,7 @@ export async function GET(req: NextRequest) {
     const { data: previsions } = await admin
       .from('production_forecasts')
       .select('*')
-      .eq('boulangerie_id', boulangerie.id)
+      .eq('boulangerie_id', boulangerieId)
       .eq('date_production', demainDate)
       .order('produit_categorie')
       .order('produit_nom');
@@ -119,10 +161,24 @@ export async function GET(req: NextRequest) {
       feedbackVendeuse = fb;
     }
 
+    // Quota (lecture seule — pas d'incrément sur le GET)
+    const quotaInfo = await getLevainQuota(admin, boulangerieId);
+
+    // Appliquer le filtre Starter aussi sur le GET
+    let rapportFiltre = rapport ?? null;
+    if (isStarterPlan && rapport?.rapport_json) {
+      rapportFiltre = {
+        ...rapport,
+        rapport_json: filterRapportForStarter(rapport.rapport_json as Record<string, unknown>),
+      };
+    }
+
     return NextResponse.json({
-      rapport:           rapport ?? null,
-      previsions:        previsions ?? [],
+      rapport:           rapportFiltre,
+      previsions:        isStarterPlan ? [] : (previsions ?? []),
       feedback_vendeuse: feedbackVendeuse,
+      quota_info:        quotaInfo,
+      starter_preview:   isStarterPlan,
     });
   } catch (err) {
     console.error('[GET /api/boulanger/ai/rapport]', err);
@@ -133,14 +189,36 @@ export async function GET(req: NextRequest) {
 // ── POST — génère le rapport IA ───────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-  const { admin, boulangerie } = auth;
-  const boulangerieId = boulangerie.id;
+  // Auth partagée — owner + employés actifs
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  // Seul l'owner ou le gérant peut générer un rapport
+  if (!canAccess(session, 'dashboard', 'write')) {
+    return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
+  }
+
+  const { boulangerieId } = session;
+  const admin = getSupabaseAdmin();
 
   const zhipuApiKey = process.env.ZHIPU_API_KEY;
   if (!zhipuApiKey) {
     return NextResponse.json({ error: 'Clé API z.ai non configurée' }, { status: 503 });
+  }
+
+  // ── P0-4 : Feature Gate — quota atomique ───────────────────
+  // check_and_increment est atomique (SELECT FOR UPDATE) :
+  // si can_generate = false, le compteur n'est PAS incrémenté.
+  const quotaInfo = await checkAndIncrementLevainQuota(admin, boulangerieId);
+  const isStarterPlan = quotaInfo.plan === 'starter';
+
+  if (!quotaInfo.can_generate) {
+    return NextResponse.json({
+      error:            'Quota hebdomadaire atteint',
+      quota_reached:    true,
+      upgrade_required: true,
+      quota_info:       quotaInfo,
+    }, { status: 402 });
   }
 
   // ── Données wizard pré-rapport (optionnelles) ──────────────
@@ -151,12 +229,26 @@ export async function POST(req: NextRequest) {
     evenement_impact?:    'hausse' | 'neutre' | 'baisse';
     evenement_pct?:       number;
   } = {};
+
+  let rawBody: unknown;
   try {
-    const body = await req.json().catch(() => ({}));
-    wizardData = body ?? {};
+    rawBody = await req.json();
+    if (rawBody && typeof rawBody === 'object') {
+      wizardData = rawBody as typeof wizardData;
+    }
   } catch { /* body optionnel */ }
 
-  const today = getTodayInTimezone(boulangerie.timezone);
+  // ── Infos boulangerie ──────────────────────────────────────
+  const { data: boulangerie } = await admin
+    .from('boulangeries')
+    .select('timezone, latitude, longitude, ville')
+    .eq('id', boulangerieId)
+    .single();
+
+  const timezone  = (boulangerie?.timezone  as string | null)  ?? 'Europe/Paris';
+  const latitude  = boulangerie?.latitude  as number | null;
+  const longitude = boulangerie?.longitude as number | null;
+  const today     = getTodayInTimezone(timezone);
 
   try {
     // ── 1. Vérifier rapport existant ──────────────────────────
@@ -178,7 +270,28 @@ export async function POST(req: NextRequest) {
       const { data: previsions } = await admin
         .from('production_forecasts').select('*')
         .eq('boulangerie_id', boulangerieId).eq('date_production', demainDate);
-      return NextResponse.json({ rapport, previsions: previsions ?? [], cached: true });
+
+      // Rapport déjà généré — le quota a été incrémenté à tort, on le décrémente
+      await admin
+        .from('boulangeries')
+        .update({ levain_quota_used: Math.max(0, (quotaInfo.quota_used) - 1) })
+        .eq('id', boulangerieId);
+
+      let rapportResponse = rapport;
+      if (isStarterPlan && rapport?.rapport_json) {
+        rapportResponse = {
+          ...rapport,
+          rapport_json: filterRapportForStarter(rapport.rapport_json as Record<string, unknown>),
+        };
+      }
+
+      return NextResponse.json({
+        rapport:         rapportResponse,
+        previsions:      isStarterPlan ? [] : (previsions ?? []),
+        cached:          true,
+        quota_info:      quotaInfo,
+        starter_preview: isStarterPlan,
+      });
     }
 
     // ── 2. Crée/met à jour le rapport en statut "en_cours" ────
@@ -227,14 +340,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Aucune production saisie pour aujourd\'hui.' }, { status: 400 });
     }
 
-    // Feedback vendeuse
     const { data: feedbackVendeuse } = await admin
       .from('feedback_journee')
       .select('*')
       .eq('journee_id', journee.id)
       .single();
 
-    // Historique 14j
     const { data: historique } = await admin
       .from('journees')
       .select('date, ca_estime, taux_invendu, total_produit, total_invendu, commandes_online')
@@ -244,7 +355,6 @@ export async function POST(req: NextRequest) {
       .order('date', { ascending: false })
       .limit(14);
 
-    // Catalogue actif
     const { data: produits } = await admin
       .from('produits')
       .select('id, nom, emoji, categorie, prix_vente')
@@ -259,9 +369,9 @@ export async function POST(req: NextRequest) {
     let meteoComplet = null;
     let meteoId: string | null = null;
 
-    if (boulangerie.latitude && boulangerie.longitude) {
+    if (latitude && longitude) {
       try {
-        meteoComplet = await fetchMeteo(boulangerie.latitude, boulangerie.longitude, boulangerie.timezone);
+        meteoComplet = await fetchMeteo(latitude, longitude, timezone);
         if (meteoComplet) {
           const { data: meteoRow } = await admin
             .from('meteo_journees')
@@ -294,16 +404,10 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 5. Commandes du jour ───────────────────────────────────
-    // Les lignes sont en JSONB dans la colonne commandes.lignes (pas de table séparée)
     interface CommandeDB {
-      id: string;
-      type: string | null;
-      client_prenom: string | null;
-      client_email: string;
-      montant_total: number;
-      statut: string;
-      heure_retrait: string | null;
-      created_at: string;
+      id: string; type: string | null; client_prenom: string | null;
+      client_email: string; montant_total: number; statut: string;
+      heure_retrait: string | null; created_at: string;
       lignes: { produit_nom: string; quantite: number; prix_unitaire: number }[] | null;
     }
 
@@ -327,91 +431,66 @@ export async function POST(req: NextRequest) {
     }));
 
     // ── 6. Paniers flash du jour ───────────────────────────────
+    interface PanierDB {
+      id: string; produit_nom: string; categorie: string;
+      quantite_initiale: number; prix_flash: number; remise_pct: number; quantite_restante: number;
+    }
+
     const { data: paniersFlashRaw } = await admin
       .from('paniers_flash')
       .select('id, produit_nom, categorie, quantite_initiale, prix_flash, remise_pct, quantite_restante')
       .eq('boulangerie_id', boulangerieId)
       .eq('date', today);
 
-    interface PanierDB {
-      id: string;
-      produit_nom: string;
-      categorie: string;
-      quantite_initiale: number;
-      prix_flash: number;
-      remise_pct: number;
-      quantite_restante: number;
-    }
-
     const paniersFlash: PanierFlashRaw[] = (paniersFlashRaw as PanierDB[] ?? []).map(p => ({
-      id:         p.id,
+      id:          p.id,
       produit_nom: p.produit_nom,
-      categorie:  p.categorie,
-      quantite:   p.quantite_initiale,
-      prix_final: p.prix_flash,
-      remise_pct: p.remise_pct ?? 30,
-      // vendu = stock_restant à 0
-      vendu:      p.quantite_restante === 0,
+      categorie:   p.categorie,
+      quantite:    p.quantite_initiale,
+      prix_final:  p.prix_flash,
+      remise_pct:  p.remise_pct ?? 30,
+      vendu:       p.quantite_restante === 0,
     }));
 
     // ── 7. Clients de cette boulangerie ────────────────────────
-    // On passe par les emails de commandes pour rester multi-tenant
-    // puis on joint profils_clients via user_id (approximation: email = user email)
-    // Solution correcte : récupérer les emails uniques des commandes de la boulangerie
-    const { data: clientEmailsRaw } = await admin
+    const { data: allCommandesClient } = await admin
       .from('commandes')
-      .select('client_email')
+      .select('client_email, montant_total, created_at')
       .eq('boulangerie_id', boulangerieId)
-      .not('client_email', 'is', null);
+      .order('created_at', { ascending: true });
 
-    const emailsUniques = [...new Set((clientEmailsRaw ?? []).map(c => c.client_email as string))];
+    const clientMap: Record<string, { nb: number; total: number; first_seen: string }> = {};
+    (allCommandesClient ?? []).forEach((c: { client_email: string; montant_total: number; created_at: string }) => {
+      if (!clientMap[c.client_email]) {
+        clientMap[c.client_email] = { nb: 0, total: 0, first_seen: c.created_at };
+      }
+      clientMap[c.client_email].nb++;
+      clientMap[c.client_email].total += Number(c.montant_total);
+    });
 
-    let clients: ClientProfilRaw[] = [];
-    if (emailsUniques.length > 0) {
-      // Récupère les users Supabase Auth par email pour avoir les user_id
-      // puis les profils clients — on utilise une requête sur auth.users via service role
-      // Simplification : on compte directement depuis les commandes par client_email
-      interface CommandeCount { client_email: string; montant_total: number }
-      const { data: allCommandesClient } = await admin
-        .from('commandes')
-        .select('client_email, montant_total, created_at')
-        .eq('boulangerie_id', boulangerieId)
-        .order('created_at', { ascending: true });
+    const clients: ClientProfilRaw[] = Object.entries(clientMap).map(([email, data]) => ({
+      id:            email,
+      created_at:    data.first_seen,
+      nb_commandes:  data.nb,
+      total_depense: Math.round(data.total * 100) / 100,
+    }));
 
-      const clientMap: Record<string, { nb: number; total: number; first_seen: string }> = {};
-      (allCommandesClient ?? []).forEach((c: { client_email: string; montant_total: number; created_at: string }) => {
-        if (!clientMap[c.client_email]) {
-          clientMap[c.client_email] = { nb: 0, total: 0, first_seen: c.created_at };
-        }
-        clientMap[c.client_email].nb++;
-        clientMap[c.client_email].total += Number(c.montant_total);
-      });
-
-      clients = Object.entries(clientMap).map(([email, data]) => ({
-        id:            email, // on utilise l'email comme identifiant stable
-        created_at:    data.first_seen,
-        nb_commandes:  data.nb,
-        total_depense: Math.round(data.total * 100) / 100,
-      }));
-    }
-
-    // ── 8. Enrichissement des données ─────────────────────────
+    // ── 8. Enrichissement & prompt ─────────────────────────────
     const payload = anonymiserDonnees(
       journee as JourneeRaw,
       (historique ?? []) as JourneeRaw[],
       (produits  ?? []) as ProduitRaw[],
-      boulangerie.timezone,
+      timezone,
       meteoComplet,
       commandes,
       paniersFlash,
       clients,
     );
 
-    // ── 9. Prompt ──────────────────────────────────────────────
     const systemPrompt = buildSystemPrompt();
     const userPrompt   = buildUserPromptEnrichi(payload, feedbackVendeuse, wizardData);
 
-    // ── 10. Appel z.ai ─────────────────────────────────────────
+    // ── 9. Appel z.ai ─────────────────────────────────────────
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), ZHIPU_TIMEOUT);
     let aiResponse: string;
@@ -451,11 +530,10 @@ export async function POST(req: NextRequest) {
       clearTimeout(timeoutId);
     }
 
-    // ── 11. Parse JSON ─────────────────────────────────────────
+    // ── 10. Parse JSON ─────────────────────────────────────────
     let rapportJSON: Record<string, unknown>;
     try {
-      const cleaned = extractJSON(aiResponse);
-      rapportJSON   = JSON.parse(cleaned);
+      rapportJSON = JSON.parse(extractJSON(aiResponse));
     } catch (parseErr) {
       await admin.from('ai_rapports').update({
         statut:     'erreur',
@@ -473,7 +551,7 @@ export async function POST(req: NextRequest) {
     const verdict = typeof rapportFinal.verdict === 'string'
       ? rapportFinal.verdict.slice(0, 200) : null;
 
-    // ── 12. Sauvegarde le rapport ──────────────────────────────
+    // ── 11. Sauvegarde le rapport ──────────────────────────────
     await admin.from('ai_rapports').update({
       statut:            'genere',
       score_performance: score,
@@ -491,7 +569,7 @@ export async function POST(req: NextRequest) {
       ...(meteoId ? { meteo_id: meteoId } : {}),
     }).eq('id', rapportId);
 
-    // ── 13. Prévisions de production ───────────────────────────
+    // ── 12. Prévisions de production ───────────────────────────
     const demainDate = (() => {
       const d = new Date(today + 'T12:00:00Z');
       d.setUTCDate(d.getUTCDate() + 1);
@@ -508,14 +586,12 @@ export async function POST(req: NextRequest) {
     const previsionsRows = previsions
       .filter(p => p && typeof p === 'object')
       .map(p => {
-        const idx    = Number(p.produit_index);
+        const idx = Number(p.produit_index);
         if (idx < 1 || idx > produitsList.length) return null;
         const produit = produitsList[idx - 1];
         if (!produit) return null;
-
         const qte  = Math.max(0, Math.round(Number(p.quantite_suggeree) || 0));
         const base = stocksList.find(s => s.produit_id === produit.id)?.production ?? 0;
-
         return {
           boulangerie_id:    boulangerieId,
           rapport_id:        rapportId,
@@ -535,7 +611,7 @@ export async function POST(req: NextRequest) {
       })
       .filter(Boolean);
 
-    const couverts = new Set(previsionsRows.map(r => r?.produit_id));
+    const couverts  = new Set(previsionsRows.map(r => r?.produit_id));
     const manquants = produitsList.filter(p => !couverts.has(p.id)).map(p => {
       const base = stocksList.find(s => s.produit_id === p.id)?.production ?? 0;
       return {
@@ -560,7 +636,7 @@ export async function POST(req: NextRequest) {
         .upsert(allPrevisions, { onConflict: 'boulangerie_id,date_production,produit_id' });
     }
 
-    // ── 14. Notification push ──────────────────────────────────
+    // ── 13. Notification push ──────────────────────────────────
     const appUrl         = process.env.NEXT_PUBLIC_APP_URL ?? '';
     const internalSecret = process.env.INTERNAL_API_SECRET ?? '';
     if (appUrl && internalSecret) {
@@ -571,7 +647,7 @@ export async function POST(req: NextRequest) {
           boulangerie_id: boulangerieId,
           payload: {
             title: `🎯 Levain — Score ${score ?? '—'}/100`,
-            body:  verdict ?? 'Votre rapport complet + plan de production pour demain sont prêts.',
+            body:  verdict ?? 'Votre rapport complet est prêt.',
             url:   '/boulanger',
             tag:   'rapport-ia',
           },
@@ -579,7 +655,7 @@ export async function POST(req: NextRequest) {
       }).catch(e => console.warn('[AI rapport] Push non envoyé:', e));
     }
 
-    // ── 15. Retourne le résultat ───────────────────────────────
+    // ── 14. Retourne le résultat ───────────────────────────────
     const { data: rapportSaved } = await admin
       .from('ai_rapports').select('*').eq('id', rapportId).single();
     const { data: previsionsFinal } = await admin
@@ -589,10 +665,20 @@ export async function POST(req: NextRequest) {
       .eq('date_production', demainDate)
       .order('produit_categorie').order('produit_nom');
 
+    let rapportResponse = rapportSaved;
+    if (isStarterPlan && rapportSaved?.rapport_json) {
+      rapportResponse = {
+        ...rapportSaved,
+        rapport_json: filterRapportForStarter(rapportSaved.rapport_json as Record<string, unknown>),
+      };
+    }
+
     return NextResponse.json({
-      rapport:    rapportSaved,
-      previsions: previsionsFinal ?? [],
-      cached:     false,
+      rapport:         rapportResponse,
+      previsions:      isStarterPlan ? [] : (previsionsFinal ?? []),
+      cached:          false,
+      quota_info:      quotaInfo,
+      starter_preview: isStarterPlan,
     });
 
   } catch (err) {
@@ -605,9 +691,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur lors de la génération IA.' }, { status: 500 });
   }
 }
-
-// ── Type helper interne ───────────────────────────────────────
-interface StockRow { produit_id: string; production: number; }
 
 // ── Prompt utilisateur enrichi ────────────────────────────────
 
@@ -625,10 +708,8 @@ function buildUserPromptEnrichi(
   let sectionFeedback = '';
   if (feedbackVendeuse) {
     const humeurs: Record<number, string> = {
-      1: '😞 Journée difficile',
-      2: '😐 Journée correcte',
-      3: '😊 Bonne journée',
-      4: '🌟 Excellente journée',
+      1: '😞 Journée difficile', 2: '😐 Journée correcte',
+      3: '😊 Bonne journée',    4: '🌟 Excellente journée',
     };
     const rating = feedbackVendeuse.rating_journee as number;
     sectionFeedback = `
@@ -666,9 +747,7 @@ Impact estimé : ${impactLabel}
     sectionConsignes += '\n⚠️ Inclus ces consignes mot pour mot dans le champ "consignes_transmises".';
   }
 
-  const basePrompt = buildUserPrompt(payload);
-
-  return `${basePrompt}
+  return `${buildUserPrompt(payload)}
 ${sectionFeedback}
 ${sectionEvenement}
 ${sectionConsignes}
