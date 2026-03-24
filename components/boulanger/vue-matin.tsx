@@ -2,22 +2,32 @@
 // components/boulanger/vue-matin.tsx
 // ─────────────────────────────────────────────────────────────
 // Multi-fournées + séparation par catégorie (Pains / Viennoiseries / Pâtisseries / Sandwichs)
-// Le boulanger peut ajouter N fournées dans la journée.
-// Chaque ajout s'accumule sur la production totale du jour.
+// ✅ Fix : suggestions Levain chargées depuis production_forecasts
+//          (au lieu des moyennes historiques locales)
 // ─────────────────────────────────────────────────────────────
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Minus, Sparkles, TrendingUp, ChevronRight,
   Loader2, CheckCircle2, ChevronDown, ChevronUp, Package,
+  Brain,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
+import { supabase } from '@/lib/supabase';
 import type { StockEntry, ProductionSuggestion } from '@/context/boulanger-context';
 
 // ── Types ─────────────────────────────────────────────────────
 
 type Confidence = 'high' | 'medium' | 'low';
+
+interface LevainForecast {
+  produit_id:       string;
+  quantite_suggeree: number;
+  quantite_base:    number;
+  variation_pct:    number;
+  raison:           string;
+}
 
 const CONFIDENCE_COLORS: Record<Confidence, string> = {
   high:   'text-green-400',
@@ -25,7 +35,7 @@ const CONFIDENCE_COLORS: Record<Confidence, string> = {
   low:    'text-white/30',
 };
 const CONFIDENCE_LABELS: Record<Confidence, string> = {
-  high:   'Fiable',
+  high:   'Levain IA',
   medium: 'Probable',
   low:    'Estimé',
 };
@@ -76,19 +86,21 @@ const CATEGORY_ORDER = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwichs'
 function ProduitRow({
   stock,
   suggestion,
+  isAISuggestion,
   onIncrement,
   onDecrement,
   onApplySuggestion,
   isFirst,
   categoryColor,
 }: {
-  stock:             StockEntry;
-  suggestion?:       ProductionSuggestion;
-  onIncrement:       (id: string) => void;
-  onDecrement:       (id: string) => void;
-  onApplySuggestion: (id: string) => void;
-  isFirst:           boolean;
-  categoryColor:     string;
+  stock:              StockEntry;
+  suggestion?:        ProductionSuggestion;
+  isAISuggestion?:    boolean;
+  onIncrement:        (id: string) => void;
+  onDecrement:        (id: string) => void;
+  onApplySuggestion:  (id: string) => void;
+  isFirst:            boolean;
+  categoryColor:      string;
 }) {
   const hasSuggestion =
     suggestion !== undefined &&
@@ -114,15 +126,29 @@ function ProduitRow({
         {hasSuggestion && suggestion && (
           <button
             onClick={() => onApplySuggestion(stock.id)}
-            className="mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#C19A6B]/12 border border-[#C19A6B]/20 hover:bg-[#C19A6B]/22 active:scale-95 transition-all"
+            className={`mt-2 flex items-center gap-1.5 px-2.5 py-1 rounded-xl border transition-all active:scale-95 ${
+              isAISuggestion
+                ? 'bg-purple-500/12 border-purple-500/25 hover:bg-purple-500/22'
+                : 'bg-[#C19A6B]/12 border-[#C19A6B]/20 hover:bg-[#C19A6B]/22'
+            }`}
           >
-            <Sparkles size={10} className="text-[#C19A6B]/70" />
-            <span className="text-[10px] text-[#C19A6B]/80 font-medium">
+            {isAISuggestion
+              ? <Brain size={10} className="text-purple-400/80" />
+              : <Sparkles size={10} className="text-[#C19A6B]/70" />
+            }
+            <span className={`text-[10px] font-medium ${isAISuggestion ? 'text-purple-300/80' : 'text-[#C19A6B]/80'}`}>
               Suggéré : {suggestion.suggestedQty}
             </span>
-            <span className={`text-[9px] ${CONFIDENCE_COLORS[suggestion.confidence]}`}>
-              · {CONFIDENCE_LABELS[suggestion.confidence]}
-            </span>
+            {!isAISuggestion && (
+              <span className={`text-[9px] ${CONFIDENCE_COLORS[suggestion.confidence]}`}>
+                · {CONFIDENCE_LABELS[suggestion.confidence]}
+              </span>
+            )}
+            {suggestion.changePercent !== 0 && (
+              <span className={`text-[9px] font-mono ${suggestion.changePercent > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                {suggestion.changePercent > 0 ? '+' : ''}{suggestion.changePercent}%
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -176,6 +202,7 @@ function CategorieSection({
   category,
   stocks,
   suggestions,
+  aiSuggestionsMap,
   onIncrement,
   onDecrement,
   onApplySuggestion,
@@ -183,6 +210,7 @@ function CategorieSection({
   category:          string;
   stocks:            StockEntry[];
   suggestions:       ProductionSuggestion[];
+  aiSuggestionsMap:  Map<string, ProductionSuggestion> | null;
   onIncrement:       (id: string) => void;
   onDecrement:       (id: string) => void;
   onApplySuggestion: (id: string) => void;
@@ -196,7 +224,6 @@ function CategorieSection({
 
   return (
     <div className="rounded-2xl overflow-hidden border mb-4" style={{ background: cfg.bg, borderColor: cfg.border }}>
-      {/* En-tête catégorie */}
       <button
         onClick={() => setCollapsed(v => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 border-b text-left"
@@ -215,7 +242,6 @@ function CategorieSection({
         }
       </button>
 
-      {/* Liste produits */}
       <AnimatePresence>
         {!collapsed && (
           <motion.div
@@ -225,12 +251,18 @@ function CategorieSection({
             className="overflow-hidden"
           >
             {stocks.map((stock, index) => {
-              const suggestion = suggestions.find(s => s.id === stock.id);
+              // Priorité : suggestion IA Levain > suggestion historique
+              const aiSuggestion   = aiSuggestionsMap?.get(stock.id);
+              const histoSuggestion = suggestions.find(s => s.id === stock.id);
+              const activeSuggestion = aiSuggestion ?? histoSuggestion;
+              const isAI = !!aiSuggestion;
+
               return (
                 <ProduitRow
                   key={stock.id}
                   stock={stock}
-                  suggestion={suggestion}
+                  suggestion={activeSuggestion}
+                  isAISuggestion={isAI}
                   onIncrement={onIncrement}
                   onDecrement={onDecrement}
                   onApplySuggestion={onApplySuggestion}
@@ -295,7 +327,60 @@ export default function VueMatin() {
   const [fournees,        setFournees]        = useState<{ heure: string }[]>([
     { heure: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) },
   ]);
-  const [showAddFournee, setShowAddFournee]   = useState(false);
+
+  // ── État prévisions Levain IA ─────────────────────────────
+  const [levainForecasts,   setLevainForecasts]   = useState<LevainForecast[] | null>(null);
+  const [levainApplying,    setLevainApplying]    = useState(false);
+  const [levainLoadError,   setLevainLoadError]   = useState(false);
+
+  // ── Chargement des prévisions Levain au montage ───────────
+  useEffect(() => {
+    loadLevainForecasts();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadLevainForecasts = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      // Utilise la date locale du navigateur (client-side)
+      const today = new Date().toLocaleDateString('en-CA');
+
+      const res = await fetch(`/api/boulanger/ai/appliquer?date=${today}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) return;
+
+      const data = await res.json() as { previsions: LevainForecast[]; count: number };
+      if (data.previsions?.length > 0) {
+        setLevainForecasts(data.previsions);
+      }
+    } catch (err) {
+      console.warn('[VueMatin] loadLevainForecasts:', err);
+      setLevainLoadError(true);
+    }
+  }, []);
+
+  // ── Map produit_id → suggestion IA (pour lookup O(1)) ────
+  const aiSuggestionsMap = useMemo<Map<string, ProductionSuggestion> | null>(() => {
+    if (!levainForecasts?.length) return null;
+    const map = new Map<string, ProductionSuggestion>();
+    for (const f of levainForecasts) {
+      const stock = todayStocks.find(s => s.id === f.produit_id);
+      if (!stock) continue;
+      map.set(f.produit_id, {
+        id:            f.produit_id,
+        name:          stock.name,
+        emoji:         stock.emoji,
+        avgProduction: f.quantite_base,
+        suggestedQty:  f.quantite_suggeree,
+        dataPoints:    1, // IA disponible = a des données
+        changePercent: f.variation_pct,
+        confidence:    'high', // prévision IA = haute confiance
+      });
+    }
+    return map;
+  }, [levainForecasts, todayStocks]);
 
   // Grouper par catégorie
   const grouped = useMemo(() => {
@@ -317,14 +402,51 @@ export default function VueMatin() {
     if (s && s.production > 0) updateProduction(id, s.production - 1);
   };
   const handleApplySuggestion = (id: string) => {
-    const sug = productionSuggestions.find(s => s.id === id);
+    // Priorité IA, puis historique
+    const aiSug   = aiSuggestionsMap?.get(id);
+    const histSug = productionSuggestions.find(s => s.id === id);
+    const sug = aiSug ?? histSug;
     if (sug) updateProduction(id, sug.suggestedQty);
   };
-  const handleApplyAll = () => {
-    productionSuggestions.forEach(s => {
-      if (s.dataPoints > 0) updateProduction(s.id, s.suggestedQty);
-    });
-  };
+
+  // ── Appliquer toutes les suggestions ─────────────────────
+  const handleApplyAll = useCallback(async () => {
+    if (levainForecasts?.length && aiSuggestionsMap) {
+      setLevainApplying(true);
+
+      // 1. Appliquer localement immédiatement → UI réactive
+      levainForecasts.forEach(f => {
+        updateProduction(f.produit_id, f.quantite_suggeree);
+      });
+      // Cacher le bandeau immédiatement
+      setLevainForecasts(null);
+
+      // 2. Marquer comme appliquées en DB (background, non bloquant)
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const today = new Date().toLocaleDateString('en-CA');
+          await fetch('/api/boulanger/ai/appliquer', {
+            method: 'POST',
+            headers: {
+              'Content-Type':  'application/json',
+              Authorization:   `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ date_production: today }),
+          });
+        }
+      } catch (err) {
+        console.warn('[handleApplyAll] Marquage DB échoué (non bloquant):', err);
+      } finally {
+        setLevainApplying(false);
+      }
+    } else {
+      // Fallback : suggestions historiques locales
+      productionSuggestions.forEach(s => {
+        if (s.dataPoints > 0) updateProduction(s.id, s.suggestedQty);
+      });
+    }
+  }, [levainForecasts, aiSuggestionsMap, productionSuggestions, updateProduction]);
 
   const handleValider = () => {
     setValidated(true);
@@ -336,15 +458,17 @@ export default function VueMatin() {
     const idx = fournees.length;
     setFournees(prev => [...prev, { heure }]);
     setFourneeActive(idx);
-    setShowAddFournee(false);
   };
 
   const caEstime    = todayStocks.reduce((acc, s) => acc + s.production * s.prixVente, 0);
   const totalPieces = todayStocks.reduce((acc, s) => acc + s.production, 0);
 
-  const hasSuggestions = productionSuggestions.some(
+  // ── Détermine si le bandeau suggestions est visible ──────
+  const hasLevainSuggestions = !!levainForecasts?.length;
+  const hasHistoSuggestions  = !hasLevainSuggestions && productionSuggestions.some(
     s => s.dataPoints > 0 && s.suggestedQty !== todayStocks.find(t => t.id === s.id)?.production
   );
+  const hasSuggestions = hasLevainSuggestions || hasHistoSuggestions;
 
   const jourSemaine = new Date().toLocaleDateString('fr-FR', { weekday: 'long' });
   const dateFr      = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
@@ -442,7 +566,7 @@ export default function VueMatin() {
         )}
       </div>
 
-      {/* ── Suggestions ML ────────────────────────────────────── */}
+      {/* ── Bandeau suggestions (Levain IA ou historique) ─────── */}
       <AnimatePresence>
         {hasSuggestions && (
           <motion.button
@@ -450,24 +574,50 @@ export default function VueMatin() {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             onClick={handleApplyAll}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all"
-            style={{
-              background: 'linear-gradient(135deg, rgba(193,154,107,0.12) 0%, rgba(232,201,154,0.06) 100%)',
-              borderColor: 'rgba(193,154,107,0.2)',
-            }}
+            disabled={levainApplying}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border transition-all disabled:opacity-60"
+            style={
+              hasLevainSuggestions
+                ? {
+                    background:  'linear-gradient(135deg, rgba(147,51,234,0.12) 0%, rgba(147,51,234,0.06) 100%)',
+                    borderColor: 'rgba(147,51,234,0.25)',
+                  }
+                : {
+                    background:  'linear-gradient(135deg, rgba(193,154,107,0.12) 0%, rgba(232,201,154,0.06) 100%)',
+                    borderColor: 'rgba(193,154,107,0.2)',
+                  }
+            }
           >
             <div className="flex items-center gap-2">
-              <Sparkles size={14} className="text-[#C19A6B]/80" />
-              <span className="text-[13px] font-semibold text-[#C19A6B]/90">
-                Appliquer les suggestions Levain
-              </span>
+              {levainApplying
+                ? <Loader2 size={14} className="animate-spin text-purple-400" />
+                : hasLevainSuggestions
+                  ? <Brain size={14} className="text-purple-400" />
+                  : <Sparkles size={14} className="text-[#C19A6B]/80" />
+              }
+              <div className="text-left">
+                <span className={`text-[13px] font-semibold ${hasLevainSuggestions ? 'text-purple-300' : 'text-[#C19A6B]/90'}`}>
+                  {levainApplying
+                    ? 'Application en cours…'
+                    : hasLevainSuggestions
+                      ? 'Appliquer les prévisions Levain IA'
+                      : 'Appliquer les suggestions Levain'
+                  }
+                </span>
+                {hasLevainSuggestions && (
+                  <p className="text-[10px] text-purple-400/60 mt-0.5">
+                    {levainForecasts?.length} produits · basé sur votre historique + météo
+                  </p>
+                )}
+              </div>
             </div>
-            <ChevronRight size={14} className="text-[#C19A6B]/50" />
+            <ChevronRight size={14} className={hasLevainSuggestions ? 'text-purple-400/50' : 'text-[#C19A6B]/50'} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {productionSuggestions.length > 0 && productionSuggestions.every(s => s.dataPoints === 0) && (
+      {/* Message si aucune donnée pour les suggestions historiques */}
+      {!hasLevainSuggestions && !levainLoadError && productionSuggestions.length > 0 && productionSuggestions.every(s => s.dataPoints === 0) && (
         <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3 flex items-start gap-2">
           <Sparkles size={13} className="text-[#C19A6B]/50 flex-shrink-0 mt-0.5" />
           <p className="text-white/30 text-xs leading-relaxed">
@@ -484,6 +634,7 @@ export default function VueMatin() {
             category={cat}
             stocks={grouped[cat] ?? []}
             suggestions={productionSuggestions}
+            aiSuggestionsMap={aiSuggestionsMap}
             onIncrement={handleIncrement}
             onDecrement={handleDecrement}
             onApplySuggestion={handleApplySuggestion}

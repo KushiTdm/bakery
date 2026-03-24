@@ -1,37 +1,72 @@
 // app/api/boulanger/ai/appliquer/route.ts
 // ─────────────────────────────────────────────────────────────
-// POST → Applique les prévisions IA à la journée de production du lendemain.
-//        Insère / met à jour les stocks_journaliers de la journée J+1
-//        avec les quantités suggérées par l'IA, en 1 clic.
-//
-// Paramètres body :
-//   { date_production: "YYYY-MM-DD" }  // le jour J+1
+// GET  → Retourne les prévisions Levain non appliquées pour une date
+// POST → Applique les prévisions IA à la journée de production
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession } from '@/lib/auth-boulanger';
+import { getTodayInTimezone } from '@/lib/ai-anonymize';
 
-async function getAuth(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
+// ── GET — Charge les prévisions Levain pour une date ─────────
+
+export async function GET(req: NextRequest) {
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
   const admin = getSupabaseAdmin();
-  const token = authHeader.slice(7);
-  const { data: { user }, error } = await admin.auth.getUser(token);
-  if (error || !user) return null;
+  const { boulangerieId } = session;
+
+  // Récupère le timezone de la boulangerie pour la date du jour
   const { data: boulangerie } = await admin
     .from('boulangeries')
-    .select('id')
-    .eq('user_id', user.id)
+    .select('timezone')
+    .eq('id', boulangerieId)
     .single();
-  if (!boulangerie) return null;
-  return { admin, boulangerieId: boulangerie.id as string };
+  const timezone = (boulangerie?.timezone as string) ?? 'Europe/Paris';
+
+  // Date demandée (param) ou aujourd'hui dans le timezone de la boulangerie
+  const { searchParams } = new URL(req.url);
+  const dateProd = searchParams.get('date') ?? getTodayInTimezone(timezone);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateProd)) {
+    return NextResponse.json({ error: 'date invalide (YYYY-MM-DD)' }, { status: 400 });
+  }
+
+  try {
+    const { data: previsions, error } = await admin
+      .from('production_forecasts')
+      .select('produit_id, quantite_suggeree, quantite_base, variation_pct, raison')
+      .eq('boulangerie_id', boulangerieId)
+      .eq('date_production', dateProd)
+      .eq('appliquee', false)
+      .order('produit_id');
+
+    if (error) {
+      console.error('[GET /api/boulanger/ai/appliquer]', error);
+      return NextResponse.json({ error: 'Erreur chargement prévisions' }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      previsions:      previsions ?? [],
+      date_production: dateProd,
+      count:           previsions?.length ?? 0,
+    });
+  } catch (err) {
+    console.error('[GET /api/boulanger/ai/appliquer]', err);
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+  }
 }
 
-export async function POST(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+// ── POST — Applique les prévisions à la journée ───────────────
 
-  const { admin, boulangerieId } = auth;
+export async function POST(req: NextRequest) {
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
 
   let body: { date_production?: string };
   try { body = await req.json(); }
@@ -43,7 +78,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Récupère les prévisions pour ce jour
+    // Récupère les prévisions non appliquées pour ce jour
     const { data: previsions, error: prevError } = await admin
       .from('production_forecasts')
       .select('*')
@@ -58,7 +93,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Crée ou récupère la journée du lendemain
+    // Crée ou récupère la journée
     const { data: journee, error: journeeError } = await admin
       .from('journees')
       .upsert(
@@ -77,11 +112,11 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (journeeError || !journee) {
-      console.error('[appliquer] journee upsert:', journeeError);
+      console.error('[appliquer POST] journee upsert:', journeeError);
       return NextResponse.json({ error: 'Erreur création journée.' }, { status: 500 });
     }
 
-    // Récupère les infos produits pour les stocks
+    // Récupère les infos produits
     const produitIds = previsions.map(p => p.produit_id);
     const { data: produits } = await admin
       .from('produits')
@@ -122,7 +157,7 @@ export async function POST(req: NextRequest) {
         .upsert(stocksRows, { onConflict: 'journee_id,produit_id' });
 
       if (stocksError) {
-        console.error('[appliquer] stocks upsert:', stocksError);
+        console.error('[appliquer POST] stocks upsert:', stocksError);
         return NextResponse.json({ error: 'Erreur lors de l\'application des prévisions.' }, { status: 500 });
       }
     }
@@ -142,9 +177,9 @@ export async function POST(req: NextRequest) {
       .eq('date_production', dateProd);
 
     return NextResponse.json({
-      success:       true,
-      produits_maj:  stocksRows.length,
-      total_pieces:  totalProduit,
+      success:         true,
+      produits_maj:    stocksRows.length,
+      total_pieces:    totalProduit,
       date_production: dateProd,
     });
 
