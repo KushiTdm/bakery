@@ -3,12 +3,10 @@
 // POST → Génère le rapport IA de clôture + prévisions de production
 // GET  → Récupère le rapport du jour (ou d'une date passée)
 //
-// v5 — Corrections sécurité :
-//   - getBoulangerSession() depuis lib/auth-boulanger.ts (owner + employés)
-//   - Fonction atomique check_and_increment_levain_quota() (race condition éliminée)
-//   - get_levain_quota() pour le GET (lecture seule, pas d'incrément)
-//   - Filtre Starter appliqué aussi sur le GET
-//   - canAccess(session, 'dashboard', 'read') — rapport accessible aux gérants
+// v6 — Corrections prévisions :
+//   - Mapping par produit_id UUID (stable) au lieu de produit_index (fragile)
+//   - quantite_min / quantite_max stockés pour afficher une fourchette au boulanger
+//   - Fallback produit_index conservé pour compatibilité ascendante
 // ─────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -51,15 +49,14 @@ interface StockRow { produit_id: string; production: number; }
 interface QuotaInfo {
   can_generate:    boolean;
   plan:            string;
-  quota_limit:     number;   // -1 = illimité
+  quota_limit:     number;
   quota_used:      number;
-  quota_remaining: number;   // -1 = illimité
+  quota_remaining: number;
   week_start:      string;
 }
 
 // ── Helpers quota ─────────────────────────────────────────────
 
-/** Lecture seule — pour le GET */
 async function getLevainQuota(
   admin: ReturnType<typeof getSupabaseAdmin>,
   boulangerieId: string
@@ -73,7 +70,6 @@ async function getLevainQuota(
   return data as QuotaInfo;
 }
 
-/** Atomique check + incrément — pour le POST uniquement */
 async function checkAndIncrementLevainQuota(
   admin: ReturnType<typeof getSupabaseAdmin>,
   boulangerieId: string
@@ -87,13 +83,12 @@ async function checkAndIncrementLevainQuota(
   return data as QuotaInfo;
 }
 
-/** Filtre le rapport JSON pour les comptes Starter (score + verdict uniquement) */
 function filterRapportForStarter(rapportJson: Record<string, unknown>): Record<string, unknown> {
   return {
-    score:           rapportJson.score,
-    verdict:         rapportJson.verdict,
-    message_levain:  rapportJson.message_levain,
-    _starter_preview:  true,
+    score:            rapportJson.score,
+    verdict:          rapportJson.verdict,
+    message_levain:   rapportJson.message_levain,
+    _starter_preview: true,
     _upgrade_message: 'Passez au plan Pro pour débloquer l\'analyse complète, les briefings et les prévisions de production.',
   };
 }
@@ -101,7 +96,6 @@ function filterRapportForStarter(rapportJson: Record<string, unknown>): Record<s
 // ── GET — récupère le rapport du jour ─────────────────────────
 
 export async function GET(req: NextRequest) {
-  // Auth partagée — owner + employés actifs
   const session = await getBoulangerSession(req);
   if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   if (!canAccess(session, 'dashboard', 'read')) {
@@ -110,10 +104,8 @@ export async function GET(req: NextRequest) {
 
   const { boulangerieId } = session;
   const admin = getSupabaseAdmin();
-
   const { searchParams } = new URL(req.url);
 
-  // Récupérer le timezone de la boulangerie pour la date par défaut
   const { data: boulangerie } = await admin
     .from('boulangeries')
     .select('timezone, plan')
@@ -161,10 +153,8 @@ export async function GET(req: NextRequest) {
       feedbackVendeuse = fb;
     }
 
-    // Quota (lecture seule — pas d'incrément sur le GET)
     const quotaInfo = await getLevainQuota(admin, boulangerieId);
 
-    // Appliquer le filtre Starter aussi sur le GET
     let rapportFiltre = rapport ?? null;
     if (isStarterPlan && rapport?.rapport_json) {
       rapportFiltre = {
@@ -189,11 +179,9 @@ export async function GET(req: NextRequest) {
 // ── POST — génère le rapport IA ───────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // Auth partagée — owner + employés actifs
   const session = await getBoulangerSession(req);
   if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  // Seul l'owner ou le gérant peut générer un rapport
   if (!canAccess(session, 'dashboard', 'write')) {
     return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
   }
@@ -206,9 +194,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Clé API z.ai non configurée' }, { status: 503 });
   }
 
-  // ── P0-4 : Feature Gate — quota atomique ───────────────────
-  // check_and_increment est atomique (SELECT FOR UPDATE) :
-  // si can_generate = false, le compteur n'est PAS incrémenté.
   const quotaInfo = await checkAndIncrementLevainQuota(admin, boulangerieId);
   const isStarterPlan = quotaInfo.plan === 'starter';
 
@@ -221,7 +206,6 @@ export async function POST(req: NextRequest) {
     }, { status: 402 });
   }
 
-  // ── Données wizard pré-rapport (optionnelles) ──────────────
   let wizardData: {
     consignes_boulanger?: string;
     consignes_vendeuse?:  string;
@@ -238,7 +222,6 @@ export async function POST(req: NextRequest) {
     }
   } catch { /* body optionnel */ }
 
-  // ── Infos boulangerie ──────────────────────────────────────
   const { data: boulangerie } = await admin
     .from('boulangeries')
     .select('timezone, latitude, longitude, ville')
@@ -271,7 +254,7 @@ export async function POST(req: NextRequest) {
         .from('production_forecasts').select('*')
         .eq('boulangerie_id', boulangerieId).eq('date_production', demainDate);
 
-      // Rapport déjà généré — le quota a été incrémenté à tort, on le décrémente
+      // Quota décrémenté car rapport déjà généré
       await admin
         .from('boulangeries')
         .update({ levain_quota_used: Math.max(0, (quotaInfo.quota_used) - 1) })
@@ -348,7 +331,7 @@ export async function POST(req: NextRequest) {
 
     const { data: historique } = await admin
       .from('journees')
-      .select('date, ca_estime, taux_invendu, total_produit, total_invendu, commandes_online')
+      .select('date, ca_estime, taux_invendu, total_produit, total_invendu, commandes_online, stocks_journaliers(*)')
       .eq('boulangerie_id', boulangerieId)
       .eq('cloturee', true)
       .neq('date', today)
@@ -583,15 +566,40 @@ export async function POST(req: NextRequest) {
     const produitsList = produits ?? [];
     const stocksList   = (journee.stocks_journaliers ?? []) as StockRow[];
 
+    // ── MAPPING AMÉLIORÉ : produit_id UUID en priorité, fallback produit_index ──
     const previsionsRows = previsions
       .filter(p => p && typeof p === 'object')
       .map(p => {
-        const idx = Number(p.produit_index);
-        if (idx < 1 || idx > produitsList.length) return null;
-        const produit = produitsList[idx - 1];
+        let produit: typeof produitsList[0] | undefined;
+
+        // Priorité 1 : mapping par produit_id UUID (nouveau format)
+        if (typeof p.produit_id === 'string' && p.produit_id.length > 10) {
+          produit = produitsList.find(pr => pr.id === p.produit_id);
+        }
+
+        // Priorité 2 : fallback par produit_index (ancien format, compatibilité)
+        if (!produit && typeof p.produit_index === 'number') {
+          const idx = Number(p.produit_index);
+          if (idx >= 1 && idx <= produitsList.length) {
+            produit = produitsList[idx - 1];
+          }
+        }
+
+        // Priorité 3 : fallback par nom de produit (robustesse maximale)
+        if (!produit && typeof p.produit_nom === 'string') {
+          const nomRecherche = (p.produit_nom as string).toLowerCase().trim();
+          produit = produitsList.find(pr =>
+            pr.nom.toLowerCase().trim() === nomRecherche
+          );
+        }
+
         if (!produit) return null;
+
         const qte  = Math.max(0, Math.round(Number(p.quantite_suggeree) || 0));
-        const base = stocksList.find(s => s.produit_id === produit.id)?.production ?? 0;
+        const qMin = p.quantite_min !== undefined ? Math.max(0, Math.round(Number(p.quantite_min) || 0)) : null;
+        const qMax = p.quantite_max !== undefined ? Math.max(0, Math.round(Number(p.quantite_max) || 0)) : null;
+        const base = stocksList.find(s => s.produit_id === produit!.id)?.production ?? 0;
+
         return {
           boulangerie_id:    boulangerieId,
           rapport_id:        rapportId,
@@ -601,6 +609,8 @@ export async function POST(req: NextRequest) {
           produit_categorie: produit.categorie,
           produit_emoji:     produit.emoji,
           quantite_suggeree: qte,
+          quantite_min:      qMin,
+          quantite_max:      qMax,
           quantite_base:     base,
           variation_pct:     typeof p.variation_pct === 'number'
             ? p.variation_pct
@@ -611,6 +621,7 @@ export async function POST(req: NextRequest) {
       })
       .filter(Boolean);
 
+    // Produits manquants dans la réponse IA → on reconduit la quantité d'aujourd'hui
     const couverts  = new Set(previsionsRows.map(r => r?.produit_id));
     const manquants = produitsList.filter(p => !couverts.has(p.id)).map(p => {
       const base = stocksList.find(s => s.produit_id === p.id)?.production ?? 0;
@@ -623,9 +634,11 @@ export async function POST(req: NextRequest) {
         produit_categorie: p.categorie,
         produit_emoji:     p.emoji,
         quantite_suggeree: base,
+        quantite_min:      null,
+        quantite_max:      null,
         quantite_base:     base,
         variation_pct:     0,
-        raison:            'Identique — données insuffisantes',
+        raison:            'Reconduit — produit non couvert par la réponse IA',
         appliquee:         false,
       };
     });
@@ -754,5 +767,7 @@ ${sectionConsignes}
 
 → Génère le JSON COMPLET avec TOUTES les sections demandées.
 → UTILISE TOUJOURS LES VRAIS NOMS des produits dans les textes.
+→ Dans previsions_production, utilise le produit_id UUID fourni dans le catalogue.
+→ Les quantite_suggeree doivent être des entiers ABSOLUS (nombre de pièces), PAS des pourcentages.
 → Sois précis et actionnable pour chaque membre de l'équipe.`;
 }

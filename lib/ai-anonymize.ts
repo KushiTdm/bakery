@@ -1,11 +1,9 @@
 // lib/ai-anonymize.ts — Levain, l'assistant IA du boulanger BakeryOS
 // ─────────────────────────────────────────────────────────────────────
-// ✅ DONNÉES RÉELLES — Plus d'anonymisation (pas nécessaire RGPD pour noms produits)
-// ✅ Analyse complète : produits, click & collect, paniers anti-gaspi, clients
-// ✅ Fuseau horaire de la boulangerie pour les dates
-// ✅ Météo intégrée dans le prompt
-// ✅ Historique par même jour de semaine (patterns week-end vs semaine)
-// ✅ Événements externes et contexte local
+// ✅ DONNÉES RÉELLES — Noms de produits transmis en clair à l'IA
+// ✅ L'IA reçoit les quantités de base réelles pour calculer des prévisions précises
+// ✅ Retour par produit_id UUID (stable) au lieu de produit_index (fragile)
+// ✅ Météo, commandes, clients, événements intégrés
 // ─────────────────────────────────────────────────────────────────────
 
 import { analyserImpactMeteo } from './weather';
@@ -62,6 +60,7 @@ export interface ClientProfilRaw {
 // ── Types payload enrichi ─────────────────────────────────────
 
 export interface DonneesProduitEnrichies {
+  produit_id: string;  // UUID stable pour le mapping retour IA
   index: number;
   nom: string;
   categorie: string;
@@ -71,6 +70,7 @@ export interface DonneesProduitEnrichies {
   snapshot_14h: number | null;
   invendu: number;
   taux_invendu: number;
+  taux_vente: number;
   ca_contribution: number;
   performance: 'excellent' | 'bon' | 'moyen' | 'faible';
   mp_farine_g: number;
@@ -144,13 +144,29 @@ export interface DonneesEvenements {
   jour_ferie: boolean;
 }
 
+// ── Catalogue enrichi pour l'IA ───────────────────────────────
+// Inclut les données nécessaires pour calculer des prévisions précises
+
+export interface CatalogueEntree {
+  produit_id: string;   // UUID — utilisé dans le retour IA pour éviter les index fragiles
+  index: number;
+  nom: string;
+  categorie: string;
+  emoji: string;
+  prix_vente: number;
+  quantite_produite_hier: number;       // base de calcul pour demain
+  taux_vente_hier: number;              // % vendu aujourd'hui
+  invendu_hier: number;                 // pièces invendues aujourd'hui
+  moy_meme_jour: number | null;         // moyenne des mêmes jours de semaine (null si pas d'histo)
+}
+
 export interface PayloadEnrichi {
   journee:        DonneesJourneeEnrichies;
   demain_info:    { jour_semaine: string; est_weekend: boolean; jour_semaine_en: string; date: string };
   historique_14j: DonneesHistoriqueEnrichies[];
   histo_meme_jour: DonneesHistoriqueEnrichies[];
   nb_jours_histo: number;
-  catalogue:      { index: number; nom: string; categorie: string; emoji: string }[];
+  catalogue:      CatalogueEntree[];   // enrichi avec quantités réelles
   meteo?:         DonneesMeteo;
   commandes?:     DonneesCommandes;
   clients?:       DonneesClients;
@@ -301,6 +317,7 @@ export function anonymiserDonnees(
     else                      performance = 'faible';
 
     return {
+      produit_id:      s.produit_id,
       index:           idx,
       nom:             s.produit_nom,
       categorie:       s.categorie,
@@ -310,6 +327,7 @@ export function anonymiserDonnees(
       snapshot_14h:    s.snapshot_14h_done ? s.snapshot_14h : null,
       invendu:         s.stock_final,
       taux_invendu:    Math.round(tauxInvendu * 10) / 10,
+      taux_vente:      Math.round(tauxVente * 10) / 10,
       ca_contribution: Math.round((s.production - s.stock_final) * s.prix_vente),
       performance,
       mp_farine_g: f, mp_beurre_g: b, mp_oeufs_n: o, mp_sucre_g: su,
@@ -347,7 +365,49 @@ export function anonymiserDonnees(
       };
     });
 
-  // ── Météo (import statique, pas de require) ────────────────
+  // ── Catalogue enrichi pour prévisions précises ────────────
+  // Pour chaque produit du catalogue, on calcule :
+  // - la quantité produite aujourd'hui (base de calcul)
+  // - la moyenne sur les mêmes jours de semaine passés
+  const catalogueEnrichi: CatalogueEntree[] = (produits ?? []).map((p, i) => {
+    // Quantité produite aujourd'hui pour ce produit
+    const stockAujourd = journee.stocks_journaliers?.find(s => s.produit_id === p.id);
+    const quantiteHier = stockAujourd?.production ?? 0;
+    const invenduHier  = stockAujourd?.stock_final ?? 0;
+    const tauxVenteHier = quantiteHier > 0
+      ? Math.round(((quantiteHier - invenduHier) / quantiteHier) * 100)
+      : 0;
+
+    // Moyenne sur les mêmes jours de semaine dans l'historique
+    const memeJoursHisto = (historique ?? [])
+      .filter(j => getDayOfWeekInTimezone(j.date, timezone) === demainIdx)
+      .slice(0, 4);
+
+    let moyMemeJour: number | null = null;
+    if (memeJoursHisto.length > 0) {
+      const productions = memeJoursHisto
+        .map(j => j.stocks_journaliers?.find(s => s.produit_id === p.id)?.production ?? 0)
+        .filter(v => v > 0);
+      if (productions.length > 0) {
+        moyMemeJour = Math.round(productions.reduce((a, b) => a + b, 0) / productions.length);
+      }
+    }
+
+    return {
+      produit_id:             p.id,
+      index:                  i + 1,
+      nom:                    p.nom,
+      categorie:              p.categorie,
+      emoji:                  p.emoji,
+      prix_vente:             p.prix_vente,
+      quantite_produite_hier: quantiteHier,
+      taux_vente_hier:        tauxVenteHier,
+      invendu_hier:           invenduHier,
+      moy_meme_jour:          moyMemeJour,
+    };
+  });
+
+  // ── Météo ──────────────────────────────────────────────────
   let meteoAnon: DonneesMeteo | undefined;
   if (meteoComplet) {
     const { actuelle: a, demain: dm } = meteoComplet;
@@ -461,11 +521,10 @@ export function anonymiserDonnees(
   // ── Performance globale ────────────────────────────────────
   const produitsTries = [...produitsEnrichis].sort((a, b) => a.taux_invendu - b.taux_invendu);
   const topSucces = produitsTries.slice(0, 3).map(p => ({
-    nom:       p.nom,
-    emoji:     p.emoji,
+    nom:        p.nom,
+    emoji:      p.emoji,
     taux_vente: Math.round((100 - p.taux_invendu) * 10) / 10,
   }));
-  // reverse() mute le tableau — on refait un sort descendant
   const flops = [...produitsEnrichis]
     .sort((a, b) => b.taux_invendu - a.taux_invendu)
     .slice(0, 3)
@@ -513,7 +572,7 @@ export function anonymiserDonnees(
     historique_14j:  histoEnrichi,
     histo_meme_jour: histoMemeJour,
     nb_jours_histo:  historique.length,
-    catalogue:       (produits ?? []).map((p, i) => ({ index: i + 1, nom: p.nom, categorie: p.categorie, emoji: p.emoji })),
+    catalogue:       catalogueEnrichi,
     meteo:           meteoAnon,
     commandes:       commandesData,
     clients:         clientsData,
@@ -547,7 +606,7 @@ Chaque soir, tu génères un rapport exhaustif que le boulanger, la vendeuse ET 
 - ACTIONNABLE : chaque insight débouche sur une recommandation concrète
 - CONTEXTUALISÉ : tu relies les données entre elles (météo, événements, historique)
 - MOTIVANTE : tu valorises les succès et encourage sur les points d'amélioration
-- PRÉCISE : tu utilises les VRAIS NOMS des produits, jamais de codes
+- PRÉCISE : tu utilises les VRAIS NOMS des produits, jamais de codes abstraits
 
 POINTS D'ATTENTION POUR CHAQUE LECTEUR :
 - **BOULANGER** : technique, production, matières premières, optimisation fourneaux
@@ -555,11 +614,22 @@ POINTS D'ATTENTION POUR CHAQUE LECTEUR :
 - **GÉRANT** : tendances CA, rentabilité, investissements, stratégie
 
 RÈGLES ABSOLUES :
-1. UTILISE TOUJOURS LES VRAIS NOMS des produits (ex: "🥖 Baguette Tradition", "🥐 Croissant au beurre")
+1. UTILISE TOUJOURS LES VRAIS NOMS des produits (ex: "🥖 Baguette Tradition", "🥐 Croissant")
 2. Sois chaleureux mais professionnel — tu parles à des artisans passionnés
 3. Chaque section doit apporter de la valeur — pas de remplissage
 4. Le briefing matin doit permettre au boulanger de démarrer sa journée sereinement
-5. Les prévisions de production doivent être justifiées par les données
+
+RÈGLES CRITIQUES POUR LES PRÉVISIONS DE PRODUCTION :
+- Tu reçois pour chaque produit : son produit_id (UUID), son nom, la quantité produite aujourd'hui, le taux de vente, les invendus, et la moyenne historique sur les mêmes jours de semaine
+- Tu DOIS retourner des quantités ABSOLUES (nombre entier de pièces), pas des pourcentages
+- Base tes calculs sur : (1) la moyenne des mêmes jours de semaine si disponible, (2) sinon la quantité d'aujourd'hui ajustée selon le taux de vente
+- Si taux_vente_hier = 100% → augmenter légèrement (demande non satisfaite possible)
+- Si invendu_hier > 20% → réduire significativement
+- Si invendu_hier entre 5-20% → réduire modérément
+- Si invendu_hier < 5% → maintenir ou ajuster légèrement
+- Prends en compte la météo de demain et le type de jour (week-end vs semaine)
+- Arrondis TOUJOURS à des multiples de 5 pour les pains (ex: 85, 90, 95) et de 2 pour les pâtisseries
+- UTILISE le champ produit_id fourni dans le catalogue pour identifier chaque produit dans ta réponse
 
 FORMAT JSON OBLIGATOIRE :
 {
@@ -609,7 +679,15 @@ FORMAT JSON OBLIGATOIRE :
   },
   
   "previsions_production": [
-    { "produit_index": <n>, "quantite_suggeree": <int>, "variation_pct": <int>, "raison": "<justification courte>" }
+    {
+      "produit_id": "<UUID exact du produit>",
+      "produit_nom": "<nom exact du produit>",
+      "quantite_suggeree": <nombre entier absolu de pièces à produire>,
+      "quantite_min": <fourchette basse — entier>,
+      "quantite_max": <fourchette haute — entier>,
+      "variation_pct": <variation en % par rapport à aujourd'hui, entier signé>,
+      "raison": "<justification courte et concrète basée sur les données>"
+    }
   ],
   
   "matieres_premieres": {
@@ -625,7 +703,7 @@ FORMAT JSON OBLIGATOIRE :
     "contexte_jour": "<type de journée attendue>",
     "meteo_resume": "<météo demain avec emoji>",
     "impact_meteo_vente": "<impact concret sur les ventes>",
-    "top3_a_produire": ["<produit prioritaire 1 avec qté>", "<produit 2>", "<produit 3>"],
+    "top3_a_produire": ["<🥖 Baguette Tradition : 90 pièces>", "<produit 2 : X pièces>", "<produit 3 : X pièces>"],
     "point_vigilance": "<1 chose critique à surveiller>",
     "fiabilite_previsions": "<indication fiabilité>",
     "conseil_ouverture": "<conseil pratique pour bien démarrer>"
@@ -657,10 +735,14 @@ FORMAT JSON OBLIGATOIRE :
 }
 
 export function buildUserPrompt(payload: PayloadEnrichi): string {
-  const { journee, demain_info, historique_14j, histo_meme_jour, nb_jours_histo, catalogue, meteo, commandes, clients, evenements, performance_globale } = payload;
+  const {
+    journee, demain_info, historique_14j, histo_meme_jour,
+    nb_jours_histo, catalogue, meteo, commandes, clients,
+    evenements, performance_globale,
+  } = payload;
 
   const ctxHisto = nb_jours_histo === 0
-    ? '🌱 Première journée — Levain établit sa base. Prévisions prudentes.'
+    ? '🌱 Première journée — Levain établit sa base. Prévisions prudentes basées uniquement sur aujourd\'hui.'
     : nb_jours_histo < 7
       ? `🌱 ${nb_jours_histo} jour(s) d'historique — Levain apprend encore.`
       : nb_jours_histo < 14
@@ -668,7 +750,7 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
         : `🌳 ${nb_jours_histo} jours — analyse fiable, Levain connaît cette boulangerie.`;
 
   const ctxJour = demain_info.est_weekend
-    ? `⚠️ IMPORTANT : Demain est ${demain_info.jour_semaine.toUpperCase()} (WEEK-END). Fréquentation généralement +20-40%.`
+    ? `⚠️ IMPORTANT : Demain est ${demain_info.jour_semaine.toUpperCase()} (WEEK-END). Fréquentation généralement +20-40%. Adapter les quantités en conséquence.`
     : `Demain est ${demain_info.jour_semaine} (semaine).`;
 
   let ctxMeteo = '';
@@ -720,7 +802,13 @@ Conseils    : ${meteo.impact.conseils.join(' · ')}`;
 ${histo_meme_jour.map(h => `${h.jour_semaine}: CA ${h.ca}€ · Invendu ${h.taux_invendu}% · ${h.total_produit} pcs · ${h.commandes_online} cmd online`).join('\n')}`;
   }
 
-  const catalogueLines = catalogue.map(p => `[P${p.index}] ${p.emoji} ${p.nom} (${p.categorie})`).join('\n');
+  // Catalogue enrichi avec toutes les données nécessaires aux prévisions
+  const catalogueLines = catalogue.map(p => {
+    const moyInfo = p.moy_meme_jour !== null
+      ? ` | moy_${demain_info.jour_semaine}: ${p.moy_meme_jour} pcs`
+      : ' | pas d\'historique pour ce jour';
+    return `produit_id="${p.produit_id}" ${p.emoji} ${p.nom} (${p.categorie}) | prix: ${p.prix_vente}€ | produit_hier: ${p.quantite_produite_hier} pcs | vendu: ${p.taux_vente_hier}% | invendu: ${p.invendu_hier} pcs${moyInfo}`;
+  }).join('\n');
 
   const ctxPerformance = `
 === PERFORMANCE DU JOUR ===
@@ -741,7 +829,7 @@ ${ctxPerformance}
 === DÉTAIL PAR PRODUIT ===
 ${journee.produits.map(p =>
   `${p.emoji} ${p.nom} (${p.categorie}) ${p.performance === 'excellent' ? '⭐' : p.performance === 'faible' ? '⚠️' : ''}
-  Prod: ${p.production} | 10h: ${p.snapshot_10h ?? '—'} | 14h: ${p.snapshot_14h ?? '—'} | Invendu: ${p.invendu} (${p.taux_invendu}%) | CA: ${p.ca_contribution}€`
+  Prod: ${p.production} | 10h: ${p.snapshot_10h ?? '—'} | 14h: ${p.snapshot_14h ?? '—'} | Invendu: ${p.invendu} (${p.taux_invendu}%) | Vendu: ${p.taux_vente}% | CA: ${p.ca_contribution}€`
 ).join('\n')}
 
 === MATIÈRES PREMIÈRES ===
@@ -752,10 +840,15 @@ ${ctxHisto}
 ${historique_14j.map(h => `${h.est_weekend ? '[WE]' : '[SEM]'} ${h.jour_semaine}: ${h.ca}€ · ${h.taux_invendu}% inv · ${h.total_produit}pcs · ${h.commandes_online} online`).join('\n') || '(aucune donnée)'}
 ${ctxMemeJour}
 
-=== CATALOGUE (utilise ces index dans previsions_production) ===
+=== CATALOGUE & BASE PRÉVISIONS POUR DEMAIN ===
+⚠️ UTILISE le produit_id UUID exact dans chaque entrée de previsions_production.
+⚠️ quantite_suggeree doit être un NOMBRE ENTIER ABSOLU (ex: 90), PAS un pourcentage.
+⚠️ Fournis aussi quantite_min et quantite_max pour une fourchette de production.
+
 ${catalogueLines}
 
 → Génère le JSON complet avec TOUTES les sections.
 → Utilise TOUJOURS les vrais noms des produits dans les textes.
+→ Dans previsions_production, chaque produit du catalogue DOIT avoir une entrée avec son produit_id UUID.
 → Sois précis, chaleureux et actionnable pour chaque membre de l'équipe.`;
 }

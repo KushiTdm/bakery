@@ -3,9 +3,5 @@ ATTENTION : CONSIGNE A RESPECTER SCRUPULEUSEMENT : Verifie tous les fichiers ava
 
 
 
-Probleme de jour. Alors que je suis sur le creneau horaire de bogota, et que nous sommes dimanche et qu'il est 20h, l'app me propose de rentrer les données du matin.
-Ces données ont deja été fournie et l'app propose donc de rentrer deux fois les memes données. Cela signifie qu'il y a un decalage entre les données de l'app et celles enregistrées dans supabase. Decallage d'un jour
-Sur la version demandée en correction, claude m'a generé from scratch un nouveau fichier au lieu de me demander le fichier deja existant /journee/route.ts
-Il n'est donc aps utilisable et la modification du boulanger contexte n'est pas valable non plus
-
-Améliorer aussi le prompt pour expressement demander de ne pas generer from scratch quand un fichier existe deja
+Verifier la validation des suggestions
+Pb de paniers restants sur l'onglet flash, propose des produits qui ne sont plus en stocks
