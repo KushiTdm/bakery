@@ -3,19 +3,11 @@
 // Rate limiting en trois niveaux :
 //
 //   Niveau 1 (IP commandes) — isMemoryRateLimited()
-//     Upstash Redis en production, Map en mémoire en dev.
-//     S'applique UNIQUEMENT aux commandes client (/api/orders).
-//
 //   Niveau 2 (IP auth) — isAuthRateLimited() / resetAuthRateLimit()
-//     Même infrastructure (Upstash + fallback mémoire).
-//     S'applique UNIQUEMENT à l'auth boulanger (/api/boulanger/auth).
-//     Paramètres plus stricts : 5 tentatives / 15 min.
-//
 //   Niveau 3 (email/Supabase) — isSupabaseRateLimited()
-//     24h glissantes sur les commandes, via comptage en base.
 //
-// IMPORTANT : l'auth Supabase OTP a son propre rate limiting géré
-// directement par Supabase (Dashboard → Auth → Settings).
+// TEST BYPASS : si BYPASS_RATE_LIMIT=true, toutes les vérifications
+// retournent { blocked: false } — à activer uniquement en test/CI.
 // ─────────────────────────────────────────────────────────────
 
 import type { getSupabaseAdmin } from '@/lib/supabase';
@@ -41,7 +33,16 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
-// ── Singleton Upstash (lazy init, survit aux requêtes chaudes) ─
+// ── Bypass test environment ────────────────────────────────────
+// Activer via BYPASS_RATE_LIMIT=true dans .env.test ou playwright.config.ts webServer env
+
+function isTestBypassEnabled(): boolean {
+  return process.env.BYPASS_RATE_LIMIT === 'true';
+}
+
+const TEST_BYPASS_RESULT: RateLimitResult = { blocked: false, retryAfterMs: 0 };
+
+// ── Singleton Upstash (lazy init) ──────────────────────────────
 
 let _upstashClient: import('@upstash/redis').Redis | null = null;
 
@@ -67,9 +68,7 @@ async function getUpstashClient(): Promise<import('@upstash/redis').Redis | null
   }
 }
 
-// ── Niveau 1A : Upstash Redis (production) ───────────────────
-// Fonction unifiée — retourne { blocked, retryAfterMs } pour tous les usages.
-// Retourne null si Upstash est absent ou en erreur → déléguer au fallback mémoire.
+// ── Niveau 1A : Upstash Redis ─────────────────────────────────
 
 async function checkUpstashRateLimit(
   key: string,
@@ -97,19 +96,16 @@ async function checkUpstashRateLimit(
     };
 
   } catch (err) {
-    // Fail-open : Upstash inaccessible ne bloque pas les utilisateurs
     console.warn('[rate-limit] Upstash inaccessible, fail-open:', (err as Error).message);
     return null;
   }
 }
 
-// ── Niveau 1B : Map en mémoire (dev / fallback sans Upstash) ─
+// ── Niveau 1B : Map en mémoire ────────────────────────────────
 
-// Stores séparés pour éviter les collisions de clés entre auth et commandes
 const ipStoreOrders = new Map<string, RateLimitEntry>();
 const ipStoreAuth   = new Map<string, RateLimitEntry>();
 
-// Nettoyage automatique des entrées expirées (toutes les 5 min)
 setInterval(() => {
   const now = Date.now();
   for (const store of [ipStoreOrders, ipStoreAuth]) {
@@ -140,7 +136,7 @@ function checkMemoryRateLimit(
   return { blocked: false, retryAfterMs: 0 };
 }
 
-// ── Helper interne partagé ────────────────────────────────────
+// ── Helper interne partagé ─────────────────────────────────────
 
 async function resolveRateLimit(
   store: Map<string, RateLimitEntry>,
@@ -148,24 +144,26 @@ async function resolveRateLimit(
   config: MemoryLimitConfig,
   namespace: string
 ): Promise<RateLimitResult> {
+  // Bypass pour les tests automatisés
+  if (isTestBypassEnabled()) return TEST_BYPASS_RESULT;
+
   const upstashResult = await checkUpstashRateLimit(key, config);
   if (upstashResult !== null) return upstashResult;
 
   if (process.env.NODE_ENV === 'production') {
     console.warn(
       `[rate-limit:${namespace}] UPSTASH_REDIS_REST_URL non configuré. ` +
-      'Rate limiting IP inactif entre instances serverless. ' +
-      'Ajoutez UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.'
+      'Rate limiting IP inactif entre instances serverless.'
     );
   }
 
   return checkMemoryRateLimit(store, key, config);
 }
 
-// ── Niveau 1 Export — Commandes (/api/orders) ────────────────
+// ── Niveau 1 Export — Commandes ───────────────────────────────
 
 const ORDERS_CONFIG: MemoryLimitConfig = {
-  windowMs: 60 * 60 * 1000, // 1 heure
+  windowMs: 60 * 60 * 1000,
   maxCalls: 5,
 };
 
@@ -177,34 +175,24 @@ export async function isMemoryRateLimited(
   return result.blocked;
 }
 
-// ── Niveau 2 Export — Auth (/api/boulanger/auth) ─────────────
+// ── Niveau 2 Export — Auth ────────────────────────────────────
 
 const AUTH_CONFIG: MemoryLimitConfig = {
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   maxCalls: 5,
 };
 
-/**
- * Vérifie si l'IP a dépassé le quota de tentatives d'authentification.
- * Utilise Upstash Redis si disponible, sinon fallback mémoire.
- *
- * @returns { blocked, retryAfterMs } — retryAfterMs > 0 si bloqué
- */
 export async function isAuthRateLimited(
   ip: string
 ): Promise<RateLimitResult> {
   return resolveRateLimit(ipStoreAuth, `auth:${ip}`, AUTH_CONFIG, 'auth');
 }
 
-/**
- * Réinitialise le compteur mémoire d'une IP après un login réussi.
- * Sans effet sur Upstash — la fenêtre expire naturellement.
- */
 export function resetAuthRateLimit(ip: string): void {
   ipStoreAuth.delete(`auth:${ip}`);
 }
 
-// ── Niveau 3 : Supabase (email, 24h glissantes) ───────────────
+// ── Niveau 3 : Supabase ───────────────────────────────────────
 
 export async function isSupabaseRateLimited(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -212,6 +200,9 @@ export async function isSupabaseRateLimited(
   boulangerieId: string,
   config: SupabaseLimitConfig = { maxOrdersPer24h: 3 }
 ): Promise<boolean> {
+  // Bypass pour les tests
+  if (isTestBypassEnabled()) return false;
+
   try {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 

@@ -1,9 +1,9 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.2 — Mise à jour 25 mars 2026*
+*Version 4.3 — Mise à jour 25 mars 2026*
 
 ---
 
-## Score de Maturité Produit — 93 / 100
+## Score de Maturité Produit — 95 / 100
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
@@ -13,7 +13,7 @@
 | Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
 | Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
 | Feature Gate (plans) | 70/100 | 🟢 Corrigé | Quota Levain implémenté, filtrage Starter actif |
-| Tests & Qualité | 0/100 | 🔴 Absent | 0% de coverage, aucun test automatisé |
+| Tests & Qualité | 60/100 | 🟢 En cours | Playwright installé, 31 tests E2E, CI/CD configuré |
 
 ---
 
@@ -199,11 +199,39 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 - Paginer par tranches de 14 jours
 - Lazy loading graphiques
 
-### 4.3 0% de coverage tests
+### 4.3 Tests & Qualité — ✅ Infrastructure en place (25 mars 2026)
 
-- Priorité 1 : E2E Playwright — register → clôture → rapport IA
+**Infrastructure Playwright déployée :**
+
+| Fichier | Description |
+|---|---|
+| `playwright.config.ts` | Configuration E2E avec webServer, bypass rate limit |
+| `tests/helpers/auth-helpers.ts` | Helpers inscription/login API, `createTestProduit()`, `buildStockEntry()` |
+| `tests/helpers/mock-ai.ts` | Mocks pour réponses IA (quota, rapport, prévisions) |
+| `tests/fixtures/test-data.ts` | Générateurs utilisateurs/slugs/emails de test |
+| `.github/workflows/playwright.yml` | CI/CD GitHub Actions |
+
+**Suites de tests créées :**
+
+| Suite | Tests | Coverage |
+|---|---|---|
+| `tests/auth/register.spec.ts` | 12 | Inscription, validation email/mdp, slug, login |
+| `tests/journee/cloture.spec.ts` | 8 | Création journée, feedback, clôture, workflow complet |
+| `tests/ia/rapport-ia.spec.ts` | 10 | Génération rapport, quota, prévisions, erreurs |
+| `tests/e2e/complete-flow.spec.ts` | 2 | Parcours E2E complet (register → clôture → IA) |
+
+**Commandes disponibles :**
+```bash
+npm run test          # Lancer tous les tests
+npm run test:ui       # Interface visuelle Playwright
+npm run test:debug    # Mode debug
+npm run test:report   # Rapport HTML
+```
+
+**Reste à faire :**
 - Priorité 2 : tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit`
 - Priorité 3 : tests permissions (employé ne peut pas accéder route owner)
+- Configurer secrets GitHub pour CI (SUPABASE_TEST_*, ZHIPU_API_KEY)
 
 ### 4.4 Monitoring production absent
 
