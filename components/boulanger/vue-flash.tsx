@@ -1,7 +1,8 @@
 'use client';
 // components/boulanger/vue-flash.tsx
-// BUG FIX : quantité flash cappée au stock réel (snapshot 14h > 10h > production)
-// Un boulanger/vendeur ne peut plus saisir plus que le stock disponible.
+// BUG FIX v1 : quantité flash cappée au stock réel (snapshot 14h > 10h > production)
+// BUG FIX v2 : getStockReel — snapshot validé à 0 = "tout vendu" (valeur légitime)
+// BUG FIX v3 : produits avec stockReel === 0 non sélectionnables + désélectionnés automatiquement
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -128,15 +129,13 @@ export default function VueFlash() {
 
   // ── Calcul du stock réel (cap dur pour les quantités flash) ──
   // Priorité : stockFinal > snapshot14h > snapshot10h > production
-  // C'est ce que la vendeuse/boulanger a RÉELLEMENT en rayon.
+  //
+  // FIX v2 : suppression des conditions `> 0` sur les snapshots.
+  // snapshot validé à 0 = "tout vendu" — retourner 0 est correct.
   function getStockReel(s: typeof todayStocks[number]): number {
-    // Si le stock final a été saisi (vue Soir), c'est la source la plus précise
-    if (s.stockFinal > 0) return s.stockFinal;
-    // Sinon, snapshot 14h s'il existe
-    if (s.snapshot14hDone && s.snapshot14h > 0) return s.snapshot14h;
-    // Sinon, snapshot 10h
-    if (s.snapshot10hDone && s.snapshot10h > 0) return s.snapshot10h;
-    // Fallback : production totale
+    if (s.stockFinal > 0)   return s.stockFinal;
+    if (s.snapshot14hDone)  return s.snapshot14h;
+    if (s.snapshot10hDone)  return s.snapshot10h;
     return s.production;
   }
 
@@ -151,7 +150,6 @@ export default function VueFlash() {
         .map(s => {
           const stockReel = getStockReel(s);
           const existing  = flashMap.get(s.id);
-          // La quantité flash ne peut JAMAIS dépasser le stock réel
           const qteExistante = existing?.quantite_restante ?? stockReel;
           const quantiteFlash = Math.min(qteExistante, stockReel);
           return {
@@ -161,7 +159,9 @@ export default function VueFlash() {
             category:      s.category,
             prixVente:     s.prixVente,
             stockReel,
-            selected:      flashIds.has(s.id),
+            // FIX v3 : ne jamais pré-sélectionner un produit à stock 0,
+            // même s'il était coché en DB (le stock a baissé depuis)
+            selected:      flashIds.has(s.id) && stockReel > 0,
             quantiteFlash: Math.max(0, quantiteFlash),
             allergenes:    [],
             savedInDb:     flashIds.has(s.id),
@@ -180,7 +180,6 @@ export default function VueFlash() {
         .map(s => {
           const existing   = prevMap.get(s.id);
           const stockReel  = getStockReel(s);
-          // Re-capper si le stock a baissé (ex: soir saisi après sélection flash)
           const quantiteFlash = existing
             ? Math.min(existing.quantiteFlash, stockReel)
             : stockReel;
@@ -191,7 +190,9 @@ export default function VueFlash() {
             category:      s.category,
             prixVente:     s.prixVente,
             stockReel,
-            selected:      existing?.selected ?? false,
+            // FIX v3 : désélectionner automatiquement si le stock tombe à 0
+            // (ex: snapshot pris après que la sélection flash était déjà faite)
+            selected:      (existing?.selected ?? false) && stockReel > 0,
             quantiteFlash: Math.max(0, quantiteFlash),
             allergenes:    existing?.allergenes ?? [],
             savedInDb:     existing?.savedInDb ?? false,
@@ -259,6 +260,10 @@ export default function VueFlash() {
 
   const toggleProduit = useCallback((id: string) => {
     setProduits(prev => {
+      // FIX v3 : bloquer la sélection si stock = 0
+      const produit = prev.find(p => p.id === id);
+      if (!produit || produit.stockReel === 0) return prev;
+
       const next = prev.map(p => p.id === id ? { ...p, selected: !p.selected } : p);
       triggerSave(next, remise);
       return next;
@@ -269,7 +274,7 @@ export default function VueFlash() {
     setProduits(prev => {
       const next = prev.map(p => {
         if (p.id !== id) return p;
-        // ← CAP DUR : jamais > stockReel, jamais < 0
+        // CAP DUR : jamais > stockReel, jamais < 0
         const nq = Math.max(0, Math.min(p.quantiteFlash + delta, p.stockReel));
         return { ...p, quantiteFlash: nq };
       });
@@ -419,58 +424,77 @@ export default function VueFlash() {
               <p className="text-white/35 text-xs px-1 pb-0.5">
                 Cochez les produits à mettre en flash. La quantité max est votre stock réel du moment.
               </p>
-              {produits.map((p, i) => (
-                <motion.div key={p.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.035 }}
-                  className={`rounded-2xl border overflow-hidden transition-all ${p.selected ? 'bg-[#C19A6B]/8 border-[#C19A6B]/25' : 'bg-white/4 border-white/8'}`}>
-                  <div className="flex items-center gap-3 px-4 py-3.5 cursor-pointer touch-manipulation" onClick={() => toggleProduit(p.id)}>
-                    {/* Checkbox */}
-                    <div className={`w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center transition-all ${p.selected ? 'bg-[#C19A6B]' : 'border-2 border-white/20'}`}>
-                      {p.selected && <Check size={12} className="text-[#1A0F0A]" />}
-                    </div>
-                    <span className="text-xl flex-shrink-0 leading-none">{p.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${p.selected ? 'text-white' : 'text-white/50'}`}>{p.name}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                        <span className="text-white/25 text-xs line-through font-mono">{p.prixVente.toFixed(2)}€</span>
-                        <span className="text-[#C19A6B]/80 text-xs font-semibold font-mono">{calcFlash(p.prixVente, remise).toFixed(2)}€</span>
-                        <span className="text-white/15 text-xs">·</span>
-                        {/* Indicateur stock source */}
-                        <span className="text-white/25 text-[10px]">
-                          stock : {p.stockReel}
-                        </span>
+              {produits.map((p, i) => {
+                // FIX v3 : produit épuisé = non cliquable, visuellement grisé
+                const epuise = p.stockReel === 0;
+                return (
+                  <motion.div key={p.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.035 }}
+                    className={`rounded-2xl border overflow-hidden transition-all ${
+                      epuise
+                        ? 'bg-white/2 border-white/5 opacity-40 cursor-not-allowed'
+                        : p.selected
+                          ? 'bg-[#C19A6B]/8 border-[#C19A6B]/25 cursor-pointer'
+                          : 'bg-white/4 border-white/8 cursor-pointer'
+                    }`}>
+                    <div
+                      className="flex items-center gap-3 px-4 py-3.5 touch-manipulation"
+                      onClick={() => !epuise && toggleProduit(p.id)}
+                    >
+                      {/* Checkbox */}
+                      <div className={`w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center transition-all ${
+                        epuise
+                          ? 'border-2 border-white/10'
+                          : p.selected
+                            ? 'bg-[#C19A6B]'
+                            : 'border-2 border-white/20'
+                      }`}>
+                        {p.selected && !epuise && <Check size={12} className="text-[#1A0F0A]" />}
                       </div>
+                      <span className="text-xl flex-shrink-0 leading-none">{p.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium truncate ${p.selected && !epuise ? 'text-white' : 'text-white/50'}`}>{p.name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="text-white/25 text-xs line-through font-mono">{p.prixVente.toFixed(2)}€</span>
+                          {!epuise && <span className="text-[#C19A6B]/80 text-xs font-semibold font-mono">{calcFlash(p.prixVente, remise).toFixed(2)}€</span>}
+                          <span className="text-white/15 text-xs">·</span>
+                          <span className={`text-[10px] ${epuise ? 'text-red-400/50' : 'text-white/25'}`}>
+                            stock : {p.stockReel}{epuise ? ' — épuisé' : ''}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Contrôles quantité — masqués si épuisé */}
+                      {!epuise && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                          <motion.button whileTap={{ scale: 0.85 }} onPointerDown={() => adjustQuantite(p.id, -1)} disabled={p.quantiteFlash <= 0}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all touch-manipulation ${p.quantiteFlash <= 0 ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed' : 'bg-white/10 border border-white/12 hover:bg-white/18'}`}>
+                            <Minus size={13} className="text-white" />
+                          </motion.button>
+                          <motion.span key={p.quantiteFlash} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={`w-8 text-center text-base font-bold font-mono tabular-nums ${p.selected ? 'text-[#C19A6B]' : 'text-white/35'}`}>
+                            {p.quantiteFlash}
+                          </motion.span>
+                          <motion.button whileTap={{ scale: 0.85 }} onPointerDown={() => adjustQuantite(p.id, 1)} disabled={p.quantiteFlash >= p.stockReel}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center touch-manipulation transition-all ${p.quantiteFlash >= p.stockReel ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed' : 'bg-[#C19A6B]/18 border border-[#C19A6B]/28 hover:bg-[#C19A6B]/28'}`}>
+                            <Plus size={13} className="text-[#C19A6B]" />
+                          </motion.button>
+                        </div>
+                      )}
                     </div>
-                    {/* Contrôle quantité avec cap dur */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                      <motion.button whileTap={{ scale: 0.85 }} onPointerDown={() => adjustQuantite(p.id, -1)} disabled={p.quantiteFlash <= 0}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all touch-manipulation ${p.quantiteFlash <= 0 ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed' : 'bg-white/10 border border-white/12 hover:bg-white/18'}`}>
-                        <Minus size={13} className="text-white" />
-                      </motion.button>
-                      <motion.span key={p.quantiteFlash} initial={{ scale: 1.2 }} animate={{ scale: 1 }} className={`w-8 text-center text-base font-bold font-mono tabular-nums ${p.selected ? 'text-[#C19A6B]' : 'text-white/35'}`}>
-                        {p.quantiteFlash}
-                      </motion.span>
-                      {/* ← Le + est désactivé quand on atteint le stock réel */}
-                      <motion.button whileTap={{ scale: 0.85 }} onPointerDown={() => adjustQuantite(p.id, 1)} disabled={p.quantiteFlash >= p.stockReel}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center touch-manipulation transition-all ${p.quantiteFlash >= p.stockReel ? 'bg-white/4 border border-white/6 opacity-30 cursor-not-allowed' : 'bg-[#C19A6B]/18 border border-[#C19A6B]/28 hover:bg-[#C19A6B]/28'}`}>
-                        <Plus size={13} className="text-[#C19A6B]" />
-                      </motion.button>
-                    </div>
-                  </div>
-                  {/* Badge max atteint */}
-                  {p.selected && p.quantiteFlash >= p.stockReel && p.stockReel > 0 && (
-                    <div className="px-4 pb-2 flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span className="text-amber-400/70 text-[10px]">Maximum atteint ({p.stockReel} en stock)</span>
-                    </div>
-                  )}
-                  {p.savedInDb && p.selected && (
-                    <div className="px-4 pb-2 flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                      <span className="text-green-400/60 text-[10px]">Visible côté client</span>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
+                    {/* Badges — uniquement si non épuisé */}
+                    {!epuise && p.selected && p.quantiteFlash >= p.stockReel && p.stockReel > 0 && (
+                      <div className="px-4 pb-2 flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        <span className="text-amber-400/70 text-[10px]">Maximum atteint ({p.stockReel} en stock)</span>
+                      </div>
+                    )}
+                    {!epuise && p.savedInDb && p.selected && (
+                      <div className="px-4 pb-2 flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        <span className="text-green-400/60 text-[10px]">Visible côté client</span>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
               {selected.length > 0 && !flashActif && (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-2">
                   <div className="flex items-center gap-2 bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-2xl px-4 py-3">
