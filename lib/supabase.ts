@@ -5,8 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// En production, les variables sont obligatoires — on bloque au démarrage.
-// En développement, on avertit et on utilise des valeurs locales.
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -19,15 +17,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
     missing +
     'Vérifiez votre fichier .env.local';
 
-  if (isProduction) {
-    throw new Error(msg);
-  }
-
+  if (isProduction) throw new Error(msg);
   console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
 }
 
-// Valeurs définitives — en prod elles sont garanties non-undefined par le throw ci-dessus.
-// En dev on tolère un fallback local pour ne pas bloquer le hot-reload.
 const resolvedUrl = supabaseUrl ?? 'http://localhost:54321';
 const resolvedKey = supabaseAnonKey ?? 'anon-key-missing';
 
@@ -38,6 +31,42 @@ export const supabase = createClient(resolvedUrl, resolvedKey, {
     detectSessionInUrl: true,
   },
 });
+
+// Timeout pour les requêtes Supabase admin (10 secondes)
+// Protection contre les connexions pendantes en serverless
+const SUPABASE_ADMIN_TIMEOUT_MS = 10_000;
+
+/**
+ * Wraps fetch avec un AbortController timeout.
+ * Compatible Node 18+ (pas de AbortSignal.any() qui nécessite Node 20).
+ *
+ * Si un signal externe est fourni (ex: signal de la requête entrante),
+ * on écoute les deux : timeout ET annulation externe.
+ */
+function fetchWithTimeout(timeoutMs: number) {
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), timeoutMs);
+
+    // Propagation du signal externe si présent
+    // (sans AbortSignal.any() pour compatibilité Node 18)
+    const externalSignal = init?.signal as AbortSignal | undefined;
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        clearTimeout(timeoutId);
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => {
+          clearTimeout(timeoutId);
+          controller.abort();
+        }, { once: true });
+      }
+    }
+
+    return fetch(input, { ...init, signal: controller.signal })
+      .finally(() => clearTimeout(timeoutId));
+  };
+}
 
 export function getSupabaseAdmin() {
   const url        = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,6 +81,7 @@ export function getSupabaseAdmin() {
 
   return createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
+    global: { fetch: fetchWithTimeout(SUPABASE_ADMIN_TIMEOUT_MS) },
   });
 }
 

@@ -6,7 +6,56 @@ import { sanitizeText, isValidUUID } from '@/lib/sanitize';
 // ── P1-4 : Constante limite taille payload ───────────────────────────────────
 const MAX_PAYLOAD_BYTES = 50_000; // 50 KB — protection DoS
 
-// ── Schémas Zod renforcés ──────────────────────────────────────
+// ── P2 : Origin validation pour CSRF ────────────────────────────────────────
+// Lazy-évalué à la première requête (env vars disponibles au runtime, pas au build)
+let _allowedOrigins: string[] | null = null;
+function getAllowedOrigins(): string[] {
+  if (_allowedOrigins) return _allowedOrigins;
+  _allowedOrigins = [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:54321', // Supabase local
+  ].filter((v): v is string => Boolean(v));
+  return _allowedOrigins;
+}
+
+/**
+ * Valide l'origine de la requête pour les méthodes modifiantes (POST).
+ * Protection CSRF basique : empêche les soumissions depuis des sites tiers.
+ *
+ * Note : l'auth boulanger utilise JWT Bearer (pas de cookie), donc le vrai
+ * CSRF ne s'applique qu'aux routes publiques comme /api/orders.
+ */
+function validateOrigin(req: NextRequest): boolean {
+  const origin  = req.headers.get('origin');
+  const referer = req.headers.get('referer');
+
+  // Pas d'origin ni referer : probablement une requête curl/Postman
+  // En dev on autorise, en prod on vérifie X-Requested-With
+  if (!origin && !referer) {
+    if (process.env.NODE_ENV !== 'production') return true;
+    return req.headers.get('x-requested-with') === 'XMLHttpRequest';
+  }
+
+  // Résolution de l'origine source (origin > referer)
+  let sourceOrigin: string | null = origin;
+  if (!sourceOrigin && referer) {
+    try {
+      sourceOrigin = new URL(referer).origin;
+    } catch {
+      return false; // referer malformé → refus
+    }
+  }
+
+  if (!sourceOrigin) return false;
+
+  const allowed = getAllowedOrigins();
+  return allowed.some(a => sourceOrigin === a || sourceOrigin!.startsWith(a));
+}
+
+// ── Schémas Zod ──────────────────────────────────────────────
 
 const LigneCommandeSchema = z.object({
   produit_id:    z.string().min(1).max(100),
@@ -52,6 +101,15 @@ export async function POST(req: NextRequest) {
   const config = checkSupabaseConfig();
   if (!config.ok) return config.error;
 
+  // P2 : Validation Origin — protection CSRF
+  if (!validateOrigin(req)) {
+    console.warn('[POST /api/orders] Origin refusée:', req.headers.get('origin'));
+    return NextResponse.json(
+      { error: 'Requête non autorisée.' },
+      { status: 403 }
+    );
+  }
+
   // P1-4 : Validation Content-Length — protection DoS
   const contentLength = req.headers.get('content-length');
   if (contentLength) {
@@ -87,7 +145,6 @@ export async function POST(req: NextRequest) {
     }
 
     const parsed = CommandeSchema.safeParse(body);
-
     if (!parsed.success) {
       return NextResponse.json(
         { error: 'Données invalides', details: parsed.error.flatten() },
@@ -97,7 +154,6 @@ export async function POST(req: NextRequest) {
 
     const data = parsed.data;
 
-    // Sanitization textuelle après validation structurelle
     const sanitizedData = {
       ...data,
       client_prenom:    sanitizeText(data.client_prenom, 50),
@@ -129,9 +185,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Boulangerie non active' }, { status: 403 });
     }
 
-    // E4 : validation de heure_retrait contre les créneaux configurés.
-    // Évite de passer une heure arbitraire qui ne correspond à aucun
-    // créneau réel (ex: "03:00" ou un créneau supprimé depuis).
     const creneaux: string[] = Array.isArray(boulangerie.creneaux_retrait)
       ? boulangerie.creneaux_retrait
       : [];
@@ -161,7 +214,6 @@ export async function POST(req: NextRequest) {
       (sum, l) => sum + l.quantite * l.prix_unitaire,
       0
     );
-
     const montant_final = Math.round(Math.min(montant_total, 99999.99) * 100) / 100;
 
     const { data: commande, error: cErr } = await supabase

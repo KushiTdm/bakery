@@ -1,6 +1,6 @@
 # Audit Sécurité Routes BakeryOS
 
-*Dernière mise à jour : 17/03/2026 — Toutes les vulnérabilités corrigées + multi-user*
+*Dernière mise à jour : 25/03/2026 — Toutes les vulnérabilités corrigées + multi-user + P2 améliorations*
 
 ---
 
@@ -176,6 +176,11 @@ employe: snapshot:write, commandes:write, flash:read, catalogue:read
 - [x] **✅ Multi-user : RLS étendu pour employés**
 - [x] Vérification des limites plan
 - [x] Audit logging des actions équipe (table `audit_equipe`)
+- [x] **✅ P2 : Table audit_logs générique + helper `lib/audit.ts`**
+- [x] **✅ P2 : Export RGPD (Art. 20) — GET /api/boulanger/export**
+- [x] **✅ P2 : Cron nettoyage invitations expirées (`cleanup_expired_invites()`)**
+- [x] **✅ P2 : Timeout 10s connexion Supabase admin**
+- [x] **✅ P2 : Origin validation CSRF sur `/api/orders`**
 - [ ] SMTP custom Resend (configuration manuelle)
 - [ ] 2FA pour admin (futur)
 
@@ -197,10 +202,12 @@ employe: snapshot:write, commandes:write, flash:read, catalogue:read
 
 1. **`migrations/migration.sql`** — Migration principale v3 (8 tables, fonctions, storage)
 2. **`migrations/Migration-Multi-Utilisateurs.sql`** — Tables employes + audit_equipe, fonctions multi-user
+3. **`migrations/migration-p2-improvements.sql`** — Table audit_logs, export RGPD, cron cleanup
 
-Les deux migrations sont **idempotentes** et peuvent être ré-exécutées sans risque.
+Les trois migrations sont **idempotentes** et peuvent être ré-exécutées sans risque.
 
 ---
 
 *Audit réalisé par : Cline — 16/03/2026*
 *Mises à jour : Cline — 17/03/2026 — Toutes vulnérabilités corrigées, multi-user implémenté*
+*P2 améliorations : Cline — 25/03/2026 — audit_logs, export RGPD, timeout, CSRF, cron cleanup*

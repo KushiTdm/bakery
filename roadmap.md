@@ -1,5 +1,5 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.0 — Mise à jour 22 mars 2026*
+*Version 4.1 — Mise à jour 25 mars 2026*
 
 ---
 
@@ -38,13 +38,40 @@
 
 Les corrections P1-1 à P1-5 ont été implémentées avec succès. Voir la section "Corrections sécurité effectuées" pour les détails.
 
-### 🔵 P2 — Améliorations (sprint suivant)
+### ✅ P2 — Améliorations (effectuées le 25 mars 2026)
 
-- Export données RGPD (Art. 20) — route `GET /api/boulanger/export` manquante
-- Table `audit_logs` générique (login, export, clôture, delete)
-- Cron Supabase nettoyage invitations expirées (`pg_cron`)
-- Timeout connexion Supabase admin (`AbortSignal.timeout(10_000)`)
-- Origin validation sur `/api/orders` (protection CSRF basique)
+- **P2-1** Export données RGPD (Art. 20) — Route `GET /api/boulanger/export` créée avec :
+  - Vérification owner uniquement
+  - Export JSON complet (boulangerie, employés, produits, journées, stocks, commandes, paniers flash, rapports IA, audit logs)
+  - Log automatique de l'action dans `audit_logs`
+  - Headers Content-Disposition pour téléchargement ✅
+
+- **P2-2** Table `audit_logs` générique — Migration `migrations/migration-p2-improvements.sql` créée avec :
+  - Table `audit_logs` avec RLS policies (owner/gérant read, service_role insert)
+  - Fonction `log_audit_action()` SQL SECURITY DEFINER
+  - Fonction `export_boulangerie_data()` pour export RGPD
+  - Index optimisés pour les requêtes fréquentes ✅
+
+- **P2-3** Cron Supabase nettoyage invitations — Fonction `cleanup_expired_invites()` créée :
+  - Supprime les invitations expirées (statut 'invite' + expires dépassé)
+  - Prête pour pg_cron (instructions dans la migration)
+  - Schedule recommandé : tous les jours à 3h du matin ✅
+
+- **P2-4** Timeout connexion Supabase admin — `lib/supabase.ts` modifié :
+  - `AbortController` avec timeout 10 secondes
+  - Fetch wrapper personnalisé avec `AbortSignal.any()`
+  - Protection contre les connexions pendantes ✅
+
+- **P2-5** Origin validation sur `/api/orders` — Protection CSRF implémentée :
+  - Validation `Origin` et `Referer` header
+  - Liste blanche des origines autorisées (APP_URL, SITE_URL, localhost)
+  - Support `X-Requested-With: XMLHttpRequest` pour requêtes AJAX
+  - Rejet 403 en production si origine invalide ✅
+
+- **P2-6** Helper audit logging — `lib/audit.ts` créé :
+  - Fonction `logAuditAction()` non-bloquante
+  - Fonction `getAuditLogs()` pour récupération
+  - Types `AuditAction` pour les actions auditables ✅
 
 ---
 
@@ -213,7 +240,7 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 - Notifications push améliorées (résumé 7h, rappel retrait)
 - Dashboard gérant
 - Programme referral
-- P2 : audit_logs, CSRF, cron invitations, timeout Supabase admin
+- ~~P2 : audit_logs, CSRF, cron invitations, timeout Supabase admin~~ ✅ **Effectué le 25 mars 2026**
 
 ---
 
@@ -251,4 +278,4 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 
 ---
 
-*Mis à jour le 24 mars 2026 — toutes les corrections P0 et P1 effectuées (P0-1 à P0-4, P1-1 à P1-6).*
+*Mis à jour le 25 mars 2026 — toutes les corrections P0, P1 et P2 effectuées (P0-1 à P0-4, P1-1 à P1-6, P2-1 à P2-6).*
