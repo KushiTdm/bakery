@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { isMemoryRateLimited, isSupabaseRateLimited } from '@/lib/rate-limit';
 import { sanitizeText, isValidUUID } from '@/lib/sanitize';
 
+// ── P1-4 : Constante limite taille payload ───────────────────────────────────
+const MAX_PAYLOAD_BYTES = 50_000; // 50 KB — protection DoS
+
 // ── Schémas Zod renforcés ──────────────────────────────────────
 
 const LigneCommandeSchema = z.object({
@@ -48,6 +51,18 @@ function getClientIp(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   const config = checkSupabaseConfig();
   if (!config.ok) return config.error;
+
+  // P1-4 : Validation Content-Length — protection DoS
+  const contentLength = req.headers.get('content-length');
+  if (contentLength) {
+    const length = parseInt(contentLength, 10);
+    if (isNaN(length) || length > MAX_PAYLOAD_BYTES) {
+      return NextResponse.json(
+        { error: `Payload trop volumineux (max ${MAX_PAYLOAD_BYTES / 1000} KB)` },
+        { status: 413 }
+      );
+    }
+  }
 
   const clientIp = getClientIp(req);
 

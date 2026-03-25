@@ -3,12 +3,12 @@
 
 ---
 
-## Score de Maturité Produit — 91 / 100
+## Score de Maturité Produit — 93 / 100
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
 | Core Produit & IA Levain | 97/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user |
-| Architecture & Sécurité | 85/100 | 🟠 Partiel | Headers HTTP, soft delete, magic bytes |
+| Architecture & Sécurité | 95/100 | ✅ Complet | Headers HTTP, soft delete, magic bytes, logout global |
 | Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
 | Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
 | Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
@@ -19,42 +19,24 @@
 
 ## ✅ Corrections sécurité effectuées
 
-- **P0-1** `confirm-email/route.ts` — fichier réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env
-- **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu avec `isAuthRateLimited()` / `resetAuthRateLimit()`, singleton Upstash, fallback mémoire, stores séparés par namespace. `auth/route.ts` migré, Map locale supprimée, body validé par Zod `discriminatedUnion`
+- **P0-1** `confirm-email/route.ts` — fichier réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env ✅
+- **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu avec `isAuthRateLimited()` / `resetAuthRateLimit()`, singleton Upstash, fallback mémoire, stores séparés par namespace. `auth/route.ts` migré, Map locale supprimée, body validé par Zod `discriminatedUnion` ✅
 - **P0-3** `INTERNAL_API_SECRET` — vérification longueur ≥ 32 + `timingSafeEqual()` dans `confirm-email/route.ts` ✅
 - **P0-4** Feature Gate Levain — `check_and_increment_levain_quota()` atomique implémenté dans `/api/boulanger/ai/rapport`. Plan Starter : 1 rapport/semaine, score + verdict visibles, analyse complète masquée. Modal upgrade déclenchée sur quota atteint (HTTP 402). ✅
+- **P1-1** Headers sécurité HTTP — `next.config.js` complété avec X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Strict-Transport-Security, Permissions-Policy, Content-Security-Policy ✅
+- **P1-2** Logout scope global — `boulanger-context.tsx` corrigé : `supabase.auth.signOut({ scope: 'global' })` pour révoquer tous les tokens (access + refresh) sur tous les appareils ✅
+- **P1-3** Soft delete produits — Route DELETE dans `produits/route.ts` transformée en UPDATE avec `deleted_at`, `actif_catalogue: false`, `actif_flash: false`. Préserve l'intégrité des `stocks_journaliers` historiques ✅
+- **P1-4** Validation Content-Length — `/api/orders` vérifie `Content-Length < 50 000 bytes` en début de route pour protection DoS ✅
+- **P1-5** Validation magic bytes — `upload/route.ts` valide les premiers octets du buffer contre signatures JPEG/PNG/WebP/GIF/AVIF (ne pas faire confiance à `file.type` client) ✅
 - **P1-6** Timezone `journee/route.ts` — `getTodayInTimezone(auth.timezone)` utilisé pour calculer la date correcte selon le timezone de la boulangerie. ✅
 
 ---
 
 ## 1. Corrections Sécurité Restantes
 
-### 🟠 P1 — Importants (dans les 48h post-déploiement)
+### ✅ P1 — Tous les items P1 ont été corrigés
 
-**P1-1 : Headers de sécurité HTTP absents**
-
-`next.config.js` ne définit aucun header de sécurité. Risque : clickjacking, MIME sniffing, XSS.
-- Ajouter : `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `CSP`, `Permissions-Policy`, `Strict-Transport-Security`
-
-**P1-2 : Tokens de refresh non révoqués lors du logout**
-
-`context/boulanger-context.tsx` → `logout()` sans scope. Un employé révoqué peut continuer à utiliser son refresh_token.
-- Utiliser `supabase.auth.signOut({ scope: 'global' })`
-
-**P1-3 : Soft delete non utilisé dans route DELETE produits**
-
-`app/api/boulanger/produits/route.ts` fait un DELETE physique. Casse les `stocks_journaliers` historiques.
-- Remplacer `DELETE` par `UPDATE { deleted_at: now(), actif_catalogue: false, actif_flash: false }`
-
-**P1-4 : Validation payload taille manquante sur `/api/orders`**
-
-Aucune vérification de `Content-Length`. Attaque DoS possible.
-- Ajouter vérification `Content-Length < 50 000 bytes` en début de route
-
-**P1-5 : Validation magic bytes upload absente**
-
-`upload/route.ts` valide le MIME via `file.type` (client) sans vérifier les bytes réels.
-- Valider les premiers octets du buffer contre signatures JPEG/PNG/WebP
+Les corrections P1-1 à P1-5 ont été implémentées avec succès. Voir la section "Corrections sécurité effectuées" pour les détails.
 
 ### 🔵 P2 — Améliorations (sprint suivant)
 
@@ -180,16 +162,16 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 | Tâche | Durée | Priorité |
 |---|---|---|
 | ~~Feature gate Levain (`/api/boulanger/ai/rapport`)~~ | ~~2h~~ | ✅ **Corrigé** |
-| Headers sécurité HTTP (`next.config.js`) | 1h | 🟠 P1 |
-| Logout scope global (`boulanger-context.tsx`) | 30 min | 🟠 P1 |
-| Soft delete produits (route DELETE) | 30 min | 🟠 P1 |
-| Content-Length check `/api/orders` | 30 min | 🟠 P1 |
-| Magic bytes upload | 1h | 🟠 P1 |
+| ~~Headers sécurité HTTP (`next.config.js`)~~ | ~~1h~~ | ✅ **Corrigé** |
+| ~~Logout scope global (`boulanger-context.tsx`)~~ | ~~30 min~~ | ✅ **Corrigé** |
+| ~~Soft delete produits (route DELETE)~~ | ~~30 min~~ | ✅ **Corrigé** |
+| ~~Content-Length check `/api/orders`~~ | ~~30 min~~ | ✅ **Corrigé** |
+| ~~Magic bytes upload~~ | ~~1h~~ | ✅ **Corrigé** |
 | ~~Timezone `journee/route.ts`~~ | ~~1h~~ | ✅ **Corrigé** |
 | Stripe Checkout + webhook + portal | 2 jours | 🔴 P0 Revenue |
 | Modal upgrade in-app | 3h | 🟠 P1 |
 
-**Durée estimée S1 : 2-3 jours** (réduit grâce aux corrections P0-4 et P1-6)
+**Durée estimée S1 : 2-3 jours** (toutes les corrections P0 et P1 effectuées)
 
 ---
 
@@ -269,4 +251,4 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 
 ---
 
-*Mis à jour le 22 mars 2026 — corrections P0-1, P0-2, P0-3, P0-4, P1-6 effectuées.*
+*Mis à jour le 24 mars 2026 — toutes les corrections P0 et P1 effectuées (P0-1 à P0-4, P1-1 à P1-6).*

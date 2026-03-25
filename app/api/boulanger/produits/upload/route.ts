@@ -32,6 +32,70 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/gif', // accepté mais converti en WebP statique
 ]);
 
+// ── P1-5 : Magic bytes signatures pour validation côté serveur ───────────────
+// Sources : https://en.wikipedia.org/wiki/List_of_file_signatures
+const FILE_SIGNATURES: { mime: string; patterns: number[][] }[] = [
+  { mime: 'image/jpeg', patterns: [[0xFF, 0xD8, 0xFF]] }, // JPEG commence par FF D8 FF
+  { mime: 'image/png',  patterns: [[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]] }, // PNG signature
+  { mime: 'image/webp', patterns: [[0x52, 0x49, 0x46, 0x46]] }, // RIFF (WebP commence par RIFF)
+  { mime: 'image/gif',  patterns: [[0x47, 0x49, 0x46, 0x38]] }, // GIF8
+  // AVIF a plusieurs signatures possibles (ftyp)
+  { mime: 'image/avif', patterns: [[0x00, 0x00, 0x00]] }, // AVIF : ftyp box détecté différemment
+];
+
+/**
+ * P1-5 : Vérifie les magic bytes du buffer pour valider le vrai type de fichier.
+ * Ne pas faire confiance à file.type qui vient du client (peut être falsifié).
+ */
+function detectMimeTypeFromBytes(buffer: Buffer): string | null {
+  if (buffer.length < 12) return null; // Besoin d'au moins 12 bytes pour détecter
+
+  // JPEG : FF D8 FF
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+
+  // PNG : 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E &&
+    buffer[3] === 0x47 && buffer[4] === 0x0D && buffer[5] === 0x0A &&
+    buffer[6] === 0x1A && buffer[7] === 0x0A
+  ) {
+    return 'image/png';
+  }
+
+  // WebP : RIFF .... WEBP
+  if (
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  // GIF : GIF87a ou GIF89a
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
+    return 'image/gif';
+  }
+
+  // AVIF : cherche ftyp avec brand avif
+  // Structure : [size (4 bytes)] [ftyp (4 bytes)] [brand (4 bytes)]
+  // AVIF a généralement 'ftyp' puis 'avif' ou 'avis'
+  if (buffer.length >= 12) {
+    // Cherche 'ftyp' à position 4
+    if (
+      buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70
+    ) {
+      // Vérifie si le brand est avif ou avis
+      const brand = buffer.slice(8, 12).toString('ascii');
+      if (brand === 'avif' || brand === 'avis' || brand === 'heic' || brand === 'heix') {
+        return 'image/avif';
+      }
+    }
+  }
+
+  return null;
+}
+
 // ── Helpers sécurité ──────────────────────────────────────────
 
 /**
@@ -120,9 +184,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Identifiant invalide' }, { status: 400 });
     }
 
-    // ── 4. Validation MIME type côté serveur ──────────────────
-    // Ne pas faire confiance au Content-Type du client — vérifier
-    // le magic number (premiers octets) via Sharp lors de la compression.
+    // ── 4. Validation MIME type côté serveur (file.type côté client) ───────
 
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
       return NextResponse.json(
@@ -136,6 +198,19 @@ export async function POST(req: NextRequest) {
     if (file.size > MAX_SIZE_BYTES) {
       return NextResponse.json(
         { error: `Fichier trop lourd (max ${MAX_SIZE_BYTES / 1024 / 1024} MB)` },
+        { status: 400 }
+      );
+    }
+
+    // ── 5.5 P1-5 : Validation magic bytes (vérification réelle du contenu) ───
+    // Ne pas faire confiance à file.type — vérifier les bytes réels du fichier
+    const rawBufferPreview = Buffer.from(await file.arrayBuffer());
+    const detectedMime     = detectMimeTypeFromBytes(rawBufferPreview);
+
+    if (!detectedMime || !ALLOWED_MIME_TYPES.has(detectedMime)) {
+      console.warn(`[upload] Tentative upload fichier invalide. MIME déclaré: ${file.type}, MIME détecté: ${detectedMime}`);
+      return NextResponse.json(
+        { error: `Fichier invalide. Le contenu ne correspond pas à une image autorisée (jpeg, png, webp, avif, gif).` },
         { status: 400 }
       );
     }

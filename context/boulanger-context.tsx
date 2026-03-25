@@ -445,7 +445,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   }, [todayStocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
+    // P1-2 : Révoque TOUS les tokens (access + refresh) sur tous les appareils
+    // Un employé révoqué ne peut plus utiliser son refresh_token
+    await supabase.auth.signOut({ scope: 'global' });
     resetState();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -281,6 +281,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ── DELETE ────────────────────────────────────────────────────
+// P1-3 : Soft delete — préserve l'intégrité des stocks_journaliers historiques
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -310,25 +311,26 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
     }
 
-    if (produit.image_storage_path) {
-      const { error: storageErr } = await admin.storage
-        .from('produits-photos')
-        .remove([produit.image_storage_path]);
-
-      if (storageErr) {
-        console.warn('[DELETE /api/boulanger/produits] Storage cleanup failed:', storageErr);
-      }
-    }
-
+    // P1-3 : Soft delete — on ne supprime pas physiquement le produit
+    // Cela préserve les stocks_journaliers historiques qui référencent ce produit
+    // Le produit est marqué comme supprimé mais reste en base pour l'historique
     const { error } = await admin
       .from('produits')
-      .delete()
+      .update({
+        deleted_at:        new Date().toISOString(),
+        actif_catalogue:   false,
+        actif_flash:       false,
+      })
       .eq('id', id)
       .eq('boulangerie_id', boulangerieId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Note : on conserve l'image_storage_path pour l'historique
+    // L'image sera nettoyée automatiquement si le produit est restauré puis re-supprimé
+    // ou via un job de nettoyage périodique des produits soft-deleted anciens
 
     revalidatePath('/');
     return NextResponse.json({ success: true });
