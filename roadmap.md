@@ -138,7 +138,7 @@ Fichiers à créer :
 | IA Levain (rapports) | 1/semaine ✅ implémenté | Illimité ✅ | Illimité ✅ |
 | Membres équipe | 1 ✅ | 3 ✅ | Illimités ✅ |
 | Historique stats | 30j ✅ | 90j 🟠 à implémenter | Illimité |
-| Export CSV données | Non 🔴 à créer | Oui 🔴 à créer | Oui + API |
+| Export données (JSON) | Oui ✅ | Oui ✅ | Oui + API |
 
 ---
 
