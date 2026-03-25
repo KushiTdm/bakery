@@ -171,3 +171,16 @@ test.describe('Permissions RBAC', () => {
 | `ia/rapport-ia.spec.ts` | 10 | 7 | 3 | 0 |
 | `e2e/complete-flow.spec.ts` | 2 | 1 | 1 | 0 |
 | **Total** | **32** | **27** | **4** | **1** |
+
+
+
+
+
+A corriger :
+Lors de la creation d'un panier, proposer en fonction des stocks, des paniers.
+Le boulanger ou la vendeuse choisi le/les paniers à proposer ( ils choisissent deja les articles)
+Mettre en place, un algorithme cohérent pour se debarasser du stock de manière logique ( pas proposer 5 croissants ou 5 baguettes)
+L'objectif est de se debarasser de ce qui est en trop pour eviter les invendus
+Une fois un panier commandé par un utilisateur, doit on le decompter du stock ?
+Ou doit on attendre qu'il vienne le recuperer.
+Par contre une fois recuperé, il faut le decompter du stock, ce qui n'est pas fait encore

@@ -33,16 +33,21 @@ const nextConfig = {
           //   - api.z.ai = IA Levain (proxy côté serveur uniquement, mais Next.js peut en avoir besoin en SSR)
           //   - api.open-meteo.com = météo
           //   - js.stripe.com anticipé pour le futur checkout (P0-1 roadmap)
+          //   - fonts.googleapis.com + fonts.gstatic.com = Google Fonts (Playfair Display, Montserrat)
+          //   - images.unsplash.com dans connect-src car le Service Worker les intercepte via fetch()
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-              "style-src 'self' 'unsafe-inline'",
-              // Images : Supabase Storage + URLs externes de produits + data/blob pour previews
-              "img-src 'self' data: blob: https://*.supabase.co https://images.unsplash.com",
-              "font-src 'self' data:",
+              // Google Fonts injecte une feuille de style via <link> → doit être autorisé
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              // Images : Supabase Storage + Unsplash (wildcard pour CDN) + data/blob pour previews
+              "img-src 'self' data: blob: https://*.supabase.co https://images.unsplash.com https://*.unsplash.com",
+              // Fonts : Google Fonts CDN (fichiers woff2) + data URIs
+              "font-src 'self' data: https://fonts.gstatic.com",
               // Connexions : Supabase (HTTPS + WSS), IA, météo, Stripe, Resend
+              // + Unsplash : le Service Worker intercepte les fetch() d'images → connect-src requis
               [
                 "connect-src 'self'",
                 "https://*.supabase.co",
@@ -51,6 +56,8 @@ const nextConfig = {
                 "https://api.open-meteo.com",
                 "https://api.stripe.com",
                 "https://api.resend.com",
+                "https://images.unsplash.com",
+                "https://*.unsplash.com",
               ].join(' '),
               // Stripe Checkout est dans un iframe — DENY global mais on autorise Stripe
               "frame-src https://js.stripe.com https://hooks.stripe.com",
