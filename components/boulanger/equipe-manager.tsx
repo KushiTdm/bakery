@@ -10,6 +10,7 @@
 //   - Modification rôle / permissions / statut
 //   - Révocation d'accès
 //   - Indicateur limite plan
+//   - Logs d'audit équipe (owner uniquement)
 // ─────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from 'react';
@@ -17,15 +18,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   UserPlus, UserX, UserCheck, Settings2, Crown,
   Briefcase, ShoppingBag, Copy, Check, Loader2,
-  AlertCircle, ChevronDown, ChevronUp, Link2, Shield,
-  RefreshCw, X, Users, Clock,
+  AlertCircle, Link2, Shield,
+  RefreshCw, X, Users, History, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useBoulanger } from '@/context/boulanger-context';
 import {
   ROLE_LABELS, ROLE_DESCRIPTIONS,
   PERMISSION_KEY_LABELS, DEFAULT_PERMISSIONS,
-  type BoulangerRole, type PermissionKey, type PermissionLevel,
+  type BoulangerRole, type PermissionKey,
   type MembreEquipe, PLAN_MEMBER_LIMITS,
 } from '@/lib/types';
 
@@ -36,6 +37,14 @@ interface TeamData {
   members: MembreEquipe[];
   plan: string;
   limite: { current: number; max: number; allowed: boolean };
+}
+
+interface AuditLog {
+  id:         string;
+  action:     string;
+  acteur_id:  string;
+  details:    Record<string, unknown>;
+  created_at: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -64,6 +73,29 @@ const STATUT_LABELS: Record<string, string> = {
   suspendu: 'Suspendu',
 };
 
+const ACTION_LABELS: Record<string, { label: string; color: string }> = {
+  invite:      { label: 'Invitation',  color: 'text-blue-400'  },
+  accept:      { label: 'Acceptée',    color: 'text-green-400' },
+  revoke:      { label: 'Révocation',  color: 'text-red-400'   },
+  suspend:     { label: 'Suspension',  color: 'text-amber-400' },
+  reactivate:  { label: 'Réactivation', color: 'text-green-400' },
+  role_change: { label: 'Rôle modifié', color: 'text-[#C19A6B]' },
+  perm_change: { label: 'Permissions',  color: 'text-purple-400' },
+};
+
+function formatRelativeDate(dateStr: string): string {
+  const date  = new Date(dateStr);
+  const now   = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffH  = diffMs / 1000 / 3600;
+
+  if (diffH < 1)   return 'il y a moins d\'1h';
+  if (diffH < 24)  return `il y a ${Math.floor(diffH)}h`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 7)   return `il y a ${diffD}j`;
+  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
 // ── Modal invitation ──────────────────────────────────────────
 
 function InviteModal({
@@ -77,12 +109,12 @@ function InviteModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [email,       setEmail]      = useState('');
-  const [role,        setRole]       = useState<'gerant' | 'employe'>('employe');
-  const [loading,     setLoading]    = useState(false);
-  const [error,       setError]      = useState('');
-  const [inviteUrl,   setInviteUrl]  = useState('');
-  const [copied,      setCopied]     = useState(false);
+  const [email,     setEmail]    = useState('');
+  const [role,      setRole]     = useState<'gerant' | 'employe'>('employe');
+  const [loading,   setLoading]  = useState(false);
+  const [error,     setError]    = useState('');
+  const [inviteUrl, setInviteUrl] = useState('');
+  const [copied,    setCopied]   = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -230,7 +262,6 @@ function InviteModal({
               </div>
             </form>
           ) : (
-            /* Invitation créée → afficher le lien */
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-green-400 text-sm">
                 <Check size={16} /> Invitation créée pour <strong>{email}</strong>
@@ -239,10 +270,6 @@ function InviteModal({
               <div>
                 <p className="text-white/40 text-xs mb-2">
                   Partagez ce lien avec <strong className="text-white/60">{email}</strong>
-                  {process.env.NEXT_PUBLIC_RESEND_CONFIGURED === 'true'
-                    ? ' (email envoyé automatiquement)'
-                    : ' (lien à envoyer manuellement)'
-                  }
                 </p>
                 <div className="flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl px-3 py-2.5">
                   <Link2 size={13} className="text-white/30 flex-shrink-0" />
@@ -286,10 +313,10 @@ function MembreCard({
   token: string;
   onRefresh: () => void;
 }) {
-  const [expanded, setExpanded]   = useState(false);
-  const [loading,  setLoading]    = useState(false);
-  const [confirm,  setConfirm]    = useState(false);
-  const [editRole, setEditRole]   = useState(membre.role);
+  const [expanded, setExpanded] = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [confirm,  setConfirm]  = useState(false);
+  const [editRole, setEditRole] = useState(membre.role);
 
   const Icon = ROLE_ICONS[membre.role];
 
@@ -328,12 +355,10 @@ function MembreCard({
   return (
     <div className="bg-white/4 border border-white/8 rounded-2xl overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3.5">
-        {/* Avatar */}
         <div className="w-10 h-10 bg-white/8 rounded-xl flex items-center justify-center flex-shrink-0">
           <Icon size={16} className="text-white/50" />
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-white text-sm font-medium">
@@ -351,7 +376,6 @@ function MembreCard({
           </div>
         </div>
 
-        {/* Actions owner */}
         {isOwner && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {membre.statut === 'actif' && (
@@ -411,7 +435,6 @@ function MembreCard({
         )}
       </div>
 
-      {/* Section permissions (dépliable, owner seulement) */}
       <AnimatePresence>
         {expanded && isOwner && membre.statut === 'actif' && (
           <motion.div
@@ -421,7 +444,6 @@ function MembreCard({
             className="overflow-hidden border-t border-white/6"
           >
             <div className="px-4 py-4 space-y-3">
-              {/* Changement de rôle */}
               <div>
                 <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Rôle</p>
                 <div className="flex gap-2">
@@ -444,7 +466,6 @@ function MembreCard({
                 </div>
               </div>
 
-              {/* Aperçu permissions du rôle */}
               <div>
                 <p className="text-white/40 text-xs uppercase tracking-wider mb-2">
                   Permissions ({ROLE_LABELS[editRole]})
@@ -477,15 +498,175 @@ function MembreCard({
   );
 }
 
+// ── Section Audit Logs ────────────────────────────────────────
+
+function AuditLogsSection({ token }: { token: string }) {
+  const [logs,    setLogs]    = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open,    setOpen]    = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function loadLogs() {
+    setLoading(true);
+    setError('');
+    try {
+      // On passe par la route equipe qui retourne les audit logs
+      // ou directement via une RPC Supabase côté client
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Lecture directe via Supabase client (RLS : owner uniquement)
+      const { createClient } = await import('@supabase/supabase-js');
+      const client = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${session.access_token}` } } }
+      );
+
+      const { data, error: dbError } = await client
+        .from('audit_equipe')
+        .select('id, action, acteur_id, details, created_at')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (dbError) { setError('Erreur chargement logs'); return; }
+      setLogs((data ?? []) as AuditLog[]);
+    } catch {
+      setError('Erreur réseau');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleToggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && logs.length === 0) loadLogs();
+  }
+
+  return (
+    <div className="bg-white/4 border border-white/8 rounded-2xl overflow-hidden">
+      {/* Header dépliable */}
+      <button
+        onClick={handleToggle}
+        className="w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-white/3 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <History size={14} className="text-white/40" />
+          <p className="text-white/60 text-sm font-medium">Historique des actions</p>
+          {logs.length > 0 && (
+            <span className="text-[10px] bg-white/8 text-white/30 px-1.5 py-0.5 rounded-full">
+              {logs.length}
+            </span>
+          )}
+        </div>
+        {open
+          ? <ChevronUp size={14} className="text-white/25" />
+          : <ChevronDown size={14} className="text-white/25" />
+        }
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-t border-white/6"
+          >
+            <div className="px-4 py-3 space-y-2">
+              {/* Header liste */}
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-white/25 text-[10px] uppercase tracking-widest">20 dernières actions</p>
+                <button
+                  onClick={loadLogs}
+                  disabled={loading}
+                  className="flex items-center gap-1 text-white/25 text-[10px] hover:text-white/50 transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+                  Actualiser
+                </button>
+              </div>
+
+              {/* Erreur */}
+              {error && (
+                <p className="text-red-400/70 text-xs py-2">{error}</p>
+              )}
+
+              {/* Loading skeleton */}
+              {loading && logs.length === 0 && (
+                <div className="space-y-2 py-1">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-8 bg-white/4 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              )}
+
+              {/* Liste vide */}
+              {!loading && logs.length === 0 && !error && (
+                <p className="text-white/20 text-xs py-3 text-center">Aucune action enregistrée</p>
+              )}
+
+              {/* Logs */}
+              {logs.map((log, i) => {
+                const actionInfo = ACTION_LABELS[log.action] ?? { label: log.action, color: 'text-white/40' };
+                const emailTarget = (log.details?.email as string) ?? (log.details?.invite_email as string) ?? null;
+                const roleChange  = log.details?.nouveau_role as string | undefined;
+
+                return (
+                  <motion.div
+                    key={log.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="flex items-start gap-2.5 py-1.5 border-b border-white/4 last:border-0"
+                  >
+                    {/* Indicateur action */}
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${
+                      actionInfo.color.replace('text-', 'bg-')
+                    }`} />
+
+                    {/* Contenu */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-xs font-medium ${actionInfo.color}`}>
+                          {actionInfo.label}
+                        </span>
+                        {emailTarget && (
+                          <span className="text-white/30 text-[10px] truncate max-w-[140px]">
+                            {emailTarget}
+                          </span>
+                        )}
+                        {roleChange && (
+                          <span className="text-white/25 text-[10px]">
+                            → {ROLE_LABELS[roleChange as BoulangerRole] ?? roleChange}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-white/20 text-[10px] mt-0.5">
+                        {formatRelativeDate(log.created_at)}
+                      </p>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ── Composant principal ───────────────────────────────────────
 
 export default function EquipeManager() {
-  const { boulangerie, userRole, canRead, canWrite } = useBoulanger();
-  const [teamData,     setTeamData]   = useState<TeamData | null>(null);
-  const [loading,      setLoading]    = useState(true);
-  const [error,        setError]      = useState('');
-  const [token,        setToken]      = useState('');
-  const [showInvite,   setShowInvite] = useState(false);
+  const { boulangerie, userRole, canRead } = useBoulanger();
+  const [teamData,      setTeamData]   = useState<TeamData | null>(null);
+  const [loading,       setLoading]    = useState(true);
+  const [error,         setError]      = useState('');
+  const [token,         setToken]      = useState('');
+  const [showInvite,    setShowInvite] = useState(false);
   const [inviteRefresh, setInviteRefresh] = useState(0);
 
   const isOwner = userRole === 'owner';
@@ -528,9 +709,9 @@ export default function EquipeManager() {
     );
   }
 
-  const planMax = teamData ? PLAN_MEMBER_LIMITS[teamData.plan] ?? 1 : 1;
+  const planMax      = teamData ? PLAN_MEMBER_LIMITS[teamData.plan] ?? 1 : 1;
   const currentCount = teamData ? teamData.limite.current : 1;
-  const canInvite = isOwner && teamData?.limite.allowed;
+  const canInvite    = isOwner && teamData?.limite.allowed;
 
   return (
     <div className="space-y-5">
@@ -655,6 +836,14 @@ export default function EquipeManager() {
             Passez au plan <strong>Pro</strong> pour inviter jusqu'à 2 membres,
             ou <strong>Multi</strong> pour une équipe illimitée.
           </p>
+        </div>
+      )}
+
+      {/* ── Audit logs — owner uniquement ─────────────────────── */}
+      {isOwner && token && (
+        <div>
+          <p className="text-white/30 text-xs uppercase tracking-wider mb-2">Audit</p>
+          <AuditLogsSection token={token} />
         </div>
       )}
 

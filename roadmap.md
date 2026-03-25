@@ -1,5 +1,5 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.1 — Mise à jour 25 mars 2026*
+*Version 4.2 — Mise à jour 25 mars 2026*
 
 ---
 
@@ -75,6 +75,39 @@ Les corrections P1-1 à P1-5 ont été implémentées avec succès. Voir la sect
 
 ---
 
+## 1.5 Fonctionnalités UI ajoutées (25 mars 2026)
+
+### Section "Données & Confidentialité" — `parametres.tsx` (owner uniquement)
+
+Nouvelle section en bas de la page Paramètres, accessible uniquement au propriétaire :
+
+- **Export RGPD (Art. 20)** — Bouton de téléchargement JSON
+  - Appel `GET /api/boulanger/export` avec Bearer token
+  - Téléchargement automatique via Blob URL
+  - Nom de fichier extrait du header `Content-Disposition`
+  - Feedback visuel : chargement → succès → reset après 5s
+  - Message d'info sur la portée (Art. 20 RGPD — droit à la portabilité)
+  - Mention que chaque export est tracé dans les logs d'audit ✅
+
+### Section "Audit" — `equipe-manager.tsx` (owner uniquement)
+
+Nouvelle section en bas du gestionnaire d'équipe, accessible uniquement au propriétaire :
+
+- **Composant `AuditLogsSection`** — Historique des actions équipe
+  - Section dépliable (lazy loading : ne charge qu'au premier clic)
+  - Lecture de `audit_equipe` via Supabase client avec JWT owner (RLS garantit l'isolation)
+  - 20 derniers logs affichés avec :
+    - Date relative ("il y a 2h", "il y a 3j")
+    - Code couleur par type d'action (invite, accept, revoke, suspend, role_change, etc.)
+    - Email cible et rôle quand disponible
+  - Bouton "Actualiser" + skeleton loading pendant le chargement ✅
+
+### Vérification technique
+
+- **`ROLE_DESCRIPTIONS`** — Bien exporté depuis `lib/types.ts` et utilisé dans la modal d'invitation ✅
+
+---
+
 ## 2. Monétisation — Bloquant Lancement
 
 Sans Stripe actif, zéro revenu possible.
@@ -131,7 +164,7 @@ Inexistante. Impossible de convertir un visiteur sans page de tarifs.
 
 ### 3.2 Moyen Terme — Rétention (2-6 semaines)
 
-- **Export RGPD** (Art. 20 — obligation légale) : ZIP `journees.csv`, `stocks.csv`, `commandes.csv` depuis Paramètres
+- ~~**Export RGPD** (Art. 20 — obligation légale) : ZIP `journees.csv`, `stocks.csv`, `commandes.csv` depuis Paramètres~~ ✅ **Effectué** — Export JSON dans Paramètres → Données & Confidentialité
 - **Rapport hebdomadaire Levain** : analyse des 7 derniers jours, score semaine, meilleur/pire jour
 - **Dashboard gérant** : dernière connexion par employé, snapshot fait/non fait
 - **Commandes récurrentes** : table `commandes_recurrentes` pour abonnements clients (baguettes chaque samedi)

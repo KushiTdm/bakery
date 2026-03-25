@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle, Loader2, Save, Bell,
-  MapPin, Clock, Zap, Plus, X, Phone, Mail, Building2,
+  MapPin, Clock, Zap, Plus, X, Building2,
+  Download, Shield, AlertTriangle,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
@@ -106,10 +107,118 @@ function SaveButton({
   );
 }
 
+// ── Section Export RGPD ───────────────────────────────────────
+
+function ExportRgpd({ token }: { token: string | null }) {
+  const [exporting,     setExporting]     = useState(false);
+  const [exportSuccess, setExportSuccess] = useState(false);
+  const [exportError,   setExportError]   = useState('');
+
+  async function handleExport() {
+    if (!token) return;
+    setExporting(true);
+    setExportError('');
+    setExportSuccess(false);
+
+    try {
+      const res = await fetch('/api/boulanger/export', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        setExportError(data.error ?? 'Erreur lors de l\'export');
+        return;
+      }
+
+      // Téléchargement automatique via Blob
+      const blob       = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename      = filenameMatch?.[1] ?? 'bakeryos-export.json';
+
+      const url  = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href     = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+
+      setExportSuccess(true);
+      setTimeout(() => setExportSuccess(false), 5000);
+    } catch {
+      setExportError('Erreur réseau — réessayez');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-white/35 text-xs leading-relaxed">
+        Téléchargez l'intégralité de vos données BakeryOS au format JSON (Art. 20 RGPD — droit à la portabilité).
+        L'export inclut votre boulangerie, produits, journées, stocks, commandes et rapports IA des 90 derniers jours.
+      </p>
+
+      {/* Info accès */}
+      <div className="flex items-start gap-3 bg-[#C19A6B]/8 border border-[#C19A6B]/15 rounded-xl px-4 py-3">
+        <Shield size={13} className="text-[#C19A6B]/70 flex-shrink-0 mt-0.5" />
+        <p className="text-[#C19A6B]/70 text-xs leading-relaxed">
+          Réservé au propriétaire du compte. Chaque export est tracé dans les logs d'audit.
+        </p>
+      </div>
+
+      {/* Feedback erreur */}
+      {exportError && (
+        <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertTriangle size={13} className="text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-red-400 text-xs">{exportError}</p>
+        </div>
+      )}
+
+      {/* Feedback succès */}
+      <AnimatePresence>
+        {exportSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="flex items-center gap-2.5 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3"
+          >
+            <CheckCircle size={13} className="text-green-400 flex-shrink-0" />
+            <p className="text-green-400 text-xs">Export téléchargé avec succès.</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bouton export */}
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={handleExport}
+        disabled={exporting || !token}
+        className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 ${
+          exportSuccess
+            ? 'bg-green-500/15 border border-green-500/25 text-green-400'
+            : 'bg-white/6 border border-white/12 text-white/70 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        {exporting
+          ? <><Loader2 size={14} className="animate-spin" /> Export en cours…</>
+          : exportSuccess
+            ? <><CheckCircle size={14} /> Export téléchargé</>
+            : <><Download size={14} /> Télécharger mes données (JSON)</>
+        }
+      </motion.button>
+    </div>
+  );
+}
+
 // ── Composant principal ───────────────────────────────────────
 
 export default function Parametres() {
-  const { user, boulangerie } = useBoulanger();
+  const { user, boulangerie, userRole } = useBoulanger();
   const [token, setToken]     = useState<string | null>(null);
   const [profil, setProfil]   = useState<ProfilComplet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -429,6 +538,13 @@ export default function Parametres() {
       <Section title="Notifications push" icon={Bell}>
         <PushNotificationToggle token={token} />
       </Section>
+
+      {/* ── Export RGPD — owner uniquement ───────────────────── */}
+      {userRole === 'owner' && (
+        <Section title="Données & Confidentialité" icon={Shield}>
+          <ExportRgpd token={token} />
+        </Section>
+      )}
     </div>
   );
 }
