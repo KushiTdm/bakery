@@ -32,5 +32,8 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
+    env: {
+      BYPASS_RATE_LIMIT: 'true',  // Désactive le rate limiting pour les tests
+    },
   },
 });
