@@ -11,7 +11,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
-  
+
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
@@ -20,6 +20,37 @@ export default defineConfig({
   },
 
   projects: [
+    // Tests unitaires (pas besoin de browser)
+    {
+      name: 'unit',
+      testDir: './tests/unit',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Tests d'authentification et permissions
+    {
+      name: 'auth',
+      testDir: './tests/auth',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Tests IA
+    {
+      name: 'ia',
+      testDir: './tests/ia',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Tests journée
+    {
+      name: 'journee',
+      testDir: './tests/journee',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Tests E2E complets
+    {
+      name: 'e2e',
+      testDir: './tests/e2e',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Projet par défaut (tous les tests)
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
@@ -33,7 +64,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     env: {
-      BYPASS_RATE_LIMIT: 'true',  // Désactive le rate limiting pour les tests
+      BYPASS_RATE_LIMIT: 'true', // Désactive le rate limiting pour les tests
     },
   },
 });

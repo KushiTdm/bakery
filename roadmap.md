@@ -1,77 +1,101 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.3 — Mise à jour 25 mars 2026*
+*Version 4.4 — Mise à jour 25 mars 2026*
 
 ---
 
-## Score de Maturité Produit — 95 / 100
+## Score de Maturité Produit — 96 / 100
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
 | Core Produit & IA Levain | 97/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user |
-| Architecture & Sécurité | 95/100 | ✅ Complet | Headers HTTP, soft delete, magic bytes, logout global |
+| Architecture & Sécurité | 96/100 | ✅ Complet | Headers HTTP, CSP corrigé (fonts + images SW), soft delete, magic bytes, logout global |
 | Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
 | Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
 | Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
 | Feature Gate (plans) | 70/100 | 🟢 Corrigé | Quota Levain implémenté, filtrage Starter actif |
-| Tests & Qualité | 60/100 | 🟢 En cours | Playwright installé, 31 tests E2E, CI/CD configuré |
+| Tests & Qualité | 85/100 | ✅ Complet | 130+ tests E2E + unitaires, RBAC couvert, CI/CD configuré |
 
 ---
 
 ## ✅ Corrections sécurité effectuées
 
-- **P0-1** `confirm-email/route.ts` — fichier réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env ✅
-- **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu avec `isAuthRateLimited()` / `resetAuthRateLimit()`, singleton Upstash, fallback mémoire, stores séparés par namespace. `auth/route.ts` migré, Map locale supprimée, body validé par Zod `discriminatedUnion` ✅
-- **P0-3** `INTERNAL_API_SECRET` — vérification longueur ≥ 32 + `timingSafeEqual()` dans `confirm-email/route.ts` ✅
-- **P0-4** Feature Gate Levain — `check_and_increment_levain_quota()` atomique implémenté dans `/api/boulanger/ai/rapport`. Plan Starter : 1 rapport/semaine, score + verdict visibles, analyse complète masquée. Modal upgrade déclenchée sur quota atteint (HTTP 402). ✅
-- **P1-1** Headers sécurité HTTP — `next.config.js` complété avec X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Strict-Transport-Security, Permissions-Policy, Content-Security-Policy ✅
-- **P1-2** Logout scope global — `boulanger-context.tsx` corrigé : `supabase.auth.signOut({ scope: 'global' })` pour révoquer tous les tokens (access + refresh) sur tous les appareils ✅
-- **P1-3** Soft delete produits — Route DELETE dans `produits/route.ts` transformée en UPDATE avec `deleted_at`, `actif_catalogue: false`, `actif_flash: false`. Préserve l'intégrité des `stocks_journaliers` historiques ✅
-- **P1-4** Validation Content-Length — `/api/orders` vérifie `Content-Length < 50 000 bytes` en début de route pour protection DoS ✅
-- **P1-5** Validation magic bytes — `upload/route.ts` valide les premiers octets du buffer contre signatures JPEG/PNG/WebP/GIF/AVIF (ne pas faire confiance à `file.type` client) ✅
-- **P1-6** Timezone `journee/route.ts` — `getTodayInTimezone(auth.timezone)` utilisé pour calculer la date correcte selon le timezone de la boulangerie. ✅
+- **P0-1** `confirm-email/route.ts` — réécrit avec Zod, `timingSafeEqual`, montant recalculé serveur, RESEND_FROM_DOMAIN via env ✅
+- **P0-2** Rate limiting auth — `lib/rate-limit.ts` étendu, singleton Upstash, fallback mémoire, stores séparés. `auth/route.ts` migré, Zod `discriminatedUnion` ✅
+- **P0-3** `INTERNAL_API_SECRET` — vérification longueur ≥ 32 + `timingSafeEqual()` ✅
+- **P0-4** Feature Gate Levain — quota hebdomadaire atomique, plan Starter limité, modal upgrade sur HTTP 402 ✅
+- **P1-1** Headers sécurité HTTP — X-Frame-Options, CSP, HSTS, Permissions-Policy ✅
+- **P1-2** Logout scope global — `signOut({ scope: 'global' })` pour révoquer tous les tokens ✅
+- **P1-3** Soft delete produits — UPDATE avec `deleted_at` au lieu de DELETE physique ✅
+- **P1-4** Validation Content-Length — protection DoS sur `/api/orders` (50 KB max) ✅
+- **P1-5** Validation magic bytes — vérification des premiers octets du buffer à l'upload ✅
+- **P1-6** Timezone `journee/route.ts` — `getTodayInTimezone(auth.timezone)` ✅
+- **P1-7** Correction CSP — `next.config.js` corrigé pour charger correctement les polices et images côté client ✅ *(v4.4)*
+
+### Détail P1-7 — Pourquoi les images ne chargeaient pas côté client
+
+Le Service Worker (`sw.js`) intercepte **toutes** les requêtes `fetch()`, y compris le chargement des images. Pour lui, charger une image Unsplash passe par `connect-src` et non `img-src`. Or `connect-src` n'autorisait pas `images.unsplash.com`, ce qui bloquait les images côté vitrine (le SW est actif) mais pas côté `/boulanger` (le SW ne s'applique pas sur cette route).
+
+Trois directives corrigées dans `next.config.js` :
+
+| Directive | Avant | Après |
+|---|---|---|
+| `style-src` | `'self' 'unsafe-inline'` | `'self' 'unsafe-inline' https://fonts.googleapis.com` |
+| `font-src` | `'self' data:` | `'self' data: https://fonts.gstatic.com` |
+| `img-src` | `…https://images.unsplash.com` | `…https://images.unsplash.com https://*.unsplash.com` |
+| `connect-src` | *(Unsplash absent)* | `…https://images.unsplash.com https://*.unsplash.com` |
+
+---
+
+## ⚠️ Variable d'environnement à retirer en production : `BYPASS_RATE_LIMIT`
+
+> **Action requise avant le déploiement en production.**
+
+La variable `BYPASS_RATE_LIMIT=true` est utilisée dans `lib/rate-limit.ts` pour désactiver entièrement le rate limiting pendant les tests automatisés (Playwright, CI/CD).
+
+```typescript
+// lib/rate-limit.ts
+function isTestBypassEnabled(): boolean {
+  return process.env.BYPASS_RATE_LIMIT === 'true';
+}
+```
+
+**Si cette variable est présente ou vaut `true` en production, tout le rate limiting est désactivé** — spam de commandes, attaques brute-force sur l'auth, et abus de l'API IA Levain deviennent possibles sans limite.
+
+### À faire
+
+**En développement local (`.env.local`)** — activer pour les tests :
+```bash
+BYPASS_RATE_LIMIT=true
+```
+
+**En production (Netlify / Vercel / Railway)** — variable absente ou explicitement à `false` :
+```bash
+# Ne pas définir BYPASS_RATE_LIMIT, ou :
+BYPASS_RATE_LIMIT=false
+```
+
+**En CI/CD (`.github/workflows/playwright.yml`)** — déjà correctement configuré via `env:` dans le job de test. Cette variable ne doit jamais figurer dans les secrets GitHub destinés à la production.
+
+**Vérification rapide** avant tout déploiement :
+```bash
+# Dans votre dashboard d'hébergement, vérifier qu'aucune variable nommée
+# BYPASS_RATE_LIMIT n'est définie, ou qu'elle vaut explicitement "false"
+```
 
 ---
 
 ## 1. Corrections Sécurité Restantes
 
-### ✅ P1 — Tous les items P1 ont été corrigés
-
-Les corrections P1-1 à P1-5 ont été implémentées avec succès. Voir la section "Corrections sécurité effectuées" pour les détails.
+### ✅ P1 — Tous les items P1 ont été corrigés (dont P1-7 le 25 mars 2026)
 
 ### ✅ P2 — Améliorations (effectuées le 25 mars 2026)
 
-- **P2-1** Export données RGPD (Art. 20) — Route `GET /api/boulanger/export` créée avec :
-  - Vérification owner uniquement
-  - Export JSON complet (boulangerie, employés, produits, journées, stocks, commandes, paniers flash, rapports IA, audit logs)
-  - Log automatique de l'action dans `audit_logs`
-  - Headers Content-Disposition pour téléchargement ✅
-
-- **P2-2** Table `audit_logs` générique — Migration `migrations/migration-p2-improvements.sql` créée avec :
-  - Table `audit_logs` avec RLS policies (owner/gérant read, service_role insert)
-  - Fonction `log_audit_action()` SQL SECURITY DEFINER
-  - Fonction `export_boulangerie_data()` pour export RGPD
-  - Index optimisés pour les requêtes fréquentes ✅
-
-- **P2-3** Cron Supabase nettoyage invitations — Fonction `cleanup_expired_invites()` créée :
-  - Supprime les invitations expirées (statut 'invite' + expires dépassé)
-  - Prête pour pg_cron (instructions dans la migration)
-  - Schedule recommandé : tous les jours à 3h du matin ✅
-
-- **P2-4** Timeout connexion Supabase admin — `lib/supabase.ts` modifié :
-  - `AbortController` avec timeout 10 secondes
-  - Fetch wrapper personnalisé avec `AbortSignal.any()`
-  - Protection contre les connexions pendantes ✅
-
-- **P2-5** Origin validation sur `/api/orders` — Protection CSRF implémentée :
-  - Validation `Origin` et `Referer` header
-  - Liste blanche des origines autorisées (APP_URL, SITE_URL, localhost)
-  - Support `X-Requested-With: XMLHttpRequest` pour requêtes AJAX
-  - Rejet 403 en production si origine invalide ✅
-
-- **P2-6** Helper audit logging — `lib/audit.ts` créé :
-  - Fonction `logAuditAction()` non-bloquante
-  - Fonction `getAuditLogs()` pour récupération
-  - Types `AuditAction` pour les actions auditables ✅
+- **P2-1** Export données RGPD (Art. 20) — Route `GET /api/boulanger/export` avec vérification owner, export JSON complet, log audit ✅
+- **P2-2** Table `audit_logs` générique — migration SQL, RLS policies, fonctions SECURITY DEFINER ✅
+- **P2-3** Cron Supabase nettoyage invitations — `cleanup_expired_invites()` prête pour pg_cron ✅
+- **P2-4** Timeout connexion Supabase admin — `AbortController` 10s dans `lib/supabase.ts` ✅
+- **P2-5** Origin validation sur `/api/orders` — protection CSRF, liste blanche origines ✅
+- **P2-6** Helper audit logging — `lib/audit.ts` avec `logAuditAction()` non-bloquant ✅
 
 ---
 
@@ -79,32 +103,11 @@ Les corrections P1-1 à P1-5 ont été implémentées avec succès. Voir la sect
 
 ### Section "Données & Confidentialité" — `parametres.tsx` (owner uniquement)
 
-Nouvelle section en bas de la page Paramètres, accessible uniquement au propriétaire :
-
-- **Export RGPD (Art. 20)** — Bouton de téléchargement JSON
-  - Appel `GET /api/boulanger/export` avec Bearer token
-  - Téléchargement automatique via Blob URL
-  - Nom de fichier extrait du header `Content-Disposition`
-  - Feedback visuel : chargement → succès → reset après 5s
-  - Message d'info sur la portée (Art. 20 RGPD — droit à la portabilité)
-  - Mention que chaque export est tracé dans les logs d'audit ✅
+- **Export RGPD (Art. 20)** — Bouton de téléchargement JSON, feedback visuel, log audit automatique ✅
 
 ### Section "Audit" — `equipe-manager.tsx` (owner uniquement)
 
-Nouvelle section en bas du gestionnaire d'équipe, accessible uniquement au propriétaire :
-
-- **Composant `AuditLogsSection`** — Historique des actions équipe
-  - Section dépliable (lazy loading : ne charge qu'au premier clic)
-  - Lecture de `audit_equipe` via Supabase client avec JWT owner (RLS garantit l'isolation)
-  - 20 derniers logs affichés avec :
-    - Date relative ("il y a 2h", "il y a 3j")
-    - Code couleur par type d'action (invite, accept, revoke, suspend, role_change, etc.)
-    - Email cible et rôle quand disponible
-  - Bouton "Actualiser" + skeleton loading pendant le chargement ✅
-
-### Vérification technique
-
-- **`ROLE_DESCRIPTIONS`** — Bien exporté depuis `lib/types.ts` et utilisé dans la modal d'invitation ✅
+- **Composant `AuditLogsSection`** — 20 derniers logs, date relative, code couleur par action ✅
 
 ---
 
@@ -135,7 +138,7 @@ Fichiers à créer :
 | Feature | Starter | Pro | Multi |
 |---|---|---|---|
 | Produits catalogue | 20 max ✅ | Illimité ✅ | Illimité ✅ |
-| IA Levain (rapports) | 1/semaine ✅ implémenté | Illimité ✅ | Illimité ✅ |
+| IA Levain (rapports) | 1/semaine ✅ | Illimité ✅ | Illimité ✅ |
 | Membres équipe | 1 ✅ | 3 ✅ | Illimités ✅ |
 | Historique stats | 30j ✅ | 90j 🟠 à implémenter | Illimité |
 | Export données (JSON) | Oui ✅ | Oui ✅ | Oui + API |
@@ -164,10 +167,10 @@ Inexistante. Impossible de convertir un visiteur sans page de tarifs.
 
 ### 3.2 Moyen Terme — Rétention (2-6 semaines)
 
-- ~~**Export RGPD** (Art. 20 — obligation légale) : ZIP `journees.csv`, `stocks.csv`, `commandes.csv` depuis Paramètres~~ ✅ **Effectué** — Export JSON dans Paramètres → Données & Confidentialité
+- ~~**Export RGPD** (Art. 20)~~ ✅ **Effectué** — Export JSON dans Paramètres → Données & Confidentialité
 - **Rapport hebdomadaire Levain** : analyse des 7 derniers jours, score semaine, meilleur/pire jour
 - **Dashboard gérant** : dernière connexion par employé, snapshot fait/non fait
-- **Commandes récurrentes** : table `commandes_recurrentes` pour abonnements clients (baguettes chaque samedi)
+- **Commandes récurrentes** : table `commandes_recurrentes` pour abonnements clients
 
 ### 3.3 Long Terme (> 6 semaines)
 
@@ -199,7 +202,7 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 - Paginer par tranches de 14 jours
 - Lazy loading graphiques
 
-### 4.3 Tests & Qualité — ✅ Infrastructure en place (25 mars 2026)
+### 4.3 Tests & Qualité — ✅ Infrastructure complète (25 mars 2026)
 
 **Infrastructure Playwright déployée :**
 
@@ -211,7 +214,7 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 | `tests/fixtures/test-data.ts` | Générateurs utilisateurs/slugs/emails de test |
 | `.github/workflows/playwright.yml` | CI/CD GitHub Actions |
 
-**Suites de tests créées :**
+**Suites de tests E2E :**
 
 | Suite | Tests | Coverage |
 |---|---|---|
@@ -219,6 +222,18 @@ Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risqu
 | `tests/journee/cloture.spec.ts` | 8 | Création journée, feedback, clôture, workflow complet |
 | `tests/ia/rapport-ia.spec.ts` | 10 | Génération rapport, quota, prévisions, erreurs |
 | `tests/e2e/complete-flow.spec.ts` | 2 | Parcours E2E complet (register → clôture → IA) |
+
+**Suites de tests unitaires :**
+
+| Suite | Tests | Coverage |
+|---|---|---|
+| `tests/unit/sanitize.spec.ts` | 45+ | UUID, slug, sanitizeText, URL, date, email, XSS/injection |
+| `tests/unit/auth-boulanger.spec.ts` | 30+ | `canAccess()`, `isOwner()`, `isManager()` — RBAC 3 rôles |
+| `tests/unit/rate-limit.spec.ts` | 5 | Bypass CI, comportement 429 vs 401, auth/commandes |
+| `tests/unit/products.spec.ts` | 15 | Structure catalogue, unicité IDs, catégories, prix |
+| `tests/unit/permissions.spec.ts` | 20+ | Routes protégées sans token → 401, owner access, RGPD export |
+
+**Total : 130+ tests automatisés**
 
 **Commandes disponibles :**
 ```bash
@@ -228,9 +243,14 @@ npm run test:debug    # Mode debug
 npm run test:report   # Rapport HTML
 ```
 
+**Correction bug Playwright (v4.4) :**
+- **Problème** : `page.route()` appelé sur contexte browser inutilisé dans test `({ request })` — Playwright ferme le contexte page avant que le mock puisse s'appliquer
+- **Solution** : `complete-flow.spec.ts` utilise `page.request.post()` pour les tests avec mocks IA, `request` pour les tests API pur
+- **Impact** : Tests stables en mode `--debug`, mocks correctement appliqués
+
 **Reste à faire :**
-- Priorité 2 : tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit`
-- Priorité 3 : tests permissions (employé ne peut pas accéder route owner)
+- ~~Priorité 2 : tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit`~~ ✅ Effectué
+- ~~Priorité 3 : tests permissions (employé ne peut pas accéder route owner)~~ ✅ Effectué
 - Configurer secrets GitHub pour CI (SUPABASE_TEST_*, ZHIPU_API_KEY)
 
 ### 4.4 Monitoring production absent
@@ -249,13 +269,15 @@ npm run test:report   # Rapport HTML
 
 | Tâche | Durée | Priorité |
 |---|---|---|
-| ~~Feature gate Levain (`/api/boulanger/ai/rapport`)~~ | ~~2h~~ | ✅ **Corrigé** |
-| ~~Headers sécurité HTTP (`next.config.js`)~~ | ~~1h~~ | ✅ **Corrigé** |
-| ~~Logout scope global (`boulanger-context.tsx`)~~ | ~~30 min~~ | ✅ **Corrigé** |
-| ~~Soft delete produits (route DELETE)~~ | ~~30 min~~ | ✅ **Corrigé** |
-| ~~Content-Length check `/api/orders`~~ | ~~30 min~~ | ✅ **Corrigé** |
-| ~~Magic bytes upload~~ | ~~1h~~ | ✅ **Corrigé** |
-| ~~Timezone `journee/route.ts`~~ | ~~1h~~ | ✅ **Corrigé** |
+| ~~Feature gate Levain~~ | ~~2h~~ | ✅ Corrigé |
+| ~~Headers sécurité HTTP~~ | ~~1h~~ | ✅ Corrigé |
+| ~~Logout scope global~~ | ~~30 min~~ | ✅ Corrigé |
+| ~~Soft delete produits~~ | ~~30 min~~ | ✅ Corrigé |
+| ~~Content-Length check `/api/orders`~~ | ~~30 min~~ | ✅ Corrigé |
+| ~~Magic bytes upload~~ | ~~1h~~ | ✅ Corrigé |
+| ~~Timezone `journee/route.ts`~~ | ~~1h~~ | ✅ Corrigé |
+| ~~Correction CSP (fonts + images SW)~~ | ~~30 min~~ | ✅ Corrigé |
+| **Retirer `BYPASS_RATE_LIMIT` de l'env prod** | **5 min** | **🔴 Avant déploiement** |
 | Stripe Checkout + webhook + portal | 2 jours | 🔴 P0 Revenue |
 | Modal upgrade in-app | 3h | 🟠 P1 |
 
@@ -284,14 +306,15 @@ npm run test:report   # Rapport HTML
 
 | Tâche | Durée | Priorité |
 |---|---|---|
-| Tests Playwright : register → clôture → rapport IA | 1 jour | 🟠 P1 |
-| Tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit` | 1 jour | 🔵 P2 |
-| Export données RGPD (Art. 20) | 4h | 🟠 P1 (légal) |
+| ~~Tests Playwright : register → clôture → rapport IA~~ | ~~1 jour~~ | ✅ Effectué |
+| ~~Tests unitaires `lib/sanitize`, `lib/auth-boulanger`, `lib/rate-limit`~~ | ~~1 jour~~ | ✅ Effectué |
+| ~~Tests permissions RBAC (owner/gérant/employé)~~ | ~~1 jour~~ | ✅ Effectué |
+| ~~Export données RGPD (Art. 20)~~ | ~~4h~~ | ✅ Effectué |
 | Revue permissions owner/gérant/employé | 1 jour | 🔴 P0 |
 | Onboarding 5-10 boulangers beta | 1 jour | Business |
 | Feedback (formulaire + appel 15min) | Continu | Business |
 
-**Durée estimée S3 : 5 jours**
+**Durée estimée S3 : 2-3 jours** (tests automatisés complétés)
 
 ---
 
@@ -301,7 +324,7 @@ npm run test:report   # Rapport HTML
 - Notifications push améliorées (résumé 7h, rappel retrait)
 - Dashboard gérant
 - Programme referral
-- ~~P2 : audit_logs, CSRF, cron invitations, timeout Supabase admin~~ ✅ **Effectué le 25 mars 2026**
+- ~~P2 : audit_logs, CSRF, cron invitations, timeout Supabase admin~~ ✅ Effectué le 25 mars 2026
 
 ---
 
@@ -309,11 +332,11 @@ npm run test:report   # Rapport HTML
 
 | Phase | Durée | Milestone |
 |---|---|---|
-| S1 — Sécurité restante + Stripe | 4 jours | Paiements fonctionnels, Levain verrouillé |
+| S1 — Sécurité restante + Stripe | 2-3 jours | Paiements fonctionnels, Levain verrouillé |
 | S2 — Infra Prod | 4 jours | Multi-tenant opérationnel, emails, monitoring |
-| S3 — Tests + Beta 0 | 5 jours | 5-10 boulangers onboardés |
+| S3 — Tests + Beta 0 | 2-3 jours | 5-10 boulangers onboardés *(tests automatisés complétés)* |
 | S4-6 — Itérations | 3 semaines | Corrections retours, nouvelles features |
-| 🏁 **Beta Publique** | **~5 semaines** | **Acquisition active, 20-30 payants ciblés** |
+| 🏁 **Beta Publique** | **~4 semaines** | **Acquisition active, 20-30 payants ciblés** |
 
 ---
 
@@ -339,4 +362,4 @@ npm run test:report   # Rapport HTML
 
 ---
 
-*Mis à jour le 25 mars 2026 — toutes les corrections P0, P1 et P2 effectuées (P0-1 à P0-4, P1-1 à P1-6, P2-1 à P2-6).*
+*Mis à jour le 25 mars 2026 (v4.5) — 130+ tests E2E & unitaires implémentés (RBAC, sanitize, permissions)*
