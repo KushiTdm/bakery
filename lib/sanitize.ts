@@ -130,12 +130,32 @@ export function sanitizeUrl(value: unknown): string | null {
 
 /**
  * Valide une date au format YYYY-MM-DD.
+ * Vérifie également que la date existe réellement (pas de 30 février).
  */
 export function sanitizeDate(value: unknown): string | null {
   if (!value || typeof value !== 'string') return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return null;
+
+  const parts = value.split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+
+  // Vérification plages basiques
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+
+  // Créer la date et vérifier qu'elle correspond à l'entrée
+  // (JavaScript corrige automatiquement les dates invalides)
+  const d = new Date(year, month - 1, day);
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day
+  ) {
+    return null; // Date invalide (ex: 30 février)
+  }
+
   return value;
 }
 
