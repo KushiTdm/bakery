@@ -184,3 +184,16 @@ L'objectif est de se debarasser de ce qui est en trop pour eviter les invendus
 Une fois un panier commandé par un utilisateur, doit on le decompter du stock ?
 Ou doit on attendre qu'il vienne le recuperer.
 Par contre une fois recuperé, il faut le decompter du stock, ce qui n'est pas fait encore
+
+
+PB GET /api/catalogue/artisan-dore 200 in 854ms
+ ✓ Compiled /api/orders in 96ms (854 modules)
+ ○ Compiling /api/orders/confirm-email ...
+ ✓ Compiled /api/orders/confirm-email in 587ms (1147 modules)
+[orders/confirm-email] Erreur Resend
+ POST /api/orders/confirm-email 500 in 2151ms
+
+ + 
+ PB de nouveau client.
+ Pas de chargement des images encore
+ + Pas d'envoie de commandes ni de nouveau client
