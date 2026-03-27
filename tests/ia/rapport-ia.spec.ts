@@ -3,12 +3,12 @@
 // ─────────────────────────────────────────────────────────────
 //
 // IMPORTANT — Mocks Playwright :
-//   page.route() n'intercepte QUE les requêtes du contexte browser (page).
-//   Pour que les mocks s'appliquent, utiliser page.request.post() / page.request.get()
-//   et non la fixture `request` qui est un contexte API séparé.
+//   page.route() n'intercepte QUE les requêtes initiées depuis le contexte
+//   browser (JS de la page). Pour que les mocks s'appliquent, il faut
+//   déclencher la requête via page.evaluate() + fetch natif.
 //
-// Règle : si le test a un mock → page.request.*
-//         si pas de mock → request.* (plus rapide)
+// Règle : si le test a un mock  → page.evaluate() + fetch (contexte browser)
+//         si pas de mock        → request.* (APIRequestContext, plus rapide)
 // ─────────────────────────────────────────────────────────────
 
 import { test, expect } from '@playwright/test';
@@ -35,6 +35,48 @@ async function setupWithToken(request: Parameters<typeof registerViaApi>[0]) {
   };
 }
 
+// ── Helper fetch browser (pour que page.route() intercepte) ───
+
+async function browserPost(
+  page: Parameters<typeof mockAiRapportGeneration>[0],
+  url: string,
+  token: string,
+  body: Record<string, unknown> = {}
+): Promise<{ status: number; body: unknown }> {
+  // ✅ page.goto() requis pour initialiser le contexte browser avant page.evaluate()
+  await page.goto('/');
+  return page.evaluate(
+    async ({ url, token, body }) => {
+      const r = await fetch(url, {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      return { status: r.status, body: await r.json() };
+    },
+    { url, token, body }
+  );
+}
+
+async function browserGet(
+  page: Parameters<typeof mockAiRapportGeneration>[0],
+  url: string,
+  token: string
+): Promise<{ status: number; body: unknown }> {
+  // ✅ page.goto() requis pour initialiser le contexte browser avant page.evaluate()
+  await page.goto('/');
+  return page.evaluate(
+    async ({ url, token }) => {
+      const r = await fetch(url, {
+        method:  'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      return { status: r.status, body: await r.json() };
+    },
+    { url, token }
+  );
+}
+
 // ── Tests ─────────────────────────────────────────────────────
 
 test.describe('Rapport IA (Levain)', () => {
@@ -47,16 +89,15 @@ test.describe('Rapport IA (Levain)', () => {
       await mockAiRapportGeneration(page, { score: 82, verdict: 'Excellente journée !' });
       await mockToday(page);
 
-      // ✅ Utiliser page.request (même contexte que page.route) pour que le mock s'applique
-      const res = await page.request.post('/api/boulanger/ai/rapport', {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type':  'application/json',
-        },
-        data: { consignes_boulanger: 'Prévoir plus de baguettes' },
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserPost(
+        page,
+        '/api/boulanger/ai/rapport',
+        authToken,
+        { consignes_boulanger: 'Prévoir plus de baguettes' }
+      );
 
-      expect([200, 201, 503]).toContain(res.status());
+      expect([200, 201, 503]).toContain(res.status);
 
       await clearAllMocks(page);
     });
@@ -66,15 +107,13 @@ test.describe('Rapport IA (Levain)', () => {
 
       await mockAiRapportGeneration(page, { statut: 'genere', score: 75 });
 
-      // ✅ page.request pour que la réponse mockée soit retournée
-      const res = await page.request.get('/api/boulanger/ai/rapport', {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserGet(page, '/api/boulanger/ai/rapport', authToken);
 
-      expect([200, 404]).toContain(res.status());
+      expect([200, 404]).toContain(res.status);
 
-      if (res.ok()) {
-        const body = await res.json() as { rapport?: unknown; quota_info?: unknown };
+      if (res.status === 200) {
+        const body = res.body as { rapport?: unknown; quota_info?: unknown };
         expect(body.quota_info).toBeDefined();
       }
 
@@ -86,18 +125,12 @@ test.describe('Rapport IA (Levain)', () => {
 
       await mockAiQuotaReached(page);
 
-      // ✅ page.request pour que le mock 402 soit renvoyé
-      const res = await page.request.post('/api/boulanger/ai/rapport', {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type':  'application/json',
-        },
-        data: {},
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserPost(page, '/api/boulanger/ai/rapport', authToken, {});
 
-      expect(res.status()).toBe(402);
+      expect(res.status).toBe(402);
 
-      const body = await res.json() as { quota_reached?: boolean; upgrade_required?: boolean };
+      const body = res.body as { quota_reached?: boolean; upgrade_required?: boolean };
       expect(body.quota_reached).toBe(true);
       expect(body.upgrade_required).toBe(true);
 
@@ -109,16 +142,14 @@ test.describe('Rapport IA (Levain)', () => {
 
       await mockStarterPlan(page);
 
-      // ✅ page.request
-      const res = await page.request.get('/api/boulanger/ai/rapport', {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserGet(page, '/api/boulanger/ai/rapport', authToken);
 
       // Le mock retourne 200 — le serveur réel retournerait 200 ou 404
-      expect([200, 404]).toContain(res.status());
+      expect([200, 404]).toContain(res.status);
 
-      if (res.ok()) {
-        const body = await res.json() as {
+      if (res.status === 200) {
+        const body = res.body as {
           starter_preview?: boolean;
           rapport?: { rapport_json?: { _starter_preview?: boolean } } | null;
           previsions?: unknown[];
@@ -145,17 +176,16 @@ test.describe('Rapport IA (Levain)', () => {
 
       const tomorrow = new Date(Date.now() + 86_400_000).toISOString().split('T')[0];
 
-      // ✅ page.request
-      const res = await page.request.post('/api/boulanger/ai/appliquer', {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type':  'application/json',
-        },
-        data: { date_production: tomorrow },
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserPost(
+        page,
+        '/api/boulanger/ai/appliquer',
+        authToken,
+        { date_production: tomorrow }
+      );
 
       // Mock retourne 200 ; sans mock la route retournerait 404 (pas de prévisions)
-      expect([200, 201, 404]).toContain(res.status());
+      expect([200, 201, 404]).toContain(res.status);
 
       await clearAllMocks(page);
     });
@@ -208,12 +238,11 @@ test.describe('Rapport IA (Levain)', () => {
 
       await mockAiRapportGeneration(page, { score: 80 });
 
-      const res = await page.request.get('/api/boulanger/ai/rapport', {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      // ✅ fetch depuis le contexte browser → page.route() s'applique
+      const res = await browserGet(page, '/api/boulanger/ai/rapport', authToken);
 
-      if (res.ok()) {
-        const body = await res.json() as {
+      if (res.status === 200) {
+        const body = res.body as {
           previsions?: { produit_id?: string; quantite_suggeree?: number }[];
         };
 
