@@ -2,32 +2,35 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { DUREE_CONSERVATION_PAR_CATEGORIE } from '@/lib/types';
 
 // ── Types ─────────────────────────────────────────────────────
 
 export interface Produit {
-  id:                   string;
-  boulangerie_id:       string;
-  nom:                  string;
-  description:          string | null;
-  categorie:            'boulangerie' | 'viennoiserie' | 'patisserie';
-  emoji:                string;
-  prix_vente:           number;
-  cout_production:      number;
-  actif_catalogue:      boolean;
-  actif_flash:          boolean;
-  ordre:                number;
-  prix_flash_override:  number | null;
-  allergenes:           string[];
-  disponible_du:        string | null;
-  disponible_au:        string | null;
-  stock_alerte:         number | null;
-  note_interne:         string | null;
-  image_url:            string | null;
-  image_storage_path:   string | null;
-  image_public_url:     string | null;
-  created_at:           string;
-  updated_at:           string;
+  id:                        string;
+  boulangerie_id:            string;
+  nom:                       string;
+  description:               string | null;
+  categorie:                 'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
+  emoji:                     string;
+  prix_vente:                number;
+  cout_production:           number;
+  actif_catalogue:           boolean;
+  actif_flash:               boolean;
+  ordre:                     number;
+  prix_flash_override:       number | null;
+  allergenes:                string[];
+  disponible_du:             string | null;
+  disponible_au:             string | null;
+  stock_alerte:              number | null;
+  note_interne:              string | null;
+  image_url:                 string | null;
+  image_storage_path:        string | null;
+  image_public_url:          string | null;
+  /** Durée de conservation en jours (1 = non reportable, 2 = J+1, 3 = J+2) */
+  duree_conservation_jours:  number;
+  created_at:                string;
+  updated_at:                string;
 }
 
 export type ProduitDraft = Omit<Produit,
@@ -57,6 +60,7 @@ export const CATEGORIE_LABELS: Record<Produit['categorie'], string> = {
   boulangerie:  '🥖 Boulangerie',
   viennoiserie: '🥐 Viennoiserie',
   patisserie:   '🎂 Pâtisserie',
+  sandwich:     '🥪 Sandwich',
 };
 
 // ── Hook principal ────────────────────────────────────────────
@@ -98,10 +102,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     };
   };
 
-  // ── Chargement — récupère TOUS les produits (actifs ET inactifs) ───────
-  // On passe actif=false pour désactiver le filtre côté API.
-  // C'est l'espace boulanger : il doit voir et gérer tous ses produits,
-  // y compris ceux désactivés (pour pouvoir les réactiver).
+  // ── Chargement ───────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -124,7 +125,16 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
         }
 
         const { produits: data } = await res.json() as { produits: Produit[] };
-        if (!cancelled) setProduits(data ?? []);
+        if (!cancelled) {
+          // S'assurer que duree_conservation_jours a toujours une valeur
+          const normalized = (data ?? []).map(p => ({
+            ...p,
+            duree_conservation_jours: p.duree_conservation_jours
+              ?? DUREE_CONSERVATION_PAR_CATEGORIE[p.categorie]
+              ?? 1,
+          }));
+          setProduits(normalized);
+        }
       } catch {
         if (!cancelled) setError('Erreur réseau');
       } finally {
@@ -143,10 +153,18 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       const headers = await authHeaders();
       if (!headers) return null;
 
+      // Appliquer la durée par défaut selon catégorie si non renseignée
+      const draftWithDefaults: ProduitDraft = {
+        ...draft,
+        duree_conservation_jours: draft.duree_conservation_jours
+          ?? DUREE_CONSERVATION_PAR_CATEGORIE[draft.categorie]
+          ?? 1,
+      };
+
       const res = await fetch('/api/boulanger/produits', {
         method: 'POST',
         headers,
-        body: JSON.stringify(draft),
+        body: JSON.stringify(draftWithDefaults),
       });
 
       const j = await res.json() as { produit?: Produit; error?: string };
@@ -164,7 +182,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     id: string,
     updates: Partial<ProduitDraft>
   ): Promise<boolean> => {
-    // Mise à jour optimiste locale
     setProduits(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     setSaving(true);
     try {
@@ -178,7 +195,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       });
 
       if (!res.ok) {
-        // Rollback — refetch pour retrouver l'état serveur
         setTick(t => t + 1);
         const j = await res.json().catch(() => ({})) as { error?: string };
         setError(j.error ?? 'Erreur modification');
@@ -186,7 +202,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       }
 
       const { produit } = await res.json() as { produit: Produit };
-      // Mise à jour locale avec les données serveur (sans refetch complet)
       setProduits(prev => prev.map(p => p.id === id ? { ...p, ...produit } : p));
       return true;
     } finally {
@@ -197,7 +212,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
   // ── Supprimer ──────────────────────────────────────────────
   const supprimer = useCallback(async (id: string): Promise<boolean> => {
     const backup = produits.find(p => p.id === id);
-    // Optimiste : retrait immédiat de la liste
     setProduits(prev => prev.filter(p => p.id !== id));
     setSaving(true);
     try {
@@ -210,7 +224,6 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
       });
 
       if (!res.ok) {
-        // Rollback
         if (backup) setProduits(prev => [...prev, backup].sort((a, b) => a.ordre - b.ordre));
         return false;
       }
@@ -220,9 +233,7 @@ export function useProduitsBoulanger(): UseProduitsBoulangerReturn {
     }
   }, [produits]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Toggle actif catalogue / flash ─────────────────────────
-  // Bascule la valeur booléenne sans supprimer le produit.
-  // Le produit reste visible dans l'espace boulanger (inactif ≠ supprimé).
+  // ── Toggle actif ───────────────────────────────────────────
   const toggleActif = useCallback(async (
     id: string,
     champ: 'actif_catalogue' | 'actif_flash'

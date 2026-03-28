@@ -6,10 +6,25 @@
 
 // ── Vues & sync ───────────────────────────────────────────────
 
-// 'flash' ajouté pour l'onglet paniers anti-gaspi dans la nav du bas
-// 'ia' ajouté pour l'onglet rapport IA Levain
 export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres' | 'equipe' | 'ia';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+// ── Durée de conservation ──────────────────────────────────────
+
+/** Durée de conservation en jours par catégorie (valeur par défaut) */
+export const DUREE_CONSERVATION_PAR_CATEGORIE: Record<string, number> = {
+  boulangerie:  1,
+  viennoiserie: 1,
+  sandwich:     1,
+  patisserie:   2,
+};
+
+/** Labels affichés dans le formulaire produit */
+export const DUREE_CONSERVATION_OPTIONS: { value: number; label: string; description: string }[] = [
+  { value: 1, label: 'Jour J uniquement',   description: 'Baguette, croissant, sandwich — non reportable' },
+  { value: 2, label: 'J + 1 jour',          description: 'Tarte, flan, cake — reportable le lendemain' },
+  { value: 3, label: 'J + 2 jours',         description: 'Gâteau sec, biscuit, entremet — reportable 2 jours' },
+];
 
 // ── Stocks ────────────────────────────────────────────────────
 
@@ -17,7 +32,7 @@ export interface StockEntry {
   id:              string;
   name:            string;
   emoji:           string;
-  category:        'boulangerie' | 'viennoiserie' | 'patisserie';
+  category:        'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
   prixVente:       number;
   coutProduction:  number;
   production:      number;
@@ -26,6 +41,13 @@ export interface StockEntry {
   snapshot14h:     number;
   snapshot14hDone: boolean;
   stockFinal:      number;
+  // ── Report inter-journées ──────────────────────────────────
+  /** Quantité reportée depuis J-1 (pré-remplie, modifiable par le boulanger) */
+  reportVeille:         number;
+  /** true si ce produit a des unités reportées de J-1 */
+  estReporte:           boolean;
+  /** Durée de conservation en jours (1 = non reportable) */
+  dureeConservationJours: number;
 }
 
 export interface HistoryEntry {
@@ -49,13 +71,8 @@ export interface ProductionSuggestion {
 
 // ── Rôles & permissions multi-user ───────────────────────────
 
-/** Rôles utilisateurs dans l'espace boulanger */
 export type BoulangerRole = 'owner' | 'gerant' | 'employe';
-
-/** Niveau d'accès pour une feature */
 export type PermissionLevel = 'write' | 'read' | 'none';
-
-/** Features accessibles avec contrôle de permission */
 export type PermissionKey =
   | 'matin'
   | 'snapshot'
@@ -69,8 +86,6 @@ export type PermissionKey =
   | 'plan';
 
 export type PermissionsMap = Record<PermissionKey, PermissionLevel>;
-
-// ── Permissions par défaut selon le rôle ─────────────────────
 
 export const DEFAULT_PERMISSIONS: Record<BoulangerRole, PermissionsMap> = {
   owner: {
@@ -90,7 +105,6 @@ export const DEFAULT_PERMISSIONS: Record<BoulangerRole, PermissionsMap> = {
   },
 };
 
-/** Limites de membres par plan (owner inclus) */
 export const PLAN_MEMBER_LIMITS: Record<string, number> = {
   starter: 1,
   pro:     3,
@@ -122,8 +136,6 @@ export const PERMISSION_KEY_LABELS: Record<PermissionKey, string> = {
   plan:       'Plan & facturation',
 };
 
-// ── Helpers permissions ───────────────────────────────────────
-
 export function permissionSatisfies(
   actual: PermissionLevel,
   required: PermissionLevel
@@ -149,8 +161,6 @@ export function mergePermissions(
   }
   return base;
 }
-
-// ── Type membre équipe ────────────────────────────────────────
 
 export interface MembreEquipe {
   id:               string;

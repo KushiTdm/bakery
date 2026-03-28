@@ -21,7 +21,7 @@ interface PanierFlashRow {
   produit_id:        string;
   produit_nom:       string;
   produit_emoji:     string;
-  categorie:         'boulangerie' | 'viennoiserie' | 'patisserie';
+  categorie:         'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
   prix_original:     number;
   remise_pct:        number;
   prix_flash:        number;
@@ -35,7 +35,7 @@ interface ProduitLocal {
   id:              string;
   name:            string;
   emoji:           string;
-  category:        'boulangerie' | 'viennoiserie' | 'patisserie';
+  category:        'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
   prixVente:       number;
   // ── STOCK RÉEL (cap dur) ──────────────────────────────────
   // Priorité : stockFinal (si soir saisi) > snapshot14h > snapshot10h > production

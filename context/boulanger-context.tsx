@@ -8,7 +8,6 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { DbJournee, DbStockJournalier } from '@/lib/supabase';
-// I2 : types partagés dans lib/types.ts (importable côté serveur aussi)
 import type {
   ViewType, SyncStatus,
   StockEntry, HistoryEntry, ProductionSuggestion,
@@ -16,6 +15,7 @@ import type {
 } from '@/lib/types';
 import {
   DEFAULT_PERMISSIONS, mergePermissions, permissionSatisfies,
+  DUREE_CONSERVATION_PAR_CATEGORIE,
 } from '@/lib/types';
 
 export type { ViewType, SyncStatus, StockEntry, HistoryEntry, ProductionSuggestion };
@@ -28,46 +28,62 @@ interface Boulangerie {
   actif: boolean;
 }
 
-function mapDbStockToEntry(s: DbStockJournalier): StockEntry {
+// ── Mapper DB → StockEntry ─────────────────────────────────────
+// Inclut maintenant les champs de report inter-journées
+
+function mapDbStockToEntry(s: DbStockJournalier & {
+  report_veille?: number;
+  est_reporte?:   boolean;
+}): StockEntry {
   return {
-    id:              s.produit_id,
-    name:            s.produit_nom,
-    emoji:           s.produit_emoji ?? '🥖',
-    category:        (s.categorie ?? 'boulangerie') as StockEntry['category'],
-    prixVente:       s.prix_vente,
-    coutProduction:  s.cout_production,
-    production:      s.production,
-    snapshot10h:     s.snapshot_10h_done ? s.snapshot_10h : 0,
-    snapshot10hDone: s.snapshot_10h_done,
-    snapshot14h:     s.snapshot_14h_done ? s.snapshot_14h : 0,
-    snapshot14hDone: s.snapshot_14h_done,
-    stockFinal:      s.stock_final,
+    id:                      s.produit_id,
+    name:                    s.produit_nom,
+    emoji:                   s.produit_emoji ?? '🥖',
+    category:                (s.categorie ?? 'boulangerie') as StockEntry['category'],
+    prixVente:               s.prix_vente,
+    coutProduction:          s.cout_production,
+    production:              s.production,
+    snapshot10h:             s.snapshot_10h_done ? s.snapshot_10h : 0,
+    snapshot10hDone:         s.snapshot_10h_done,
+    snapshot14h:             s.snapshot_14h_done ? s.snapshot_14h : 0,
+    snapshot14hDone:         s.snapshot_14h_done,
+    stockFinal:              s.stock_final,
+    // ── Report inter-journées ──────────────────────────────
+    reportVeille:            s.report_veille ?? 0,
+    estReporte:              s.est_reporte ?? false,
+    dureeConservationJours:  DUREE_CONSERVATION_PAR_CATEGORIE[s.categorie ?? 'boulangerie'] ?? 1,
   };
 }
 
 interface ProduitDb {
-  id:              string;
-  nom:             string;
-  emoji:           string;
-  categorie:       'boulangerie' | 'viennoiserie' | 'patisserie';
-  prix_vente:      number;
-  cout_production: number;
+  id:                       string;
+  nom:                      string;
+  emoji:                    string;
+  categorie:                'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
+  prix_vente:               number;
+  cout_production:          number;
+  duree_conservation_jours?: number;
 }
 
 function produitToStockEntry(p: ProduitDb): StockEntry {
   return {
-    id:              p.id,
-    name:            p.nom,
-    emoji:           p.emoji ?? '🥖',
-    category:        p.categorie,
-    prixVente:       p.prix_vente,
-    coutProduction:  p.cout_production,
-    production:      0,
-    snapshot10h:     0,
-    snapshot10hDone: false,
-    snapshot14h:     0,
-    snapshot14hDone: false,
-    stockFinal:      0,
+    id:                      p.id,
+    name:                    p.nom,
+    emoji:                   p.emoji ?? '🥖',
+    category:                p.categorie,
+    prixVente:               p.prix_vente,
+    coutProduction:          p.cout_production,
+    production:              0,
+    snapshot10h:             0,
+    snapshot10hDone:         false,
+    snapshot14h:             0,
+    snapshot14hDone:         false,
+    stockFinal:              0,
+    reportVeille:            0,
+    estReporte:              false,
+    dureeConservationJours:  p.duree_conservation_jours
+      ?? DUREE_CONSERVATION_PAR_CATEGORIE[p.categorie]
+      ?? 1,
   };
 }
 
@@ -77,7 +93,7 @@ function mapDbJourneeToHistory(j: DbJournee): HistoryEntry {
     chiffreAffaires: j.ca_estime ?? 0,
     tauxInvendu:     j.taux_invendu ?? 0,
     commandesOnline: j.commandes_online ?? 0,
-    stocks:          (j.stocks_journaliers ?? []).map(mapDbStockToEntry),
+    stocks:          (j.stocks_journaliers ?? []).map(s => mapDbStockToEntry(s as Parameters<typeof mapDbStockToEntry>[0])),
   };
 }
 
@@ -128,6 +144,21 @@ function computeProductionSuggestions(
   });
 }
 
+// ── Type réponse API journée enrichie ─────────────────────────
+
+interface ReportVeilleInfo {
+  quantite:      number;
+  joursRestants: number;
+  produitNom:    string;
+  produitEmoji:  string;
+  categorie:     string;
+}
+
+interface JourneeApiResponse {
+  journee:        DbJournee | null;
+  reports_veille: Record<string, ReportVeilleInfo>;
+}
+
 interface BoulangerContextType {
   session:             Session | null;
   user:                User | null;
@@ -136,9 +167,8 @@ interface BoulangerContextType {
   authLoading:         boolean;
   logout:              () => Promise<void>;
 
-  // ── Multi-user : rôle & permissions ──────────────────────────
   userRole:    BoulangerRole | null;
-  memberId:    string | null;   // undefined pour le owner
+  memberId:    string | null;
   permissions: PermissionsMap;
   canRead:     (feature: PermissionKey) => boolean;
   canWrite:    (feature: PermissionKey) => boolean;
@@ -147,6 +177,9 @@ interface BoulangerContextType {
   setActiveView:       (v: ViewType) => void;
   syncStatus:          SyncStatus;
   todayStocks:         StockEntry[];
+  // ── Report inter-journées ──────────────────────────────────
+  reportsVeille:       Record<string, ReportVeilleInfo>;
+  updateReportVeille:  (produitId: string, quantite: number) => void;
   updateProduction:    (id: string, val: number) => void;
   updateSnapshot:      (id: string, val: number, slot: '10h' | '14h') => void;
   validateSnapshot:    (slot: '10h' | '14h') => void;
@@ -175,15 +208,15 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [todayStocks, setTodayStocks] = useState<StockEntry[]>([]);
   const [commandesOnline, _setCommandesOnline] = useState(0);
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
+  // ── Reports inter-journées disponibles ──────────────────────
+  const [reportsVeille, setReportsVeille] = useState<Record<string, ReportVeilleInfo>>({});
 
-  // ── Multi-user state ─────────────────────────────────────────
   const [userRole, setUserRole]       = useState<BoulangerRole | null>(null);
   const [memberId, setMemberId]       = useState<string | null>(null);
   const [permissions, setPermissions] = useState<PermissionsMap>(DEFAULT_PERMISSIONS.owner);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Helpers permissions ───────────────────────────────────────
   const canRead  = useCallback((feature: PermissionKey) =>
     permissionSatisfies(permissions[feature], 'read'), [permissions]);
   const canWrite = useCallback((feature: PermissionKey) =>
@@ -223,6 +256,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setPermissions(DEFAULT_PERMISSIONS.owner);
     setTodayStocks([]);
     setHistory([]);
+    setReportsVeille({});
     _setCommandesOnline(0);
     setActiveView('matin');
   }
@@ -233,13 +267,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     return session?.access_token ?? null;
   }
 
-  // ── loadAll — utilise get_current_user_access() pour owner ET employés ──
-  // Fallback : si le RPC n'existe pas encore (migration non exécutée),
-  // on retombe sur la requête directe à boulangeries (comportement v1).
   async function loadAll() {
     setAuthLoading(true);
     try {
-      // Tentative via RPC multi-user (migration-multiuser.sql)
       const { data: rpcData, error: rpcError } = await supabase.rpc('get_current_user_access');
 
       if (!rpcError && rpcData && rpcData.length > 0) {
@@ -259,7 +289,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Fallback v1 : requête directe (migration multiuser pas encore exécutée)
+      // Fallback v1
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) { setBoulangerie(null); return; }
 
@@ -286,6 +316,10 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ── loadTodayData — enrichi avec les reports de J-1 ─────────
+  // L'API journee retourne maintenant :
+  //   { journee, reports_veille }
+  // reports_veille = produits non périssables avec stock_final > 0 hier
   async function loadTodayData() {
     try {
       const token = await getToken();
@@ -295,11 +329,18 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) { await loadProduitsAsList(token); return; }
-      const { journee } = await res.json() as { journee: DbJournee | null };
+
+      const { journee, reports_veille } = await res.json() as JourneeApiResponse;
+
+      // Stocker les reports disponibles (pour l'affichage dans vue-matin)
+      setReportsVeille(reports_veille ?? {});
 
       if (journee?.stocks_journaliers?.length) {
         const isClosed = journee.cloturee === true;
-        const stocks = journee.stocks_journaliers.map(s => {
+        const stocks = (journee.stocks_journaliers as (DbStockJournalier & {
+          report_veille?: number;
+          est_reporte?:   boolean;
+        })[]).map(s => {
           const entry = mapDbStockToEntry(s);
           if (!isClosed) entry.stockFinal = 0;
           return entry;
@@ -307,14 +348,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
         setTodayStocks(stocks);
         _setCommandesOnline(journee.commandes_online ?? 0);
       } else {
-        await loadProduitsAsList(token);
+        // Pas de journée aujourd'hui → charger les produits
+        // et pré-remplir les reports de J-1 si disponibles
+        await loadProduitsAsList(token, reports_veille ?? {});
       }
     } catch (err) {
       console.warn('[BoulangerContext] loadTodayData:', err);
     }
   }
 
-  async function loadProduitsAsList(token: string) {
+  // ── loadProduitsAsList — pré-remplit les reports de J-1 ─────
+  async function loadProduitsAsList(
+    token: string,
+    reports: Record<string, ReportVeilleInfo> = {}
+  ) {
     try {
       const res = await fetch('/api/boulanger/produits', {
         headers: { Authorization: `Bearer ${token}` },
@@ -322,7 +369,22 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       });
       if (!res.ok) return;
       const { produits } = await res.json() as { produits: ProduitDb[] };
-      if (produits?.length) setTodayStocks(produits.map(produitToStockEntry));
+      if (!produits?.length) return;
+
+      const stocks = produits.map(p => {
+        const entry = produitToStockEntry(p);
+        // Pré-remplir le report de J-1 si disponible pour ce produit
+        const report = reports[p.id];
+        if (report) {
+          entry.reportVeille = report.quantite;
+          entry.estReporte   = true;
+          // Pré-remplir la production avec le report (modifiable par le boulanger)
+          entry.production   = report.quantite;
+        }
+        return entry;
+      });
+
+      setTodayStocks(stocks);
     } catch (err) {
       console.warn('[BoulangerContext] loadProduitsAsList:', err);
     }
@@ -364,6 +426,26 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     }, 2000);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── updateReportVeille — le boulanger ajuste le report ──────
+  // Appelé depuis vue-matin quand il valide/modifie la quantité reportée
+  const updateReportVeille = useCallback((produitId: string, quantite: number) => {
+    setTodayStocks(prev => {
+      const next = prev.map(p => {
+        if (p.id !== produitId) return p;
+        const qte = Math.max(0, Math.floor(quantite));
+        return {
+          ...p,
+          reportVeille: qte,
+          estReporte:   qte > 0,
+          // Ajuster la "production" du jour : produit frais = production, report séparé
+          // La production reste ce que le boulanger a sorti du four aujourd'hui
+        };
+      });
+      triggerSave(next, commandesOnline);
+      return next;
+    });
+  }, [commandesOnline, triggerSave]);
+
   const updateProduction = useCallback((id: string, val: number) => {
     setTodayStocks(prev => {
       const next = prev.map(p => p.id === id ? { ...p, production: Math.max(0, val) } : p);
@@ -377,12 +459,11 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       const next = prev.map(p => {
         if (p.id !== id) return p;
         if (slot === '10h') {
-          return { ...p, snapshot10h: Math.max(0, Math.min(val, p.production)) };
+          // Le snapshot inclut les produits reportés (ils sont sur l'étagère)
+          const maxSnap = p.production + (p.reportVeille ?? 0);
+          return { ...p, snapshot10h: Math.max(0, Math.min(val, maxSnap)) };
         } else {
-          // FIX : max14h basé sur snapshot10hDone uniquement (pas snapshot10h > 0)
-          // Si snapshot10hDone=true et snapshot10h=0 → max=0 (tout vendu à 10h)
-          // Si snapshot10hDone=false → max=production (pas encore de snapshot 10h)
-          const max14h = p.snapshot10hDone ? p.snapshot10h : p.production;
+          const max14h = p.snapshot10hDone ? p.snapshot10h : p.production + (p.reportVeille ?? 0);
           return { ...p, snapshot14h: Math.max(0, Math.min(val, max14h)) };
         }
       });
@@ -405,11 +486,12 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setTodayStocks(prev => {
       const next = prev.map(p => {
         if (p.id !== id) return p;
+        const totalDispo = p.production + (p.reportVeille ?? 0);
         const maxFinal = p.snapshot14hDone && p.snapshot14h > 0
           ? p.snapshot14h
           : p.snapshot10hDone && p.snapshot10h > 0
             ? p.snapshot10h
-            : p.production;
+            : totalDispo;
         return { ...p, stockFinal: Math.max(0, Math.min(val, maxFinal)) };
       });
       triggerSave(next, commandesOnline);
@@ -445,17 +527,20 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   }, [todayStocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const logout = useCallback(async () => {
-    // P1-2 : Révoque TOUS les tokens (access + refresh) sur tous les appareils
-    // Un employé révoqué ne peut plus utiliser son refresh_token
     await supabase.auth.signOut({ scope: 'global' });
     resetState();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0),   [todayStocks]);
-  const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0),    [todayStocks]);
+  // ── KPIs — prennent en compte les produits reportés ──────────
+  // totalProducedToday = production fraîche seulement
+  // Le taux d'invendu est calculé sur le total disponible (production + report)
+  const totalProducedToday = useMemo(() => todayStocks.reduce((s, p) => s + p.production, 0), [todayStocks]);
+  const totalReporteToday  = useMemo(() => todayStocks.reduce((s, p) => s + (p.reportVeille ?? 0), 0), [todayStocks]);
+  const totalDisponible    = useMemo(() => totalProducedToday + totalReporteToday, [totalProducedToday, totalReporteToday]);
+  const unsoldToday        = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal, 0), [todayStocks]);
   const unsoldValueToday   = useMemo(() => todayStocks.reduce((s, p) => s + p.stockFinal * p.coutProduction, 0), [todayStocks]);
-  const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production - p.stockFinal) * p.prixVente, 0), [todayStocks]);
-  const unsoldRateToday    = useMemo(() => totalProducedToday > 0 ? (unsoldToday / totalProducedToday) * 100 : 0, [unsoldToday, totalProducedToday]);
+  const revenueToday       = useMemo(() => todayStocks.reduce((s, p) => s + (p.production + (p.reportVeille ?? 0) - p.stockFinal) * p.prixVente, 0), [todayStocks]);
+  const unsoldRateToday    = useMemo(() => totalDisponible > 0 ? (unsoldToday / totalDisponible) * 100 : 0, [unsoldToday, totalDisponible]);
   const productionSuggestions = useMemo(
     () => computeProductionSuggestions(history, todayStocks, new Date().getDay()),
     [history, todayStocks]
@@ -470,6 +555,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       activeView, setActiveView,
       syncStatus,
       todayStocks,
+      reportsVeille,
+      updateReportVeille,
       updateProduction, updateSnapshot, validateSnapshot, updateStockFinal,
       commandesOnline, setCommandesOnline,
       revenueToday, unsoldToday, unsoldValueToday, unsoldRateToday, totalProducedToday,

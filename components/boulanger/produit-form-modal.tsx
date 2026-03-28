@@ -1,14 +1,15 @@
 'use client';
 // components/boulanger/produit-form-modal.tsx
 // Formulaire création / édition d'un produit.
-// Gère : infos de base, photo upload, allergènes, flash, saisonnalité.
+// Gère : infos de base, photo upload, allergènes, flash, saisonnalité,
+//        durée de conservation (report inter-journées).
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   X, Upload, Camera, AlertTriangle, Zap, ZapOff,
   Calendar, Euro, Info, ChevronDown, ChevronUp,
-  Loader2, Check,
+  Loader2, Check, Clock,
 } from 'lucide-react';
 import {
   type Produit,
@@ -16,18 +17,23 @@ import {
   ALLERGENES_LABELS,
   ALLERGENES_LIST,
 } from '@/hooks/use-produits-boulanger';
+import {
+  DUREE_CONSERVATION_OPTIONS,
+  DUREE_CONSERVATION_PAR_CATEGORIE,
+} from '@/lib/types';
 
 // ── Emojis rapides par catégorie ──────────────────────────────
 const EMOJIS_PAR_CATEGORIE: Record<string, string[]> = {
   boulangerie:  ['🥖', '🍞', '🌾', '🫓', '🥨', '🫕'],
   viennoiserie: ['🥐', '🍫', '🧁', '🥮', '🍩', '🥞'],
   patisserie:   ['🎂', '🍰', '🍋', '🍓', '☕', '🎪'],
+  sandwich:     ['🥪', '🌮', '🌯', '🥙', '🍔', '🫔'],
 };
 
 // ── Composant ─────────────────────────────────────────────────
 
 interface Props {
-  produit:         Produit | null;  // null = création
+  produit:         Produit | null;
   onSave:          (draft: ProduitDraft) => Promise<void>;
   onClose:         () => void;
   onUploadPhoto:   (produitId: string, file: File) => Promise<string | null>;
@@ -53,9 +59,16 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
   const [noteInterne,       setNoteInterne]      = useState(produit?.note_interne ?? '');
   const [imageUrl,          setImageUrl]         = useState(produit?.image_url ?? '');
 
+  // ── Durée de conservation (feature report inter-journées) ──
+  const [dureeConservation, setDureeConservation] = useState<number>(
+    produit?.duree_conservation_jours
+      ?? DUREE_CONSERVATION_PAR_CATEGORIE[produit?.categorie ?? 'boulangerie']
+      ?? 1
+  );
+
   // Photo preview
-  const [photoPreview,  setPhotoPreview]  = useState<string | null>(produit?.image_public_url ?? null);
-  const [photoFile,     setPhotoFile]     = useState<File | null>(null);
+  const [photoPreview,   setPhotoPreview]   = useState<string | null>(produit?.image_public_url ?? null);
+  const [photoFile,      setPhotoFile]      = useState<File | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,27 +77,26 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
   const [showSaisonnalite, setShowSaisonnalite] = useState(!!(disponibleDu || disponibleAu));
   const [showAvance,       setShowAvance]       = useState(false);
 
-  // Erreurs
-  const [errors,  setErrors]  = useState<Record<string, string>>({});
-  const [saving,  setSaving]  = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  // Auto-sélection emoji selon catégorie
+  // Auto-sélection emoji selon catégorie + durée de conservation par défaut
   useEffect(() => {
     if (!isEdit) {
-      setEmoji(EMOJIS_PAR_CATEGORIE[categorie][0] ?? '🥖');
+      setEmoji(EMOJIS_PAR_CATEGORIE[categorie]?.[0] ?? '🥖');
+      // Appliquer la durée de conservation par défaut de la catégorie
+      setDureeConservation(DUREE_CONSERVATION_PAR_CATEGORIE[categorie] ?? 1);
     }
   }, [categorie, isEdit]);
 
-  // ── Upload photo (preview local) ─────────────────────────
+  // ── Upload photo ──────────────────────────────────────────
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 5 * 1024 * 1024) {
       setErrors(prev => ({ ...prev, photo: 'Fichier trop lourd (max 5 MB)' }));
       return;
     }
-
     setPhotoFile(file);
     const reader = new FileReader();
     reader.onloadend = () => setPhotoPreview(reader.result as string);
@@ -117,44 +129,40 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
   const handleSubmit = async () => {
     if (!validate()) return;
     setSaving(true);
-
     try {
       const draft: ProduitDraft = {
-        nom:                  nom.trim(),
-        description:          description.trim() || null,
+        nom:                       nom.trim(),
+        description:               description.trim() || null,
         categorie,
         emoji,
-        prix_vente:           parseFloat(prixVente),
-        cout_production:      parseFloat(coutProd) || 0,
-        actif_catalogue:      actifCatalogue,
-        actif_flash:          actifFlash,
-        ordre:                produit?.ordre ?? 99,
-        prix_flash_override:  prixFlashOverride ? parseFloat(prixFlashOverride) : null,
+        prix_vente:                parseFloat(prixVente),
+        cout_production:           parseFloat(coutProd) || 0,
+        actif_catalogue:           actifCatalogue,
+        actif_flash:               actifFlash,
+        ordre:                     produit?.ordre ?? 99,
+        prix_flash_override:       prixFlashOverride ? parseFloat(prixFlashOverride) : null,
         allergenes,
-        disponible_du:        disponibleDu || null,
-        disponible_au:        disponibleAu || null,
-        stock_alerte:         stockAlerte ? parseInt(stockAlerte) : null,
-        note_interne:         noteInterne.trim() || null,
-        image_url:            imageUrl.trim() || null,
-        image_storage_path:   produit?.image_storage_path ?? null,
+        disponible_du:             disponibleDu || null,
+        disponible_au:             disponibleAu || null,
+        stock_alerte:              stockAlerte ? parseInt(stockAlerte) : null,
+        note_interne:              noteInterne.trim() || null,
+        image_url:                 imageUrl.trim() || null,
+        image_storage_path:        produit?.image_storage_path ?? null,
+        duree_conservation_jours:  dureeConservation,
       };
 
       await onSave(draft);
 
-      // Upload photo si un fichier a été sélectionné et qu'on édite un produit existant
-      // Pour la création, l'upload se fait après que le produit soit créé (via onSave qui retourne l'id)
       if (photoFile && produit?.id) {
         setPhotoUploading(true);
         await onUploadPhoto(produit.id, photoFile);
         setPhotoUploading(false);
       }
-
     } finally {
       setSaving(false);
     }
   };
 
-  // ── UI helpers ────────────────────────────────────────────
   const inputCls = (hasError?: boolean) =>
     `w-full bg-black/30 border rounded-xl px-3 py-2.5 text-white text-sm outline-none transition-colors ${
       hasError
@@ -230,9 +238,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               onChange={handleFileChange}
             />
             {errors.photo && <p className="text-red-400 text-xs mt-1">{errors.photo}</p>}
-            <p className="text-white/20 text-xs mt-1">
-              Ou coller une URL externe :
-            </p>
+            <p className="text-white/20 text-xs mt-1">Ou coller une URL externe :</p>
             <input
               type="url"
               placeholder="https://..."
@@ -245,8 +251,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
           {/* ── Infos de base ──────────────────────────────── */}
           <div className="space-y-3">
             <label className="text-white/40 text-xs uppercase tracking-wider block">Informations</label>
-
-            {/* Nom */}
             <div>
               <input
                 type="text"
@@ -257,8 +261,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               />
               {errors.nom && <p className="text-red-400 text-xs mt-1">{errors.nom}</p>}
             </div>
-
-            {/* Description */}
             <textarea
               placeholder="Description (optionnelle)"
               value={description}
@@ -266,10 +268,9 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               rows={2}
               className={`${inputCls()} resize-none`}
             />
-
             {/* Catégorie */}
-            <div className="grid grid-cols-3 gap-2">
-              {(['boulangerie', 'viennoiserie', 'patisserie'] as const).map(cat => (
+            <div className="grid grid-cols-2 gap-2">
+              {(['boulangerie', 'viennoiserie', 'patisserie', 'sandwich'] as const).map(cat => (
                 <button
                   key={cat}
                   type="button"
@@ -280,13 +281,13 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                       : 'bg-white/5 text-white/40 border border-white/8 hover:bg-white/8'
                   }`}
                 >
-                  {cat === 'boulangerie' ? '🥖 Boulangerie'
-                    : cat === 'viennoiserie' ? '🥐 Viennoiserie'
-                    : '🎂 Pâtisserie'}
+                  {cat === 'boulangerie'  ? '🥖 Boulangerie'
+                   : cat === 'viennoiserie' ? '🥐 Viennoiserie'
+                   : cat === 'patisserie'   ? '🎂 Pâtisserie'
+                   : '🥪 Sandwich'}
                 </button>
               ))}
             </div>
-
             {/* Emoji */}
             <div>
               <p className="text-white/30 text-xs mb-1.5">Emoji</p>
@@ -311,7 +312,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                   onChange={e => setEmoji(e.target.value)}
                   maxLength={4}
                   className="w-10 h-10 bg-white/5 border border-white/8 rounded-xl text-center text-xl outline-none focus:border-[#C19A6B]/40"
-                  title="Emoji personnalisé"
                 />
               </div>
             </div>
@@ -325,10 +325,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                 <div className="relative">
                   <Euro size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Prix vente *"
+                    type="number" step="0.01" min="0" placeholder="Prix vente *"
                     value={prixVente}
                     onChange={e => { setPrixVente(e.target.value); setErrors(p => { const {prixVente:_, ...r} = p; return r; }); }}
                     className={`${inputCls(!!errors.prixVente)} pl-7`}
@@ -339,16 +336,67 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               <div className="relative">
                 <Euro size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Coût production"
+                  type="number" step="0.01" min="0" placeholder="Coût production"
                   value={coutProd}
                   onChange={e => setCoutProd(e.target.value)}
                   className={`${inputCls()} pl-7`}
                 />
               </div>
             </div>
+          </div>
+
+          {/* ── Durée de conservation ───────────────────────── */}
+          {/* Feature clé : détermine si le produit peut être reporté au lendemain */}
+          <div>
+            <label className="text-white/40 text-xs uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+              <Clock size={11} />
+              Durée de conservation
+            </label>
+            <div className="space-y-2">
+              {DUREE_CONSERVATION_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setDureeConservation(opt.value)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                    dureeConservation === opt.value
+                      ? opt.value === 1
+                        ? 'bg-white/8 border-white/20 text-white'
+                        : 'bg-[#C19A6B]/12 border-[#C19A6B]/30 text-[#C19A6B]'
+                      : 'bg-white/3 border-white/6 text-white/40 hover:bg-white/6'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                    dureeConservation === opt.value
+                      ? opt.value === 1 ? 'border-white/60 bg-white/60' : 'border-[#C19A6B] bg-[#C19A6B]'
+                      : 'border-white/20'
+                  }`}>
+                    {dureeConservation === opt.value && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#1A0F0A]" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight">{opt.label}</p>
+                    <p className="text-[10px] opacity-60 mt-0.5 leading-tight">{opt.description}</p>
+                  </div>
+                  {opt.value > 1 && (
+                    <span className="text-[10px] bg-[#C19A6B]/15 text-[#C19A6B]/80 px-2 py-0.5 rounded-full border border-[#C19A6B]/20 flex-shrink-0">
+                      Reportable
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {dureeConservation > 1 && (
+              <div className="mt-2 flex items-start gap-2 bg-[#C19A6B]/6 border border-[#C19A6B]/15 rounded-xl px-3 py-2">
+                <Info size={11} className="text-[#C19A6B]/60 flex-shrink-0 mt-0.5" />
+                <p className="text-[#C19A6B]/70 text-[10px] leading-relaxed">
+                  Les invendus de ce produit apparaîtront automatiquement demain matin
+                  comme <strong className="text-[#C19A6B]/90">stock reporté de la veille</strong>.
+                  Ils seront prioritaires dans le flash anti-gaspi.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ── Visibilité ─────────────────────────────────── */}
@@ -372,7 +420,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                   <p className="text-[10px] opacity-60">Click & Collect</p>
                 </div>
               </button>
-
               <button
                 type="button"
                 onClick={() => setActifFlash(v => !v)}
@@ -391,8 +438,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                 </div>
               </button>
             </div>
-
-            {/* Prix flash override */}
             {actifFlash && (
               <div className="mt-3">
                 <p className="text-white/30 text-xs mb-1.5 flex items-center gap-1">
@@ -402,9 +447,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                 <div className="relative">
                   <Euro size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="number" step="0.01" min="0"
                     placeholder={prixVente ? `Automatique : ${(parseFloat(prixVente || '0') * 0.6).toFixed(2)}€` : 'Ex: 0.99'}
                     value={prixFlashOverride}
                     onChange={e => setPrixFlashOverride(e.target.value)}
@@ -434,7 +477,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               </div>
               {showAllergenes ? <ChevronUp size={14} className="text-white/25" /> : <ChevronDown size={14} className="text-white/25" />}
             </button>
-
             {showAllergenes && (
               <div className="px-4 pb-4">
                 <p className="text-white/25 text-xs mb-3">
@@ -474,37 +516,22 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                 <Calendar size={14} className="text-[#C19A6B]" />
                 <span className="text-white/60 text-sm font-medium">Disponibilité saisonnière</span>
                 {(disponibleDu || disponibleAu) && (
-                  <span className="bg-[#C19A6B]/15 text-[#C19A6B] text-[10px] px-1.5 py-0.5 rounded-full">
-                    Configuré
-                  </span>
+                  <span className="bg-[#C19A6B]/15 text-[#C19A6B] text-[10px] px-1.5 py-0.5 rounded-full">Configuré</span>
                 )}
               </div>
               {showSaisonnalite ? <ChevronUp size={14} className="text-white/25" /> : <ChevronDown size={14} className="text-white/25" />}
             </button>
-
             {showSaisonnalite && (
               <div className="px-4 pb-4">
-                <p className="text-white/25 text-xs mb-3">
-                  Laissez vide pour que le produit soit toujours disponible
-                </p>
+                <p className="text-white/25 text-xs mb-3">Laissez vide pour que le produit soit toujours disponible</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-white/30 text-xs block mb-1">Disponible à partir du</label>
-                    <input
-                      type="date"
-                      value={disponibleDu}
-                      onChange={e => setDisponibleDu(e.target.value)}
-                      className={inputCls()}
-                    />
+                    <input type="date" value={disponibleDu} onChange={e => setDisponibleDu(e.target.value)} className={inputCls()} />
                   </div>
                   <div>
                     <label className="text-white/30 text-xs block mb-1">Jusqu'au</label>
-                    <input
-                      type="date"
-                      value={disponibleAu}
-                      onChange={e => setDisponibleAu(e.target.value)}
-                      className={inputCls()}
-                    />
+                    <input type="date" value={disponibleAu} onChange={e => setDisponibleAu(e.target.value)} className={inputCls()} />
                   </div>
                 </div>
                 {errors.saisonnalite && <p className="text-red-400 text-xs mt-2">{errors.saisonnalite}</p>}
@@ -522,7 +549,6 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
               <span className="text-white/40 text-sm">Options avancées</span>
               {showAvance ? <ChevronUp size={14} className="text-white/25" /> : <ChevronDown size={14} className="text-white/25" />}
             </button>
-
             {showAvance && (
               <div className="px-4 pb-4 space-y-3">
                 <div>
@@ -530,9 +556,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
                     Alerte stock bas (notification push si ≤ X unités restantes)
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    placeholder="Ex: 5"
+                    type="number" min="0" placeholder="Ex: 5"
                     value={stockAlerte}
                     onChange={e => setStockAlerte(e.target.value)}
                     className={inputCls()}
@@ -554,7 +578,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
 
         </div>
 
-        {/* Footer avec bouton save */}
+        {/* Footer */}
         <div className="px-5 py-4 border-t border-white/8 flex gap-3 flex-shrink-0">
           <button
             type="button"

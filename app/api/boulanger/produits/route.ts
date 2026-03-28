@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { getSupabaseAdmin } from '@/lib/supabase';
-import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger'; // ← AJOUT
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger';
 import { z } from 'zod';
 import {
   isValidUUID,
@@ -15,10 +15,7 @@ import {
   sanitizeUrl,
   sanitizeDate,
 } from '@/lib/sanitize';
-
-// ── SUPPRIMÉ : helper local getOwnerBoulangerieId()
-// Remplacé par getBoulangerSession() de lib/auth-boulanger.ts
-// qui gère owner ET employés actifs.
+import { DUREE_CONSERVATION_PAR_CATEGORIE } from '@/lib/types';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -28,28 +25,34 @@ const ALLERGENES_VALIDES = [
   'sesame', 'sulfites', 'lupin', 'mollusques',
 ] as const;
 
-const CATEGORIES_VALIDES = ['boulangerie', 'viennoiserie', 'patisserie'] as const;
+const CATEGORIES_VALIDES = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwich'] as const;
 
 // ── Schémas Zod ────────────────────────────────────────────────
 
 const ProduitSchema = z.object({
-  nom:                  z.string().min(1).max(100),
-  description:          z.string().max(500).optional().nullable(),
-  categorie:            z.enum(CATEGORIES_VALIDES),
-  emoji:                z.string().max(4).optional().default('🥖'),
-  prix_vente:           z.number().positive(),
-  cout_production:      z.number().min(0).optional().default(0),
-  actif_catalogue:      z.boolean().optional().default(true),
-  actif_flash:          z.boolean().optional().default(true),
-  ordre:                z.number().int().min(0).optional().default(0),
-  prix_flash_override:  z.number().positive().optional().nullable(),
-  allergenes:           z.array(z.string()).optional().default([]),
-  disponible_du:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-  disponible_au:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-  stock_alerte:         z.number().int().min(0).optional().nullable(),
-  note_interne:         z.string().max(500).optional().nullable(),
-  image_url:            z.string().url().optional().nullable(),
-  image_storage_path:   z.string().optional().nullable(),
+  nom:                       z.string().min(1).max(100),
+  description:               z.string().max(500).optional().nullable(),
+  categorie:                 z.enum(CATEGORIES_VALIDES),
+  emoji:                     z.string().max(4).optional().default('🥖'),
+  prix_vente:                z.number().positive(),
+  cout_production:           z.number().min(0).optional().default(0),
+  actif_catalogue:           z.boolean().optional().default(true),
+  actif_flash:               z.boolean().optional().default(true),
+  ordre:                     z.number().int().min(0).optional().default(0),
+  prix_flash_override:       z.number().positive().optional().nullable(),
+  allergenes:                z.array(z.string()).optional().default([]),
+  disponible_du:             z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  disponible_au:             z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  stock_alerte:              z.number().int().min(0).optional().nullable(),
+  note_interne:              z.string().max(500).optional().nullable(),
+  image_url:                 z.string().url().optional().nullable(),
+  image_storage_path:        z.string().optional().nullable(),
+  // ── Durée de conservation (feature report inter-journées) ───
+  // 1 = jour J seulement (baguette, croissant)
+  // 2 = J+1 (pâtisseries standards)
+  // 3 = J+2 (gâteaux secs, biscuits)
+  // Max 7 jours (produits très stables)
+  duree_conservation_jours:  z.number().int().min(1).max(7).optional().default(1),
 });
 
 const ProduitUpdateSchema = ProduitSchema.partial().extend({
@@ -57,27 +60,31 @@ const ProduitUpdateSchema = ProduitSchema.partial().extend({
 });
 
 function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
+  // Si duree_conservation_jours n'est pas fournie, appliquer la valeur par catégorie
+  const dureeConservation = data.duree_conservation_jours
+    ?? DUREE_CONSERVATION_PAR_CATEGORIE[data.categorie]
+    ?? 1;
+
   return {
     ...data,
-    nom:                 sanitizeProductName(data.nom),
-    description:         data.description ? sanitizeDescription(data.description) : null,
-    emoji:               sanitizeEmoji(data.emoji),
-    allergenes:          sanitizeStringArray(data.allergenes, [...ALLERGENES_VALIDES]),
-    note_interne:        data.note_interne ? sanitizeText(data.note_interne, 500) : null,
-    image_url:           data.image_url ? sanitizeUrl(data.image_url) : null,
-    disponible_du:       sanitizeDate(data.disponible_du),
-    disponible_au:       sanitizeDate(data.disponible_au),
-    prix_vente:          Math.round(data.prix_vente * 100) / 100,
-    cout_production:     Math.round((data.cout_production ?? 0) * 100) / 100,
-    prix_flash_override: data.prix_flash_override
+    nom:                      sanitizeProductName(data.nom),
+    description:              data.description ? sanitizeDescription(data.description) : null,
+    emoji:                    sanitizeEmoji(data.emoji),
+    allergenes:               sanitizeStringArray(data.allergenes, [...ALLERGENES_VALIDES]),
+    note_interne:             data.note_interne ? sanitizeText(data.note_interne, 500) : null,
+    image_url:                data.image_url ? sanitizeUrl(data.image_url) : null,
+    disponible_du:            sanitizeDate(data.disponible_du),
+    disponible_au:            sanitizeDate(data.disponible_au),
+    prix_vente:               Math.round(data.prix_vente * 100) / 100,
+    cout_production:          Math.round((data.cout_production ?? 0) * 100) / 100,
+    prix_flash_override:      data.prix_flash_override
       ? Math.round(data.prix_flash_override * 100) / 100
       : null,
+    duree_conservation_jours: Math.max(1, Math.min(7, Math.floor(dureeConservation))),
   };
 }
 
 // ── GET ───────────────────────────────────────────────────────
-// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'read')
-// Employé a catalogue:'read' → autorisé (corrige test 14)
 
 export async function GET(req: NextRequest) {
   try {
@@ -104,6 +111,7 @@ export async function GET(req: NextRequest) {
       .from('produits')
       .select('*')
       .eq('boulangerie_id', boulangerieId)
+      .is('deleted_at', null)
       .order('categorie')
       .order('ordre')
       .order('nom');
@@ -122,6 +130,11 @@ export async function GET(req: NextRequest) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
     const produits = (data ?? []).map(p => ({
       ...p,
+      // Rétrocompatibilité : si duree_conservation_jours est NULL en DB
+      // (anciens produits avant migration), appliquer la valeur par catégorie
+      duree_conservation_jours: p.duree_conservation_jours
+        ?? DUREE_CONSERVATION_PAR_CATEGORIE[p.categorie as string]
+        ?? 1,
       image_public_url: p.image_storage_path
         ? `${supabaseUrl}/storage/v1/object/public/produits-photos/${p.image_storage_path}`
         : p.image_url ?? null,
@@ -136,8 +149,6 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ──────────────────────────────────────────────────────
-// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
-// Employé a catalogue:'read' → canAccess('write') = false → 403
 
 export async function POST(req: NextRequest) {
   try {
@@ -165,12 +176,11 @@ export async function POST(req: NextRequest) {
 
     const sanitized = sanitizeProduitData(parsed.data);
 
-    // I3 : comptage sur TOUS les produits (actifs ET inactifs) pour éviter
-    // de contourner la limite en désactivant des produits avant d'en créer.
     const { count } = await admin
       .from('produits')
       .select('*', { count: 'exact', head: true })
-      .eq('boulangerie_id', boulangerieId);
+      .eq('boulangerie_id', boulangerieId)
+      .is('deleted_at', null);
 
     const { data: boulangerie } = await admin
       .from('boulangeries')
@@ -206,8 +216,6 @@ export async function POST(req: NextRequest) {
 }
 
 // ── PATCH ─────────────────────────────────────────────────────
-// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
-// Employé a catalogue:'read' → 403 (corrige test 16)
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -257,6 +265,10 @@ export async function PATCH(req: NextRequest) {
     if (rest.stock_alerte     !== undefined) updates.stock_alerte     = rest.stock_alerte !== null ? Math.max(0, Math.floor(rest.stock_alerte ?? 0)) : null;
     if (rest.categorie        !== undefined) updates.categorie        = rest.categorie;
     if (rest.image_storage_path !== undefined) updates.image_storage_path = rest.image_storage_path;
+    // ── Durée de conservation ─────────────────────────────────
+    if (rest.duree_conservation_jours !== undefined) {
+      updates.duree_conservation_jours = Math.max(1, Math.min(7, Math.floor(rest.duree_conservation_jours ?? 1)));
+    }
 
     const { data, error } = await admin
       .from('produits')
@@ -283,8 +295,6 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ── DELETE ────────────────────────────────────────────────────
-// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
-// P1-3 : Soft delete — préserve l'intégrité des stocks_journaliers historiques
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -319,15 +329,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Produit introuvable' }, { status: 404 });
     }
 
-    // P1-3 : Soft delete — on ne supprime pas physiquement le produit
-    // Cela préserve les stocks_journaliers historiques qui référencent ce produit
-    // Le produit est marqué comme supprimé mais reste en base pour l'historique
+    // Soft delete — préserve les stocks_journaliers historiques
     const { error } = await admin
       .from('produits')
       .update({
-        deleted_at:        new Date().toISOString(),
-        actif_catalogue:   false,
-        actif_flash:       false,
+        deleted_at:      new Date().toISOString(),
+        actif_catalogue: false,
+        actif_flash:     false,
       })
       .eq('id', id)
       .eq('boulangerie_id', boulangerieId);
@@ -335,10 +343,6 @@ export async function DELETE(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-
-    // Note : on conserve l'image_storage_path pour l'historique
-    // L'image sera nettoyée automatiquement si le produit est restauré puis re-supprimé
-    // ou via un job de nettoyage périodique des produits soft-deleted anciens
 
     revalidatePath('/');
     return NextResponse.json({ success: true });
