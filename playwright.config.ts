@@ -1,10 +1,8 @@
 // playwright.config.ts
-// Configuration Playwright pour BakeryOS
-// ─────────────────────────────────────────────────────────────
-
 import { defineConfig, devices } from '@playwright/test';
 import 'dotenv/config';
 
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
 
 export default defineConfig({
   testDir: './tests',
@@ -15,58 +13,49 @@ export default defineConfig({
   reporter: 'html',
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
+    baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
 
   projects: [
-    // Tests unitaires (pas besoin de browser)
     {
       name: 'unit',
       testDir: './tests/unit',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Tests d'authentification et permissions
     {
       name: 'auth',
       testDir: './tests/auth',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Tests IA
     {
       name: 'ia',
       testDir: './tests/ia',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Tests journée
     {
       name: 'journee',
       testDir: './tests/journee',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Tests E2E complets
     {
       name: 'e2e',
       testDir: './tests/e2e',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Projet par défaut (tous les tests)
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
+    // Projet chromium supprimé — chaque testDir a son propre projet nommé.
+    // Lancer npx playwright test sans --project exécute tous les projets ci-dessus.
   ],
 
-  // Serveur de dev pour les tests locaux
   webServer: process.env.CI ? undefined : {
     command: 'npm run dev',
-    url: 'http://localhost:3000',
+    url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     env: {
-      BYPASS_RATE_LIMIT: 'true', // Désactive le rate limiting pour les tests
+      BYPASS_RATE_LIMIT: 'true',
     },
   },
 });

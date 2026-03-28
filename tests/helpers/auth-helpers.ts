@@ -23,12 +23,6 @@ export interface LoginResult {
 
 // ── API Helpers (via request context) ─────────────────────────
 
-/**
- * Inscription via API directe.
- *
- * IMPORTANT : utilise response.ok() (méthode Playwright, pas une propriété).
- * Le corps JSON est retourné dans `response` si HTTP 2xx, dans `error` sinon.
- */
 export async function registerViaApi(
   request: APIRequestContext,
   user?: Partial<TestUser>
@@ -52,11 +46,9 @@ export async function registerViaApi(
 
   const body = await res.json();
 
-  // ✅ res.ok() est une MÉTHODE, pas une propriété — toujours appeler avec ()
   if (!res.ok()) {
     return {
       response: null,
-      // Normalise le message d'erreur : champ `error` ou message JSON brut
       error: body?.error ?? body?.message ?? `Erreur HTTP ${res.status()}`,
       user:  testUser,
     };
@@ -69,25 +61,17 @@ export async function registerViaApi(
   };
 }
 
-/**
- * Connexion via API directe.
- */
 export async function loginViaApi(
   request: APIRequestContext,
   email: string,
   password: string
 ): Promise<{ response: AuthResponse | null; error: string | null }> {
   const res = await request.post('/api/boulanger/auth', {
-    data: {
-      action: 'login',
-      email,
-      password,
-    },
+    data: { action: 'login', email, password },
   });
 
   const body = await res.json();
 
-  // ✅ res.ok() — méthode Playwright
   if (!res.ok()) {
     return {
       response: null,
@@ -95,15 +79,9 @@ export async function loginViaApi(
     };
   }
 
-  return {
-    response: body as AuthResponse,
-    error:    null,
-  };
+  return { response: body as AuthResponse, error: null };
 }
 
-/**
- * Vérifie la session via API.
- */
 export async function verifySessionViaApi(
   request: APIRequestContext,
   token: string
@@ -115,14 +93,10 @@ export async function verifySessionViaApi(
   if (!res.ok()) return { valid: false };
 
   const body = await res.json();
-  return {
-    valid:       true,
-    user:        body.user,
-    boulangerie: body.boulangerie,
-  };
+  return { valid: true, user: body.user, boulangerie: body.boulangerie };
 }
 
-// ── UI Helpers (via page browser) ─────────────────────────────
+// ── UI Helpers ────────────────────────────────────────────────
 
 export async function loginViaUi(
   page: Page,
@@ -145,10 +119,6 @@ export async function loginViaUi(
 
 // ── Helpers combinés ──────────────────────────────────────────
 
-/**
- * Crée un utilisateur et retourne token + boulangerieId.
- * Retourne null et logue l'erreur si l'inscription échoue.
- */
 export async function createAuthenticatedUser(
   request: APIRequestContext
 ): Promise<{ user: TestUser; token: string; boulangerieId: string } | null> {
@@ -161,26 +131,22 @@ export async function createAuthenticatedUser(
 
   return {
     user,
-    token:        response.access_token,
+    token:         response.access_token,
     boulangerieId: response.boulangerie?.id ?? '',
   };
 }
 
-/**
- * Crée un produit de test pour une boulangerie.
- * Retourne le produit créé avec son id réel (UUID Supabase).
- */
 export async function createTestProduit(
   request: APIRequestContext,
   token: string,
   overrides?: Partial<{
-    nom:            string;
-    emoji:          string;
-    categorie:      string;
-    prix_vente:     number;
+    nom:             string;
+    emoji:           string;
+    categorie:       string;
+    prix_vente:      number;
     cout_production: number;
   }>
-): Promise<{ id: string; nom: string; emoji: string; prix_vente: number } | null> {
+): Promise<{ id: string; nom: string; emoji: string; prix_vente: number; categorie?: string } | null> {
   const res = await request.post('/api/boulanger/produits', {
     headers: { Authorization: `Bearer ${token}` },
     data: {
@@ -200,13 +166,9 @@ export async function createTestProduit(
   }
 
   const body = await res.json();
-  return body.produit as { id: string; nom: string; emoji: string; prix_vente: number };
+  return body.produit as { id: string; nom: string; emoji: string; prix_vente: number; categorie?: string };
 }
 
-/**
- * Construit un StockEntry valide depuis un produit créé en base.
- * Correspond exactement au type StockEntry de lib/types.ts.
- */
 export function buildStockEntry(produit: {
   id:         string;
   nom:        string;
@@ -226,6 +188,162 @@ export function buildStockEntry(produit: {
     snapshot10hDone: false,
     snapshot14h:     0,
     snapshot14hDone: false,
-    stockFinal:      Math.floor(production * 0.1), // 10% invendu
+    stockFinal:      Math.floor(production * 0.1),
   };
+}
+
+// ── Helper : upgrade plan via API Supabase admin ──────────────
+//
+// Les boulangeries sont créées avec plan='starter' par défaut.
+// Pour les tests employé, on doit passer en 'pro' AVANT d'inviter.
+// On appelle directement l'API REST Supabase avec la service role key
+// pour ne pas avoir à créer une route API dédiée aux tests.
+
+async function upgradeBoulangerieToPro(boulangerieId: string): Promise<boolean> {
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
+  const serviceRoleKey  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+
+  if (!serviceRoleKey) {
+    console.error('[upgradeBoulangerieToPro] SUPABASE_SERVICE_ROLE_KEY manquante');
+    return false;
+  }
+
+  // API REST PostgREST de Supabase — PATCH sur la table boulangeries
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/boulangeries?id=eq.${boulangerieId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':         serviceRoleKey,
+        'Authorization': `Bearer ${serviceRoleKey}`,
+        'Prefer':        'return=minimal',
+      },
+      body: JSON.stringify({ plan: 'pro' }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    console.error(`[upgradeBoulangerieToPro] Échec HTTP ${res.status}:`, text);
+    return false;
+  }
+
+  return true;
+}
+
+// ── Helper isolation multi-tenant ─────────────────────────────
+//
+// Crée un employé lié à la boulangerie A via le flow invitation complet :
+//   1. Upgrade le plan de A en 'pro' via l'API Supabase admin
+//      (les nouvelles boulangeries sont créées en 'starter' par défaut)
+//   2. Owner A invite l'email de l'employé (POST /api/boulanger/equipe)
+//   3. L'employé crée son compte Supabase via l'API anon directement
+//      (pas via /api/boulanger/auth register qui créerait une boulangerie,
+//      ce qui bloquerait l'acceptation avec 409 "déjà owner")
+//   4. L'employé accepte l'invitation (POST /api/boulanger/rejoindre)
+//   5. Retourne le token JWT de l'employé (lié à la boulangerie A)
+
+export async function createEmployeeViaInvitation(
+  request: APIRequestContext,
+  ownerToken: string,
+  boulangerieId: string,
+): Promise<{
+  employeeToken: string;
+  employeeUser:  TestUser;
+  inviteToken:   string;
+} | null> {
+
+  // ── Étape 1 : Upgrade plan → pro ──────────────────────────
+  const upgraded = await upgradeBoulangerieToPro(boulangerieId);
+  if (!upgraded) {
+    console.error('[createEmployeeViaInvitation] Upgrade plan échoué');
+    return null;
+  }
+
+  // ── Étape 2 : Owner invite un nouvel email ─────────────────
+  const employeeUser: TestUser = {
+    email:    generateTestEmail(),
+    password: generateTestPassword(),
+    nom:      'Employé Test',
+    slug:     generateTestSlug(),
+  };
+
+  const inviteRes = await request.post('/api/boulanger/equipe', {
+    headers: { Authorization: `Bearer ${ownerToken}` },
+    data: {
+      email: employeeUser.email,
+      role:  'employe',
+    },
+  });
+
+  if (!inviteRes.ok()) {
+    const body = await inviteRes.json().catch(() => ({})) as { error?: string; code?: string };
+    console.error(
+      `[createEmployeeViaInvitation] Invitation échouée (${inviteRes.status()}):`,
+      body.error ?? body.code ?? 'inconnu',
+    );
+    return null;
+  }
+
+  const inviteBody  = await inviteRes.json() as { inviteUrl?: string };
+  const inviteUrl   = inviteBody.inviteUrl ?? '';
+  const tokenMatch  = inviteUrl.match(/[?&]token=([0-9a-f-]{36})/i);
+
+  if (!tokenMatch?.[1]) {
+    console.error('[createEmployeeViaInvitation] Token d\'invitation introuvable dans:', inviteUrl);
+    return null;
+  }
+
+  const inviteToken = tokenMatch[1];
+
+  // ── Étape 3 : Signup Supabase anon (sans créer de boulangerie) ─
+  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+
+  const signupRes = await fetch(`${supabaseUrl}/auth/v1/signup`, {
+    method:  'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey':        supabaseAnonKey,
+    },
+    body: JSON.stringify({
+      email:    employeeUser.email,
+      password: employeeUser.password,
+    }),
+  });
+
+  if (!signupRes.ok) {
+    const body = await signupRes.json().catch(() => ({})) as { error_description?: string };
+    console.error('[createEmployeeViaInvitation] Signup Supabase échoué:', body.error_description ?? signupRes.status);
+    return null;
+  }
+
+  const signupBody    = await signupRes.json() as { access_token?: string };
+  const employeeToken = signupBody.access_token;
+
+  if (!employeeToken) {
+    console.error('[createEmployeeViaInvitation] Pas de token dans la réponse signup:', signupBody);
+    return null;
+  }
+
+  // ── Étape 4 : Acceptation invitation ──────────────────────
+  const joinRes = await request.post('/api/boulanger/rejoindre', {
+    headers: {
+      Authorization:  `Bearer ${employeeToken}`,
+      'Content-Type': 'application/json',
+    },
+    data: { token: inviteToken },
+  });
+
+  if (!joinRes.ok()) {
+    const body = await joinRes.json().catch(() => ({})) as { error?: string };
+    console.error(
+      `[createEmployeeViaInvitation] Acceptation invitation échouée (${joinRes.status()}):`,
+      body.error ?? 'inconnu',
+    );
+    return null;
+  }
+
+  return { employeeToken, employeeUser, inviteToken };
 }

@@ -7,35 +7,25 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger'; // ← AJOUT
 
-async function getBoulangerieId(req: NextRequest): Promise<{
-  boulangerieId: string;
-  admin: ReturnType<typeof getSupabaseAdmin>;
-} | null> {
-  const admin = getSupabaseAdmin();
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
-  const token = authHeader.replace('Bearer ', '');
-  const { data: { user }, error } = await admin.auth.getUser(token);
-  if (error || !user) return null;
-
-  const { data: boulangerie } = await admin
-    .from('boulangeries')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (!boulangerie) return null;
-  return { boulangerieId: boulangerie.id, admin };
-}
+// ── SUPPRIMÉ : helper local getBoulangerieId()
+// Remplacé par getBoulangerSession() de lib/auth-boulanger.ts
+// qui gère owner ET employés actifs.
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await getBoulangerieId(req);
-    if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    // MODIFIÉ : getBoulangerieId() → getBoulangerSession() + canAccess
+    // Employé a commandes:'write' → canAccess('read') = true (corrige test 15)
+    const session = await getBoulangerSession(req);
+    if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-    const { boulangerieId, admin } = auth;
+    if (!canAccess(session, 'commandes', 'read')) {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    }
+
+    const admin            = getSupabaseAdmin();
+    const { boulangerieId } = session;
     const { searchParams } = new URL(req.url);
 
     const date = searchParams.get('date');

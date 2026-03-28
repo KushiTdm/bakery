@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger'; // ← AJOUT
 import { z } from 'zod';
 import {
   isValidUUID,
@@ -15,29 +16,9 @@ import {
   sanitizeDate,
 } from '@/lib/sanitize';
 
-// ── Auth helper ───────────────────────────────────────────────
-
-async function getOwnerBoulangerieId(req: NextRequest): Promise<{
-  boulangerieId: string;
-  admin: ReturnType<typeof getSupabaseAdmin>;
-} | null> {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
-  const admin = getSupabaseAdmin();
-  const token = authHeader.slice(7);
-  const { data: { user }, error } = await admin.auth.getUser(token);
-  if (error || !user) return null;
-
-  const { data: b } = await admin
-    .from('boulangeries')
-    .select('id')
-    .eq('user_id', user.id)
-    .single();
-
-  if (!b) return null;
-  return { boulangerieId: b.id, admin };
-}
+// ── SUPPRIMÉ : helper local getOwnerBoulangerieId()
+// Remplacé par getBoulangerSession() de lib/auth-boulanger.ts
+// qui gère owner ET employés actifs.
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -95,14 +76,21 @@ function sanitizeProduitData(data: z.infer<typeof ProduitSchema>) {
 }
 
 // ── GET ───────────────────────────────────────────────────────
+// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'read')
+// Employé a catalogue:'read' → autorisé (corrige test 14)
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await getOwnerBoulangerieId(req);
-    if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    const session = await getBoulangerSession(req);
+    if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-    const { boulangerieId, admin } = auth;
-    const { searchParams }         = new URL(req.url);
+    if (!canAccess(session, 'catalogue', 'read')) {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    }
+
+    const admin            = getSupabaseAdmin();
+    const { boulangerieId } = session;
+    const { searchParams } = new URL(req.url);
 
     const categorie = searchParams.get('categorie');
     const actifOnly = searchParams.get('actif') !== 'false';
@@ -148,13 +136,20 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ──────────────────────────────────────────────────────
+// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
+// Employé a catalogue:'read' → canAccess('write') = false → 403
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await getOwnerBoulangerieId(req);
-    if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    const session = await getBoulangerSession(req);
+    if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-    const { boulangerieId, admin } = auth;
+    if (!canAccess(session, 'catalogue', 'write')) {
+      return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
+    }
+
+    const admin            = getSupabaseAdmin();
+    const { boulangerieId } = session;
 
     let body: unknown;
     try { body = await req.json(); }
@@ -211,13 +206,20 @@ export async function POST(req: NextRequest) {
 }
 
 // ── PATCH ─────────────────────────────────────────────────────
+// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
+// Employé a catalogue:'read' → 403 (corrige test 16)
 
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await getOwnerBoulangerieId(req);
-    if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    const session = await getBoulangerSession(req);
+    if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-    const { boulangerieId, admin } = auth;
+    if (!canAccess(session, 'catalogue', 'write')) {
+      return NextResponse.json({ error: 'Accès refusé — modification réservée au propriétaire et aux gérants' }, { status: 403 });
+    }
+
+    const admin            = getSupabaseAdmin();
+    const { boulangerieId } = session;
 
     let body: unknown;
     try { body = await req.json(); }
@@ -281,16 +283,22 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ── DELETE ────────────────────────────────────────────────────
+// MODIFIÉ : getOwnerBoulangerieId() → getBoulangerSession() + canAccess('catalogue', 'write')
 // P1-3 : Soft delete — préserve l'intégrité des stocks_journaliers historiques
 
 export async function DELETE(req: NextRequest) {
   try {
-    const auth = await getOwnerBoulangerieId(req);
-    if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    const session = await getBoulangerSession(req);
+    if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-    const { boulangerieId, admin } = auth;
-    const { searchParams }         = new URL(req.url);
-    const id                       = searchParams.get('id');
+    if (!canAccess(session, 'catalogue', 'write')) {
+      return NextResponse.json({ error: 'Accès refusé — suppression réservée au propriétaire et aux gérants' }, { status: 403 });
+    }
+
+    const admin            = getSupabaseAdmin();
+    const { boulangerieId } = session;
+    const { searchParams } = new URL(req.url);
+    const id               = searchParams.get('id');
 
     if (!id) {
       return NextResponse.json({ error: 'id requis' }, { status: 400 });
