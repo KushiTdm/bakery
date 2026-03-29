@@ -169,7 +169,7 @@ Inexistante. Impossible de convertir un visiteur sans page de tarifs.
 
 - ~~**Export RGPD** (Art. 20)~~ ✅ **Effectué** — Export JSON dans Paramètres → Données & Confidentialité
 - **Rapport hebdomadaire Levain** : analyse des 7 derniers jours, score semaine, meilleur/pire jour
-- **Dashboard gérant** : dernière connexion par employé, snapshot fait/non fait
+- ~~**Dashboard gérant** : dernière connexion par employé, snapshot fait/non fait~~ ✅ **Effectué le 29 mars 2026** — Voir section 3.4
 - **Commandes récurrentes** : table `commandes_recurrentes` pour abonnements clients
 
 ### 3.3 Long Terme (> 6 semaines)
@@ -180,6 +180,54 @@ Inexistante. Impossible de convertir un visiteur sans page de tarifs.
 - Application mobile native (iOS push natif)
 - Programme ambassadeurs (code referral tracké)
 - Rapport CO₂ mensuel + certificat (argument RSE)
+
+### 3.4 Dashboard Supervision — ✅ Implémenté le 29 mars 2026
+
+**Vue réservée aux owners et gérants** (permission `equipe:read` requise).
+
+#### Fonctionnalités livrées :
+
+| Section | Description |
+|---|---|
+| **Alertes contextuelles** | Rouge/orange/jaune selon heure et état journée (production non saisie, snapshot manquant, commandes en attente) |
+| **Progression journée** | 5 étapes visuelles : Matin → 10h → 14h → Flash → Soir avec timestamps |
+| **Commandes du jour** | Barre segmentée par statut (en_attente, confirmee, prete, recuperee) |
+| **Équipe** | Liste membres avec indicateur en ligne (vert si < 30min) et dernière connexion |
+| **Activité 7 jours** | Heatmap par membre montrant les jours d'activité |
+
+#### Fichiers créés :
+
+| Fichier | Rôle |
+|---|---|
+| `migrations/migration_dashboard_gerant-29-03.sql` | Colonne `last_login_at` sur `employes`, index optimisé |
+| `app/api/boulanger/dashboard-supervision/route.ts` | API GET sécurisée, données agrégées |
+| `components/boulanger/dashboard-supervision.tsx` | UI React avec refresh auto 60s |
+
+#### Fichiers modifiés :
+
+| Fichier | Changement |
+|---|---|
+| `lib/auth-boulanger.ts` | Ajout `trackEmployeeLogin()`, `trackOwnerLogin()`, `getBoulangerSessionWithTracking()` |
+| `lib/types.ts` | Type `ViewType` étendu avec `'supervision'` |
+| `app/boulanger/page.tsx` | Navigation + rendu conditionnel vue supervision |
+
+#### Sécurité :
+
+- ✅ Vérification `canRead('equipe')` (owner + gérant uniquement)
+- ✅ API protégée par `getBoulangerSession()` + `canAccess('dashboard', 'read')`
+- ✅ Données isolées par `boulangerie_id`
+- ✅ Basé sur `audit_logs` existant pour l'activité (pas de nouvelle table)
+
+#### Améliorations suggérées :
+
+| Suggestion | Priorité | Description |
+|---|---|---|
+| **Notifications push alertes** | 🟠 Moyen | Envoyer une notif quand une alerte critique est détectée (ex: production non saisie à 10h) |
+| **Export rapport équipe** | 🟡 Faible | PDF/Excel récapitulatif activité équipe sur la semaine |
+| **Graphique tendance CA** | 🟡 Faible | Courbe CA des 7 derniers jours dans la section KPIs |
+| **Indicateur retards** | 🟠 Moyen | Compter les jours où la clôture a été faite après 20h |
+| **Filtre période activité** | 🟡 Faible | Permettre de voir l'activité sur 14j ou 30j |
+| **Snapshots temps réel** | 🟡 Faible | Websocket/SSE pour mise à jour live sans refresh |
 
 ---
 

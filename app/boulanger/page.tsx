@@ -28,7 +28,9 @@ import VueSoir       from '@/components/boulanger/vue-soir';
 import VueFlash      from '@/components/boulanger/vue-flash';
 import VueRapportIA  from '@/components/boulanger/vue-rapport-ia';
 import Dashboard     from '@/components/boulanger/dashboard';
+import DashboardSupervision from '@/components/boulanger/dashboard-supervision';
 import Catalogue     from '@/components/boulanger/catalogue';
+import { isOwner as checkIsOwner } from '@/lib/auth-boulanger';
 import Parametres    from '@/components/boulanger/parametres';
 import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
@@ -324,8 +326,8 @@ function VueAccueil({
 // Drawer "Plus"
 // ─────────────────────────────────────────────────────────────
 
-// Type étendu pour inclure 'ia' qui n'est pas une DrawerItemId classique
-type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia';
+// Type étendu pour inclure 'ia' et 'supervision' qui ne sont pas des ViewTypes classiques
+type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision';
 
 interface DrawerItem {
   id: DrawerItemId;
@@ -357,6 +359,18 @@ const DRAWER_ITEMS: DrawerItem[] = [
   { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',   color: '#B882D6',               permission: 'equipe'     },
   { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse, plan',         view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
 ];
+
+// Item spécial pour le dashboard supervision (gérant/owner uniquement)
+const DRAWER_SUPERVISION_ITEM: DrawerItem = {
+  id:         'supervision',
+  label:      'Supervision',
+  icon:       Shield,
+  desc:       'Suivi équipe, alertes, activité',
+  view:       'supervision',
+  accent:     'rgba(168,85,247,0.1)',
+  color:      '#A855F7',
+  permission: 'equipe',  // Nécessite accès équipe
+};
 
 function PlusDrawer({
   open, onClose, onNavigate, activeView, pendingOrders,
@@ -416,6 +430,30 @@ function PlusDrawer({
                 </motion.button>
 
                 <div className="h-px bg-white/5 my-2" />
+
+                {/* Supervision — owner et gérant uniquement */}
+                {canRead('equipe') && (
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => { onNavigate('supervision'); onClose(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all select-none mb-2"
+                    style={{
+                      background:   activeView === 'supervision' ? 'rgba(168,85,247,0.2)' : DRAWER_SUPERVISION_ITEM.accent,
+                      borderColor:  activeView === 'supervision' ? 'rgba(168,85,247,0.4)' : 'rgba(168,85,247,0.2)',
+                    }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: DRAWER_SUPERVISION_ITEM.accent, border: '1px solid rgba(168,85,247,0.2)' }}>
+                      <Shield size={18} style={{ color: DRAWER_SUPERVISION_ITEM.color }} strokeWidth={1.8} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm" style={{ color: activeView === 'supervision' ? '#A855F7' : 'white' }}>
+                        {DRAWER_SUPERVISION_ITEM.label}
+                      </p>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{DRAWER_SUPERVISION_ITEM.desc}</p>
+                    </div>
+                    <ChevronRight size={14} style={{ color: activeView === 'supervision' ? '#A855F7' : 'rgba(255,255,255,0.18)' }} />
+                  </motion.button>
+                )}
 
                 {/* Autres items */}
                 {DRAWER_ITEMS.map(item => {
@@ -500,7 +538,7 @@ const ALL_NAV_ITEMS: {
 // ─────────────────────────────────────────────────────────────
 
 // Vues secondaires — utilisées pour l'état du bouton "Plus"
-const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia'];
+const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision'];
 
 function AppShell() {
   const {
@@ -756,6 +794,15 @@ function AppShell() {
 
             {/* Vue Rapport IA — accessible à tous les rôles ayant accès au dashboard */}
             {localView === 'ia' && <VueRapportIA />}
+
+            {/* Vue Supervision — owner et gérant uniquement */}
+            {localView === 'supervision' && (
+              canRead('equipe') ? (
+                <DashboardSupervision isOwner={userRole === 'owner'} />
+              ) : (
+                <ViewBlocked />
+              )
+            )}
           </motion.div>
         </AnimatePresence>
       </main>

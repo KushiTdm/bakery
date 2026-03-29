@@ -9,7 +9,7 @@
 //   if (!canAccess(session, 'catalogue', 'write')) return 403;
 // ─────────────────────────────────────────────────────────────
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from './supabase';
 import {
   type BoulangerRole,
@@ -39,6 +39,9 @@ export interface BoulangerSession {
  * Récupère la session boulanger depuis le header Authorization.
  * Vérifie owner d'abord, puis employé actif.
  * Retourne null si non authentifié ou pas d'accès boulanger.
+ *
+ * Pour les employés : met à jour last_login_at en arrière-plan
+ * (fire and forget, throttlé à 5 minutes pour éviter les writes inutiles).
  */
 export async function getBoulangerSession(req: NextRequest): Promise<BoulangerSession | null> {
   const authHeader = req.headers.get('authorization');
@@ -66,17 +69,40 @@ export async function getBoulangerSession(req: NextRequest): Promise<BoulangerSe
   }
 
   // 2. Vérifie employé actif
+  // last_login_at inclus pour le throttling du tracking
   const { data: employe } = await admin
     .from('employes')
-    .select('id, boulangerie_id, role, permissions, statut')
+    .select('id, boulangerie_id, role, permissions, statut, last_login_at')
     .eq('user_id', user.id)
     .eq('statut', 'actif')
     .single();
 
   if (employe) {
-    const role          = employe.role as 'gerant' | 'employe';
-    const customPerms   = (employe.permissions ?? {}) as Partial<PermissionsMap>;
-    const permissions   = mergePermissions(role, customPerms);
+    const role        = employe.role as 'gerant' | 'employe';
+    const customPerms = (employe.permissions ?? {}) as Partial<PermissionsMap>;
+    const permissions = mergePermissions(role, customPerms);
+
+    // ── Tracking last_login_at (fire and forget) ──────────────
+    // Ne bloque pas la réponse. Throttlé à 5 min pour éviter
+    // un UPDATE à chaque requête API.
+    const lastLogin    = employe.last_login_at as string | null;
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    const shouldUpdate = !lastLogin ||
+      (Date.now() - new Date(lastLogin).getTime()) > FIVE_MINUTES;
+
+    if (shouldUpdate) {
+      // void + IIFE async : contourne le PromiseLike de Supabase
+      // qui ne supporte pas .catch() directement
+      void (async () => {
+        try {
+          await admin
+            .from('employes')
+            .update({ last_login_at: new Date().toISOString() })
+            .eq('id', employe.id)
+            .eq('boulangerie_id', employe.boulangerie_id); // ownership check obligatoire
+        } catch { /* silencieux — non bloquant */ }
+      })();
+    }
 
     return {
       userId:        user.id,
@@ -115,10 +141,10 @@ export function isManager(session: BoulangerSession | null): boolean {
 // ── Vérification des limites de plan ─────────────────────────
 
 interface PlanLimitCheck {
-  allowed:      boolean;
-  current:      number;
-  max:          number;
-  plan:         string;
+  allowed:        boolean;
+  current:        number;
+  max:            number;
+  plan:           string;
   upgradeNeeded?: string;
 }
 
@@ -135,10 +161,9 @@ export async function checkMemberLimit(boulangerieId: string): Promise<PlanLimit
     .eq('id', boulangerieId)
     .single();
 
-  const plan  = boulangerie?.plan ?? 'starter';
-  const max   = PLAN_MEMBER_LIMITS[plan] ?? 1;
+  const plan = boulangerie?.plan ?? 'starter';
+  const max  = PLAN_MEMBER_LIMITS[plan] ?? 1;
 
-  // Count owner (1) + active employees
   const { count } = await admin
     .from('employes')
     .select('*', { count: 'exact', head: true })
@@ -148,17 +173,11 @@ export async function checkMemberLimit(boulangerieId: string): Promise<PlanLimit
   const current = 1 + (count ?? 0); // 1 = owner
 
   if (max === 1) {
-    return {
-      allowed: false,
-      current,
-      max,
-      plan,
-      upgradeNeeded: 'pro',
-    };
+    return { allowed: false, current, max, plan, upgradeNeeded: 'pro' };
   }
 
   return {
-    allowed: current < max,
+    allowed:       current < max,
     current,
     max,
     plan,
@@ -167,8 +186,6 @@ export async function checkMemberLimit(boulangerieId: string): Promise<PlanLimit
 }
 
 // ── Helpers réponses HTTP ─────────────────────────────────────
-
-import { NextResponse } from 'next/server';
 
 export function unauthorized(msg = 'Non authentifié') {
   return NextResponse.json({ error: msg }, { status: 401 });
