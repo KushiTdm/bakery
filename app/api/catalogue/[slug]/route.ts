@@ -21,9 +21,9 @@ interface ProduitPublic {
 
 function toProduct(p: ProduitPublic) {
   const imageDefaults: Record<string, string> = {
-    boulangerie:  'https://images.unsplash.com/photo-1568471173242-461f0a730452?w=800&q=80',
-    viennoiserie: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&q=80',
-    patisserie:   'https://images.unsplash.com/photo-1519915212116-7cfef71f1d3e?w=800&q=80',
+    boulangerie:  '/products/BaguetteTradition.jpg',
+    viennoiserie: '/products/Croissant.png',
+    patisserie:   '/products/Tarte_au_citron.png',
   };
   return {
     id:          p.id,

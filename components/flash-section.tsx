@@ -306,7 +306,7 @@ export default function FlashSection() {
       description: invendus.map(p => p.nom).join(', '),
       category:    'patisserie',
       price:       parseFloat(totalFlash.toFixed(2)),
-      image:       'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&q=80',
+      image:       '/products/Croissant.png',
     });
     setModaleOuverte(false);
   };

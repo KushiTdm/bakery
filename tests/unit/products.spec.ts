@@ -104,10 +104,9 @@ test.describe('Catalogue produits - Produits clés', () => {
     expect(croissant!.category).toBe('viennoiserie');
   });
 
-  test('✅ Les images sont des URLs Unsplash valides', () => {
+  test('✅ Les images sont des chemins locaux valides', () => {
     for (const product of products) {
-      expect(product.image).toContain('unsplash.com');
-      expect(product.image).toContain('?w=800');
+      expect(product.image).toMatch(/^\/products\/.+\.(jpg|png)$/);
     }
   });
 });
