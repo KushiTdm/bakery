@@ -34,12 +34,13 @@ const ZHIPU_MAX_TOK = 4000;
 const ZHIPU_TIMEOUT = 90_000;
 
 function extractJSON(raw: string): string {
+  if (!raw || !raw.trim()) throw new Error('Réponse IA vide');
   let c = raw.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
   c = c.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-  if (c.startsWith('{')) return c;
-  const s = c.indexOf('{'), e = c.lastIndexOf('}');
+  const s = c.indexOf('{');
+  const e = c.lastIndexOf('}');
   if (s !== -1 && e > s) return c.slice(s, e + 1);
-  return c;
+  throw new Error(`Aucun objet JSON trouvé dans la réponse IA (longueur: ${raw.length})`);
 }
 
 // ── Types internes ────────────────────────────────────────────
@@ -514,13 +515,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 10. Parse JSON ─────────────────────────────────────────
+    // Avertir si la réponse est proche de la limite de tokens (JSON potentiellement tronqué)
+    if (tokensUtilises !== null && tokensUtilises >= ZHIPU_MAX_TOK * 0.95) {
+      console.warn(`[AI rapport] Réponse proche de la limite tokens (${tokensUtilises}/${ZHIPU_MAX_TOK}) — JSON peut être tronqué`);
+    }
+
     let rapportJSON: Record<string, unknown>;
     try {
       rapportJSON = JSON.parse(extractJSON(aiResponse));
     } catch (parseErr) {
+      const errMsg = `Non parsable: ${String(parseErr).slice(0, 200)}`;
+      console.error('[AI rapport] Parse JSON échoué:', errMsg, '| Aperçu:', aiResponse.slice(0, 200));
       await admin.from('ai_rapports').update({
         statut:     'erreur',
-        erreur_msg: `Non parsable: ${String(parseErr).slice(0, 200)}`,
+        erreur_msg: errMsg,
       }).eq('id', rapportId);
       return NextResponse.json(
         { error: 'Réponse IA invalide.', debug_preview: aiResponse.slice(0, 800) },
@@ -529,8 +537,11 @@ export async function POST(req: NextRequest) {
     }
 
     const rapportFinal = deanonymiserRapport(rapportJSON);
-    const score   = typeof rapportFinal.score === 'number'
-      ? Math.max(0, Math.min(100, Math.round(rapportFinal.score))) : null;
+    // Vérification explicite de NaN (typeof NaN === 'number' est vrai)
+    const scoreRaw = typeof rapportFinal.score === 'number' && !isNaN(rapportFinal.score as number)
+      ? rapportFinal.score as number : null;
+    const score   = scoreRaw !== null
+      ? Math.max(0, Math.min(100, Math.round(scoreRaw))) : null;
     const verdict = typeof rapportFinal.verdict === 'string'
       ? rapportFinal.verdict.slice(0, 200) : null;
 

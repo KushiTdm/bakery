@@ -15,27 +15,20 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger';
 import { z } from 'zod';
 
-// ── Auth helper ───────────────────────────────────────────────
+// ── Helper config flash ───────────────────────────────────────
+// Récupère uniquement la config flash de la boulangerie (remise, horaires)
 
-async function getAuth(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-
+async function getFlashConfig(boulangerieId: string) {
   const admin = getSupabaseAdmin();
-  const token = authHeader.slice(7);
-  const { data: { user }, error } = await admin.auth.getUser(token);
-  if (error || !user) return null;
-
-  const { data: boulangerie } = await admin
+  const { data } = await admin
     .from('boulangeries')
-    .select('id, flash_remise_pct, flash_heure_debut, flash_heure_fin')
-    .eq('user_id', user.id)
+    .select('flash_remise_pct, flash_heure_debut, flash_heure_fin')
+    .eq('id', boulangerieId)
     .single();
-
-  if (!boulangerie) return null;
-  return { admin, boulangerieId: boulangerie.id as string, config: boulangerie };
+  return data ?? { flash_remise_pct: 40, flash_heure_debut: 18, flash_heure_fin: 20 };
 }
 
 // ── Date locale boulangerie ───────────────────────────────────
@@ -80,32 +73,39 @@ const PatchBodySchema = z.object({
 // ── GET — liste du jour ───────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'flash', 'read')) {
+    return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+  }
 
-  const { admin, boulangerieId } = auth;
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
   const dateAujourd = todayInBakeryTimezone();
 
   try {
-    const { data, error } = await admin
-      .from('paniers_flash')
-      .select('*')
-      .eq('boulangerie_id', boulangerieId)
-      .eq('date', dateAujourd)
-      .order('categorie')
-      .order('produit_nom');
+    const [flashData, config] = await Promise.all([
+      admin
+        .from('paniers_flash')
+        .select('*')
+        .eq('boulangerie_id', boulangerieId)
+        .eq('date', dateAujourd)
+        .order('categorie')
+        .order('produit_nom'),
+      getFlashConfig(boulangerieId),
+    ]);
 
-    if (error) {
-      console.error('[GET /api/boulanger/flash]', error);
+    if (flashData.error) {
+      console.error('[GET /api/boulanger/flash]', flashData.error);
       return NextResponse.json({ error: 'Erreur chargement' }, { status: 500 });
     }
 
     return NextResponse.json({
-      paniers: data ?? [],
+      paniers: flashData.data ?? [],
       config: {
-        remise_pct:  auth.config.flash_remise_pct  ?? 40,
-        heure_debut: auth.config.flash_heure_debut ?? 18,
-        heure_fin:   auth.config.flash_heure_fin   ?? 20,
+        remise_pct:  config.flash_remise_pct  ?? 40,
+        heure_debut: config.flash_heure_debut ?? 18,
+        heure_fin:   config.flash_heure_fin   ?? 20,
       },
     });
   } catch (err) {
@@ -117,10 +117,14 @@ export async function GET(req: NextRequest) {
 // ── POST — upsert en masse (remplace la sélection du jour) ────
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'flash', 'write')) {
+    return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
+  }
 
-  const { admin, boulangerieId } = auth;
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
 
   let body: unknown;
   try { body = await req.json(); }
@@ -193,10 +197,14 @@ export async function POST(req: NextRequest) {
 // ── PATCH — mise à jour d'un produit flash (quantité / actif) ─
 
 export async function PATCH(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'flash', 'write')) {
+    return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
+  }
 
-  const { admin, boulangerieId } = auth;
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
 
   let body: unknown;
   try { body = await req.json(); }
@@ -250,10 +258,14 @@ export async function PATCH(req: NextRequest) {
 // ── DELETE — supprime tous les paniers flash du jour ──────────
 
 export async function DELETE(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'flash', 'write')) {
+    return NextResponse.json({ error: 'Accès refusé — réservé au propriétaire et aux gérants' }, { status: 403 });
+  }
 
-  const { admin, boulangerieId } = auth;
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
   const dateAujourd = todayInBakeryTimezone();
 
   try {

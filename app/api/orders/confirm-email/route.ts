@@ -10,7 +10,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ── Schéma Zod ────────────────────────────────────────────────
 
 const LigneSchema = z.object({
-  produit_id:    z.string().uuid(),
+  produit_id:    z.string().min(1).max(100),  // accepte UUID ou tout autre identifiant
   produit_nom:   z.string().min(1).max(100),
   quantite:      z.number().int().min(1).max(999),
   prix_unitaire: z.number().min(0).max(9999),
@@ -249,17 +249,26 @@ Présentez cet email ou donnez votre nom lors du retrait.
 ${boulangerie.nom}
     `.trim();
 
-    // 8. Envoi via Resend
-    const { data: emailResult, error: emailError } = await resend.emails.send({
-      from: `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr'}>`,
-      to: data.client_email,
-      subject,
-      html: htmlContent,
-      text: textContent,
-    });
+    // 8. Envoi via Resend (avec 1 retry automatique)
+    const fromAddress = `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr'}>`;
+    const emailPayload = { from: fromAddress, to: data.client_email, subject, html: htmlContent, text: textContent };
+
+    let emailResult: { id?: string } | null = null;
+    let emailError: { name: string; message: string } | null = null;
+
+    const firstAttempt = await resend.emails.send(emailPayload);
+    if (firstAttempt.error) {
+      console.warn('[orders/confirm-email] 1ère tentative échouée, retry dans 1s :', firstAttempt.error);
+      await new Promise(r => setTimeout(r, 1000));
+      const retry = await resend.emails.send(emailPayload);
+      emailError  = retry.error;
+      emailResult = retry.data;
+    } else {
+      emailResult = firstAttempt.data;
+    }
 
     if (emailError) {
-      console.error('[orders/confirm-email] Erreur Resend');
+      console.error('[orders/confirm-email] Erreur Resend après retry :', JSON.stringify(emailError));
       return NextResponse.json(
         { error: "Erreur lors de l'envoi de l'email" },
         { status: 500 }

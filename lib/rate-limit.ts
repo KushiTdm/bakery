@@ -214,12 +214,15 @@ export async function isSupabaseRateLimited(
       .gte('created_at', since);
 
     if (error) {
-      console.warn('[rate-limit] Supabase count failed, skipping:', error.message);
-      return false;
+      // Fail-closed : si Supabase est indisponible, on bloque par sécurité
+      console.warn('[rate-limit] Supabase count failed, fail-closed:', error.message);
+      return true;
     }
 
     return (count ?? 0) >= config.maxOrdersPer24h;
-  } catch {
-    return false;
+  } catch (err) {
+    // Fail-closed : exception inattendue → bloquer
+    console.warn('[rate-limit] isSupabaseRateLimited exception, fail-closed:', (err as Error).message);
+    return true;
   }
 }

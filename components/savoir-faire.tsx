@@ -75,8 +75,8 @@ export default function SavoirFaire() {
             </h2>
 
             <p className="text-lg text-[#2C1810]/70 mb-6 leading-relaxed">
-              Depuis 1952, notre boulangerie artisanale perpétue l'art traditionnel du pain français
-              au cœur de Paris. Chaque matin, avant l'aube, nos boulangers pétrisent, façonnent
+              Depuis 1952, notre boulangerie artisanale perpétue l&apos;art traditionnel du pain français
+              au cœur de Paris. Chaque matin, avant l&apos;aube, nos boulangers pétrisent, façonnent
               et cuisent avec passion des pains au levain naturel et des pâtisseries délicates.
             </p>
 

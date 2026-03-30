@@ -47,17 +47,16 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
 
   try {
-    // Fetch owner info
+    // Fetch owner info — user_id inclus pour éviter une 2ème requête boulangeries
     const { data: boulangerie } = await admin
       .from('boulangeries')
-      .select('id, nom, plan')
+      .select('id, nom, plan, user_id')
       .eq('id', session.boulangerieId)
       .single();
 
-    // Fetch owner user info
+    // Fetch owner user info (utilise le user_id déjà récupéré ci-dessus)
     const { data: { user: ownerUser } } = await admin.auth.admin.getUserById(
-      // Get owner user_id from boulangeries
-      (await admin.from('boulangeries').select('user_id').eq('id', session.boulangerieId).single()).data?.user_id ?? ''
+      boulangerie?.user_id ?? ''
     );
 
     // Fetch team members

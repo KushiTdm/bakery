@@ -3,22 +3,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
-
-async function getAuth(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  const admin = getSupabaseAdmin();
-  const { data: { user }, error } = await admin.auth.getUser(authHeader.slice(7));
-  if (error || !user) return null;
-  const { data: b } = await admin.from('boulangeries').select('id').eq('user_id', user.id).single();
-  if (!b) return null;
-  return { admin, boulangerieId: b.id as string };
-}
+import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger';
 
 export async function GET(req: NextRequest) {
-  const auth = await getAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-  const { admin, boulangerieId } = auth;
+  const session = await getBoulangerSession(req);
+  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (!canAccess(session, 'dashboard', 'read')) {
+    return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+  }
+
+  const admin = getSupabaseAdmin();
+  const { boulangerieId } = session;
   const { searchParams } = new URL(req.url);
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '30'), 90);
 

@@ -216,6 +216,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [permissions, setPermissions] = useState<PermissionsMap>(DEFAULT_PERMISSIONS.owner);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveAbort = useRef<AbortController | null>(null);
 
   const canRead  = useCallback((feature: PermissionKey) =>
     permissionSatisfies(permissions[feature], 'read'), [permissions]);
@@ -394,13 +395,27 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await fetch('/api/boulanger/historique?limit=30', {
+
+      // Page 1 : 14 jours les plus récents
+      const res1 = await fetch('/api/boulanger/historique', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
-      const { historique } = await res.json() as { historique: DbJournee[] };
-      if (!historique?.length) return;
-      setHistory(historique.map(mapDbJourneeToHistory));
+      if (!res1.ok) return;
+      const page1 = await res1.json() as { historique: DbJournee[]; next_cursor: string | null };
+      const rows: DbJournee[] = [...(page1.historique ?? [])];
+
+      // Page 2 : 14 jours suivants (si disponible) — atteint ~28 jours au total
+      if (page1.next_cursor) {
+        const res2 = await fetch(`/api/boulanger/historique?before=${page1.next_cursor}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res2.ok) {
+          const page2 = await res2.json() as { historique: DbJournee[] };
+          rows.unshift(...(page2.historique ?? []));
+        }
+      }
+
+      if (rows.length) setHistory(rows.map(mapDbJourneeToHistory));
     } catch (err) {
       console.warn('[BoulangerContext] loadHistory:', err);
     }
@@ -408,8 +423,12 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const triggerSave = useCallback((stocks: StockEntry[], online: number) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    // Annuler tout save en-cours pour éviter qu'une réponse tardive écrase la valeur récente
+    saveAbort.current?.abort();
     setSyncStatus('saving');
     saveTimer.current = setTimeout(async () => {
+      const ctrl = new AbortController();
+      saveAbort.current = ctrl;
       try {
         const token = await getToken();
         if (!token) { setSyncStatus('error'); return; }
@@ -417,10 +436,12 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ stocks, commandesOnline: online }),
+          signal: ctrl.signal,
         });
         setSyncStatus(res.ok ? 'saved' : 'error');
         setTimeout(() => setSyncStatus('idle'), 3000);
-      } catch {
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return; // save annulé, ignorer
         setSyncStatus('error');
       }
     }, 2000);

@@ -1,16 +1,16 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.4 — Mise à jour 25 mars 2026*
+*Version 4.7 — Mise à jour 29 mars 2026*
 
 ---
 
-## Score de Maturité Produit — 96 / 100
+## Score de Maturité Produit — 97 / 100
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
-| Core Produit & IA Levain | 97/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user |
-| Architecture & Sécurité | 96/100 | ✅ Complet | Headers HTTP, CSP corrigé (fonts + images SW), soft delete, magic bytes, logout global |
+| Core Produit & IA Levain | 98/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user, JSON IA robuste |
+| Architecture & Sécurité | 98/100 | ✅ Complet | Headers HTTP, CSP, soft delete, magic bytes, AbortController saves, ESLint clean |
 | Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
-| Infrastructure Prod | 55/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
+| Infrastructure Prod | 60/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
 | Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
 | Feature Gate (plans) | 70/100 | 🟢 Corrigé | Quota Levain implémenté, filtrage Starter actif |
 | Tests & Qualité | 85/100 | ✅ Complet | 130+ tests E2E + unitaires, RBAC couvert, CI/CD configuré |
@@ -30,6 +30,14 @@
 - **P1-5** Validation magic bytes — vérification des premiers octets du buffer à l'upload ✅
 - **P1-6** Timezone `journee/route.ts` — `getTodayInTimezone(auth.timezone)` ✅
 - **P1-7** Correction CSP — `next.config.js` corrigé pour charger correctement les polices et images côté client ✅ *(v4.4)*
+- **P1-8** Resend `confirm-email` — `produit_id` accepte désormais tout string (UUID ou autre), retry automatique sur échec, logs erreurs réels ✅ *(v4.6)*
+- **P1-9** Resend `orders/route.ts` — avertissement explicite si `NEXT_PUBLIC_APP_URL` ou `INTERNAL_API_SECRET` absent, log HTTP status en cas d'échec ✅ *(v4.6)*
+- **P1-10** IA rapport — `extractJSON` retourne une erreur explicite si la réponse est vide ou sans JSON ; `score` protégé contre NaN ✅ *(v4.6)*
+- **P1-11** Context boulanger — `triggerSave` utilise un `AbortController` pour annuler les saves en-cours et éviter les écritures stale ✅ *(v4.6)*
+- **P1-12** Pagination historique — `historique/route.ts` pagine par 14 jours (cursor `?before=`), context charge 2 pages (28 jours) ✅ *(v4.7)*
+- **P1-13** ESLint réactivé — `ignoreDuringBuilds: false`, règle `react/no-unescaped-entities` désactivée pour le français ✅ *(v4.7)*
+- **P1-14** N+1 équipe — `boulangeries` select inclut `user_id` directement, requête dupliquée supprimée ✅ *(v4.7)*
+- **P1-15** Nettoyage — 30 composants shadcn/ui inutilisés supprimés, `migration.sql.bak` supprimé, fichiers `.md` redondants supprimés ✅ *(v4.7)*
 
 ### Détail P1-7 — Pourquoi les images ne chargeaient pas côté client
 
@@ -233,22 +241,19 @@ Inexistante. Impossible de convertir un visiteur sans page de tarifs.
 
 ## 4. Dette Technique
 
-### 4.1 Auth Multi-User incomplète
+### 4.1 Auth Multi-User — ✅ Migration complète (v4.7)
 
-Routes encore sur un auth helper local au lieu de `getBoulangerSession()`. Risque : employés accédant à des routes owner.
+Toutes les routes ont été migrées vers `getBoulangerSession()` + `canAccess()` :
+- ✅ `ai/appliquer/route.ts` — owner uniquement
+- ✅ `ai/historique/route.ts` — owner + gérant
+- ✅ `flash/route.ts` — GET: employés, POST/PATCH/DELETE: owner/gérant
+- ✅ `historique/route.ts` — owner + gérant (+ pagination)
+- ✅ `commandes/route.ts` — permission `commandes`
 
-À migrer vers `getBoulangerSession()` + `canAccess()` :
-- `app/api/boulanger/ai/appliquer/route.ts` — owner uniquement
-- `app/api/boulanger/ai/historique/route.ts` — lecture seule employés
-- `app/api/boulanger/flash/route.ts` — vérifier permission `flash`
-- `app/api/boulanger/historique/route.ts` — vérifier permission `dashboard`
-- `app/api/boulanger/commandes/route.ts` — vérifier permission `commandes`
+### 4.2 Pagination historique — ✅ Implémentée (v4.7)
 
-### 4.2 Pagination manquante sur l'historique
-
-`historique/route.ts` charge 90 jours × 30 produits = 2 700 rows en une requête.
-- Paginer par tranches de 14 jours
-- Lazy loading graphiques
+`historique/route.ts` retourne 14 jours par page avec cursor `?before=YYYY-MM-DD`.
+Le context charge 2 pages automatiquement (28 jours visibles).
 
 ### 4.3 Tests & Qualité — ✅ Infrastructure complète (25 mars 2026)
 
@@ -340,11 +345,11 @@ npm run test:report   # Rapport HTML
 | Migrations SQL prod (v4 → v5 → ia → meteo) | 2h | 🔴 P0 |
 | DNS wildcard `*.bakeryos.fr` → Netlify | 2h | 🔴 P0 |
 | SMTP Resend dans Supabase Dashboard | 1h | 🔴 P0 |
-| Notifications push commandes temps réel | 2h | 🟠 P1 |
-| Email bienvenue post-inscription | 2h | 🟠 P1 |
+| ~~Notifications push commandes temps réel~~ | ~~2h~~ | ✅ Effectué (v4.6) |
+| ~~Email bienvenue post-inscription~~ | ~~2h~~ | ✅ Effectué (v4.6) |
 | Page `/pricing` publique | 4h | 🟠 P1 |
 | Sentry + alertes Supabase | 2h | 🟠 P1 |
-| Migrer 5 routes vers `getBoulangerSession()` | 3h | 🟠 P1 |
+| ~~Migrer 5 routes vers `getBoulangerSession()`~~ | ~~3h~~ | ✅ Effectué (v4.7) |
 
 **Durée estimée S2 : 4 jours**
 
@@ -410,4 +415,4 @@ npm run test:report   # Rapport HTML
 
 ---
 
-*Mis à jour le 25 mars 2026 (v4.5) — 130+ tests E2E & unitaires implémentés (RBAC, sanitize, permissions)*
+*Mis à jour le 29 mars 2026 (v4.7) — Pagination historique, ESLint réactivé, N+1 équipe corrigé, 30 composants + fichiers .md nettoyés, toutes les routes migrées vers getBoulangerSession*

@@ -3,9 +3,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { Resend } from 'resend';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { isValidSlug } from '@/lib/sanitize';
 import { isAuthRateLimited, resetAuthRateLimit } from '@/lib/rate-limit';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ── Schémas Zod ───────────────────────────────────────────────
 
@@ -228,6 +231,41 @@ export async function POST(req: NextRequest) {
         email:    body.email,
         password: body.password,
       });
+
+      // Email de bienvenue (non bloquant)
+      const fromDomain = process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr';
+      const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://bakeryos.fr';
+      resend.emails.send({
+        from:    `BakeryOS <noreply@${fromDomain}>`,
+        to:      body.email,
+        subject: `🥖 Bienvenue sur BakeryOS — ${body.nom} est prête !`,
+        html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="font-family:sans-serif;background:#fafafa;margin:0;padding:20px">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.05)">
+    <div style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:30px 20px;text-align:center">
+      <h1 style="color:#fff;margin:0;font-size:22px">🥖 Bienvenue sur BakeryOS !</h1>
+    </div>
+    <div style="padding:30px 20px">
+      <p style="font-size:16px;color:#374151">Bonjour,</p>
+      <p style="font-size:16px;color:#374151">
+        Votre boulangerie <strong>${body.nom}</strong> est créée et prête à l'emploi.<br>
+        Connectez-vous pour saisir votre production du matin, gérer vos paniers flash et générer vos premiers rapports IA.
+      </p>
+      <div style="text-align:center;margin:30px 0">
+        <a href="${appUrl}/boulanger" style="background:#f59e0b;color:#fff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;font-size:15px">
+          Accéder à mon tableau de bord
+        </a>
+      </div>
+      <p style="font-size:13px;color:#6b7280">
+        En cas de question, répondez directement à cet email.<br>
+        À très bientôt — L'équipe BakeryOS
+      </p>
+    </div>
+  </div>
+</body></html>`,
+        text: `Bienvenue sur BakeryOS !\n\nVotre boulangerie ${body.nom} est créée.\nConnectez-vous : ${appUrl}/boulanger\n\nL'équipe BakeryOS`,
+      }).catch(e => console.warn('[auth/register] email bienvenue non envoyé:', e));
 
       return NextResponse.json(
         {

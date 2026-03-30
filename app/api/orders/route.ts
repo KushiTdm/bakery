@@ -239,13 +239,19 @@ export async function POST(req: NextRequest) {
 
     // Email de confirmation (non bloquant)
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-      if (appUrl) {
-        await fetch(`${appUrl}/api/orders/confirm-email`, {
+      const appUrl         = process.env.NEXT_PUBLIC_APP_URL ?? '';
+      const internalSecret = process.env.INTERNAL_API_SECRET ?? '';
+
+      if (!appUrl) {
+        console.warn('[POST /api/orders] NEXT_PUBLIC_APP_URL non défini — email de confirmation non envoyé');
+      } else if (!internalSecret) {
+        console.warn('[POST /api/orders] INTERNAL_API_SECRET non défini — email de confirmation non envoyé');
+      } else {
+        const emailRes = await fetch(`${appUrl}/api/orders/confirm-email`, {
           method: 'POST',
           headers: {
             'Content-Type':      'application/json',
-            'x-internal-secret': process.env.INTERNAL_API_SECRET ?? '',
+            'x-internal-secret': internalSecret,
           },
           body: JSON.stringify({
             commande_id:   commande.id,
@@ -256,9 +262,33 @@ export async function POST(req: NextRequest) {
             montant_total: montant_final,
           }),
         });
+        if (!emailRes.ok) {
+          const body = await emailRes.text().catch(() => '');
+          console.error(`[POST /api/orders] confirm-email HTTP ${emailRes.status}:`, body.slice(0, 300));
+        }
       }
     } catch (emailErr) {
       console.error('[POST /api/orders] email error (non-bloquant):', emailErr);
+    }
+
+    // Notification push temps réel au boulanger (non bloquant)
+    const appUrl2        = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const internalSecret2 = process.env.INTERNAL_API_SECRET ?? '';
+    if (appUrl2 && internalSecret2) {
+      const montantFormate = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(montant_final);
+      fetch(`${appUrl2}/api/notifications/send`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': internalSecret2 },
+        body: JSON.stringify({
+          boulangerie_id: boulangerie.id,
+          payload: {
+            title: `🛒 Nouvelle commande — ${montantFormate}`,
+            body:  `${sanitizedData.client_prenom} · retrait à ${sanitizedData.heure_retrait}`,
+            url:   '/boulanger/commandes',
+            tag:   'nouvelle-commande',
+          },
+        }),
+      }).catch(e => console.warn('[POST /api/orders] push non envoyé:', e));
     }
 
     return NextResponse.json(
