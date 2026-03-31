@@ -134,10 +134,10 @@ function StatusBadge({ status }: { status: Order['status'] }) {
 }
 
 function OrderModal({
-  order, onClose, onAdvance, onCancel, onNotCollected, advancing,
+  order, onClose, onAdvance, onCancel, onNotCollected, advancing, boulangerieTz,
 }: {
   order: Order; onClose: () => void; onAdvance: (id: string) => void;
-  onCancel: (id: string) => void; onNotCollected: (id: string) => void; advancing: boolean;
+  onCancel: (id: string) => void; onNotCollected: (id: string) => void; advancing: boolean; boulangerieTz: string;
 }) {
   const next = NEXT_STATUS[order.status];
   return (
@@ -586,7 +586,7 @@ function CommandesPage() {
           <OrderModal order={selectedOrder} onClose={() => setSelectedOrder(null)}
             onAdvance={id => { handleAdvance(id); setSelectedOrder(null); }}
             onCancel={handleCancel} onNotCollected={handleNotCollected}
-            advancing={updating === selectedOrder.id} />
+            advancing={updating === selectedOrder.id} boulangerieTz={boulangerieTz} />
         )}
       </AnimatePresence>
     </div>
