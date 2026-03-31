@@ -1,9 +1,28 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.8 — Mise à jour 30 mars 2026*
+*Version 4.9 — Mise à jour 30 mars 2026*
 
 ---
 
 ## Score de Maturité Produit — 98 / 100
+
+---
+
+## Migrations SQL
+
+| Fichier | Rôle | Statut |
+|---|---|---|
+| `migrations/migration-master.sql` | **Migration consolidée v5.0** — schema complet (16 tables, 17 fonctions, RLS, storage) | ✅ À utiliser |
+| `migrations/seed.sql` | Données de démonstration — à exécuter APRÈS migration-master | ✅ Séparé |
+| `migrations/migration-complete.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+| `migrations/migration-p2-improvements.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+| `migrations/migration_conservation.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+| `migrations/migration_dashboard_gerant-29-03.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+| `migrations/migration-forecasts-fourchette-v2.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+| `migrations/002_commandes_penalites_flash.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
+
+> **Déploiement production** : exécuter uniquement `migration-master.sql` puis `seed.sql` si données de démo souhaitées. Les fichiers archivés peuvent être supprimés après validation.
+
+---
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
@@ -460,4 +479,71 @@ disponible = production + report_veille - réservé_C&C - alloué_flash
 
 ---
 
-*Mis à jour le 29 mars 2026 (v4.8) — Stock check commandes, pénalités no-show, achat flash atomique, auth migration orders/[id], UI gestion clients, liaison flash↔stock, roll-over automatique, statut non_recuperee natif, restauration stock flash*
+---
+
+## 7. Propositions d'amélioration
+
+> Section incrémentée au fil des versions. Chaque suggestion est accompagnée d'une priorité et d'un contexte métier.
+
+### 7.1 UX & Fonctionnalités clients
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Email avertissement no-show** | 🟠 Moyen | Envoyer un email au client quand `nb_non_recupere` atteint `seuil - 1` — dernier avertissement avant blocage |
+| **Timer réservation flash** | 🟠 Moyen | Expiration automatique des réservations flash non récupérées après 30 min (libère le stock automatiquement) |
+| **Quantité par produit flash** | 🟡 Faible | Permettre au client de choisir la quantité par produit (aujourd'hui = 1 de chaque) |
+| **Commandes récurrentes** | 🟡 Faible | Table `commandes_recurrentes` pour abonnements clients fidèles (ex : baguette tous les matins) |
+
+### 7.2 Paiement & Monétisation
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Paiement en ligne flash (Stripe)** | 🔴 P0 | Réservation gratuite actuelle → paiement à la commande. Réduction no-show par friction financière |
+| **Page pricing publique (`/pricing`)** | 🟠 Moyen | Tableau 3 plans + calculateur ROI + CTA register. Conversion visiteur impossible sans elle |
+| **Historique stats 90j (plan Pro)** | 🟠 Moyen | Feature gate `historique/route.ts` — actuellement non différencié entre Starter et Pro |
+
+### 7.3 Stock & Opérations
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Alerte stock bas temps réel** | 🟠 Moyen | Push notification boulanger quand un produit tombe sous seuil (ex : < 3 unités restantes) |
+| **Roll-over configurable par produit** | 🟡 Faible | Override `duree_conservation_jours` par produit pour les cas spéciaux (ignore la catégorie) |
+| **Réconciliation flash/C&C (cron)** | 🟡 Faible | Cron quotidien vérifiant la cohérence entre `paniers_flash.quantite_restante` et les commandes `anti_gaspi` |
+| **Stock temps réel Supabase Realtime** | 🟡 Faible | Supabase Realtime sur `paniers_flash` — mise à jour quantités sans polling côté vitrine |
+
+### 7.4 Supervision & Analytics
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Rapport hebdomadaire Levain** | 🟠 Moyen | Analyse automatique des 7 derniers jours, score semaine, meilleur/pire jour |
+| **Dashboard stats pénalités** | 🟡 Faible | Widget supervision : taux de no-show par période, clients bloqués actifs |
+| **Graphique tendance CA (7 jours)** | 🟡 Faible | Courbe CA dans la section KPIs du dashboard supervision |
+| **Indicateur retards clôture** | 🟠 Moyen | Compter les jours où la clôture a été faite après 20h — signal d'organisation |
+| **Export rapport équipe PDF** | 🟡 Faible | Récapitulatif activité équipe sur la semaine (PDF/Excel) |
+| **Snapshots temps réel (SSE)** | 🟡 Faible | Websocket/SSE pour mise à jour live du dashboard sans refresh 60s |
+
+### 7.5 Audit & Traçabilité
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Historique pénalités par client** | 🟡 Faible | Table `penalite_historique` avec timestamp de chaque incident (aujourd'hui = compteur uniquement) |
+| **Historique roll-over** | 🟡 Faible | Traçabilité des reports (quel produit, quelle quantité, de quelle journée) pour audit qualité HACCP |
+
+### 7.6 Tests & Qualité
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Tests E2E commandes** | 🟠 Moyen | Flow commande + stock check + pénalité + achat flash — couverture absente actuellement |
+| **Secrets CI/CD GitHub** | 🟠 Moyen | Configurer `SUPABASE_TEST_*`, `ZHIPU_API_KEY` dans les secrets GitHub pour CI vert en prod |
+
+### 7.7 Infrastructure
+
+| Suggestion | Priorité | Contexte |
+|---|---|---|
+| **Monitoring Sentry** | 🟠 Moyen | Plan gratuit suffisant — capturer les erreurs JS et API Next.js en production |
+| **Alertes Supabase** | 🟠 Moyen | Dashboard → Monitoring → Alerts sur les requêtes lentes et les erreurs RLS |
+| **pg_cron invitations** | 🟡 Faible | `SELECT cron.schedule(...)` pour `cleanup_expired_invites()` — la fonction est prête, il suffit de l'activer |
+
+---
+
+*Mis à jour le 30 mars 2026 (v4.9) — Consolidation migrations en migration-master.sql, ajout section Propositions d'amélioration*
