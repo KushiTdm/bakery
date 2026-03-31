@@ -42,8 +42,13 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (date) {
-      const dateStart = new Date(`${date}T00:00:00+01:00`).toISOString();
-      const dateEnd   = new Date(`${date}T23:59:59+02:00`).toISOString();
+      // Bornes Paris DST-aware : +01:00 (CET) en hiver, +02:00 (CEST) en été
+      const tz = 'Europe/Paris';
+      const noonUTC = new Date(`${date}T12:00:00.000Z`);
+      const parisHourAtNoon = +noonUTC.toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false });
+      const offsetMs = (parisHourAtNoon - 12) * 3_600_000;
+      const dateStart = new Date(+new Date(`${date}T00:00:00.000Z`) - offsetMs).toISOString();
+      const dateEnd   = new Date(+new Date(`${date}T23:59:59.999Z`) - offsetMs).toISOString();
       query = query.gte('created_at', dateStart).lte('created_at', dateEnd);
     }
 

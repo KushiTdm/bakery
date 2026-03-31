@@ -18,6 +18,17 @@ async function getAuthUser(req: NextRequest) {
   return { user, admin };
 }
 
+const VALID_TIMEZONES = [
+  'Europe/Paris', 'Europe/London', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+  'America/Bogota', 'America/Lima', 'America/Santiago', 'America/Sao_Paulo',
+  'America/Buenos_Aires', 'America/Mexico_City', 'America/Montreal',
+  'America/Toronto', 'America/Vancouver', 'America/Phoenix',
+  'Africa/Casablanca', 'Africa/Tunis', 'Africa/Abidjan', 'Africa/Dakar',
+  'Asia/Dubai', 'Asia/Beirut', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore',
+  'Australia/Sydney', 'Pacific/Auckland',
+];
+
 const ProfilPatchSchema = z.object({
   nom:           z.string().min(1).max(100).optional(),
   email_contact: z.string().email().max(254).optional(),
@@ -32,6 +43,8 @@ const ProfilPatchSchema = z.object({
   flash_remise_pct:  z.number().int().min(1).max(100).optional(),
   // Créneaux de retrait
   creneaux_retrait: z.array(z.string().regex(/^\d{2}:\d{2}$/)).max(20).optional(),
+  // Timezone
+  timezone: z.string().refine(v => VALID_TIMEZONES.includes(v), { message: 'Timezone non supportée' }).optional(),
 }).strict();
 
 // ── GET ──────────────────────────────────────────────────────
@@ -47,7 +60,7 @@ export async function GET(req: NextRequest) {
         id, nom, slug, email_contact, plan, actif, created_at,
         adresse, ville, code_postal, telephone,
         flash_heure_debut, flash_heure_fin, flash_remise_pct,
-        creneaux_retrait
+        creneaux_retrait, timezone
       `)
       .eq('user_id', user.id)
       .single();
@@ -70,6 +83,7 @@ export async function GET(req: NextRequest) {
       flash_heure_fin:   data.flash_heure_fin ?? 20,
       flash_remise_pct:  data.flash_remise_pct ?? 40,
       creneaux_retrait:  data.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
+      timezone:          (data as Record<string, unknown>).timezone ?? 'Europe/Paris',
     });
   } catch (e) {
     console.error('[GET /api/boulanger/profil]', e);
@@ -103,7 +117,7 @@ export async function PATCH(req: NextRequest) {
       nom, email_contact,
       adresse, ville, code_postal, telephone,
       flash_heure_debut, flash_heure_fin, flash_remise_pct,
-      creneaux_retrait,
+      creneaux_retrait, timezone,
     } = parsed.data;
 
     const { data: boulangerie, error: findError } = await admin
@@ -137,6 +151,8 @@ export async function PATCH(req: NextRequest) {
       const unique = [...new Set(creneaux_retrait)].sort();
       updates.creneaux_retrait = unique;
     }
+
+    if (timezone !== undefined) updates.timezone = timezone;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: true, message: 'Aucun changement' });

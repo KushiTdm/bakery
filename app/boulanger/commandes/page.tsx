@@ -4,12 +4,13 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
+import GestionClients from '@/components/boulanger/gestion-clients';
 import { supabase } from '@/lib/supabase';
 import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
 import {
   Zap, ShoppingBag, Phone, Mail, Clock, Check,
   X, RefreshCw, Loader2, AlertCircle, ChevronRight,
-  ArrowLeft, BellOff, Send, Package,
+  ArrowLeft, BellOff, Send, Package, Users,
 } from 'lucide-react';
 
 interface OrderItem { name: string; qty: number; price: number; }
@@ -36,15 +37,16 @@ const STATUS_DB_MAP: Record<Order['status'], DbCommande['statut']> = {
   ready:         'prete',
   done:          'recuperee',
   cancelled:     'annulee',
-  not_collected: 'annulee',
+  not_collected: 'non_recuperee',
 };
 
 const DB_STATUS_MAP: Record<DbCommande['statut'], Order['status']> = {
-  en_attente: 'pending',
-  confirmee:  'confirmed',
-  prete:      'ready',
-  recuperee:  'done',
-  annulee:    'cancelled',
+  en_attente:      'pending',
+  confirmee:       'confirmed',
+  prete:           'ready',
+  recuperee:       'done',
+  annulee:         'cancelled',
+  non_recuperee:   'not_collected',
 };
 
 const STATUS_LABEL: Record<Order['status'], string> = {
@@ -105,8 +107,8 @@ function initials(name: string): string {
   return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+function formatTime(iso: string, tz = 'Europe/Paris'): string {
+  return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: tz });
 }
 
 function formatPrice(n: number): string {
@@ -165,7 +167,7 @@ function OrderModal({
               <p className="text-white font-semibold" style={{ fontFamily: 'Playfair Display, serif' }}>
                 {order.prenom}
               </p>
-              <p className="text-white/30 text-xs">#{order.shortId} · {formatTime(order.createdAt)}</p>
+              <p className="text-white/30 text-xs">#{order.shortId} · {formatTime(order.createdAt, boulangerieTz)}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-white/30 hover:text-white/60 transition-colors">
@@ -343,6 +345,8 @@ function CommandesPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [filter,        setFilter]        = useState<FilterType>('all');
   const [boulangerieId, setBoulangerieId] = useState<string | null>(null);
+  const [showClients,   setShowClients]   = useState(false);
+  const [boulangerieTz, setBoulangerieTz] = useState('Europe/Paris');
   const submittingRef = useRef(false);
 
   const loadOrders = useCallback(async () => {
@@ -356,11 +360,14 @@ function CommandesPage() {
       });
       if (!profileRes.ok) { setError('Impossible de charger le profil'); return; }
 
-      const profile = await profileRes.json() as { id?: string };
+      const profile = await profileRes.json() as { id?: string; timezone?: string };
       if (!profile.id || !UUID_REGEX.test(profile.id)) { setError('ID boulangerie invalide'); return; }
       setBoulangerieId(profile.id);
 
-      const today = new Date().toISOString().split('T')[0];
+      // Utiliser le timezone de la boulangerie (pas le timezone du navigateur)
+      const tz = profile.timezone ?? 'Europe/Paris';
+      setBoulangerieTz(tz);
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
 
       // Utilise la route enrichie qui joint profils_clients
       const res = await fetch(
@@ -427,7 +434,7 @@ function CommandesPage() {
   const handleAdvance      = useCallback((id: string) => { const o = orders.find(x => x.id === id); if (!o) return; const n = NEXT_STATUS[o.status]; if (n) updateStatus(id, n); }, [orders, updateStatus]);
   const handleQuickAdvance = useCallback((e: React.MouseEvent, id: string) => { e.stopPropagation(); handleAdvance(id); }, [handleAdvance]);
   const handleCancel       = useCallback((id: string) => { updateStatus(id, 'cancelled'); setSelectedOrder(null); }, [updateStatus]);
-  const handleNotCollected = useCallback((id: string) => { updateStatus(id, 'cancelled'); setOrders(prev => prev.map(o => o.id === id ? { ...o, status: 'not_collected' as const } : o)); setSelectedOrder(null); }, [updateStatus]);
+  const handleNotCollected = useCallback((id: string) => { updateStatus(id, 'not_collected'); setSelectedOrder(null); }, [updateStatus]);
 
   const clickCollect = orders.filter(o => o.type === 'clickcollect');
   const flashOrders  = orders.filter(o => o.type === 'flash');
@@ -455,9 +462,15 @@ function CommandesPage() {
           <div className="flex-1 min-w-0">
             <h1 className="text-white font-bold text-lg leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>Commandes</h1>
             <p className="text-white/30 text-xs flex items-center gap-1.5 mt-0.5">
-              {lastRefresh ? <><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />Temps réel · {formatTime(lastRefresh.toISOString())}</> : 'Chargement…'}
+              {lastRefresh ? <><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />Temps réel · {formatTime(lastRefresh.toISOString(), boulangerieTz)}</> : 'Chargement…'}
             </p>
           </div>
+          <button onClick={() => setShowClients(!showClients)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 flex-shrink-0 ${
+              showClients ? 'text-white bg-[#C19A6B]/20 border-[#C19A6B]/40' : 'text-[#C19A6B] border-[#C19A6B]/30 hover:bg-[#C19A6B]/10'
+            }`}>
+            <Users size={12} />Clients
+          </button>
           <button onClick={loadOrders} disabled={loading}
             className="text-[#C19A6B] text-xs px-3 py-1.5 rounded-lg border border-[#C19A6B]/30 hover:bg-[#C19A6B]/10 transition-colors disabled:opacity-40 flex items-center gap-1.5 flex-shrink-0">
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />Actualiser
@@ -466,6 +479,11 @@ function CommandesPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 pt-5 space-y-5">
+        {showClients && (
+          <GestionClients onClose={() => setShowClients(false)} />
+        )}
+
+        {!showClients && <>
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white/4 border border-white/8 rounded-2xl p-4 text-center">
             <p className="text-white font-bold text-2xl font-mono">{orders.length}</p>
@@ -560,6 +578,7 @@ function CommandesPage() {
         {!loading && !error && orders.length > 0 && filteredOrders.length === 0 && (
           <div className="text-center py-10"><Package size={32} className="text-white/15 mx-auto mb-3" /><p className="text-white/35 text-sm">Aucune commande dans ce filtre</p></div>
         )}
+        </>}
       </div>
 
       <AnimatePresence>

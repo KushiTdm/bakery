@@ -152,6 +152,78 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, count: 0 });
     }
 
+    // ── Vérification croisée : stock disponible après réservations C&C ──
+    // Récupérer la journée du jour pour les productions
+    const { data: journee } = await admin
+      .from('journees')
+      .select('id')
+      .eq('boulangerie_id', boulangerieId)
+      .eq('date', dateAujourd)
+      .single();
+
+    if (journee) {
+      const { data: stocks } = await admin
+        .from('stocks_journaliers')
+        .select('produit_id, produit_nom, production, report_veille')
+        .eq('journee_id', journee.id);
+
+      if (stocks && stocks.length > 0) {
+        // Map produit_id → production totale
+        const prodMap: Record<string, number> = {};
+        for (const s of stocks) {
+          prodMap[s.produit_id] = (s.production ?? 0) + (s.report_veille ?? 0);
+        }
+
+        // Quantités réservées par commandes C&C actives
+        const dateStart = new Date(`${dateAujourd}T00:00:00`).toISOString();
+        const dateEnd   = new Date(`${dateAujourd}T23:59:59`).toISOString();
+        const { data: activeOrders } = await admin
+          .from('commandes')
+          .select('lignes')
+          .eq('boulangerie_id', boulangerieId)
+          .gte('created_at', dateStart)
+          .lte('created_at', dateEnd)
+          .in('statut', ['en_attente', 'confirmee', 'prete']);
+
+        // Réservé par C&C indexé par produit_id (via produit_nom → produit_id)
+        const nomToId: Record<string, string> = {};
+        for (const s of stocks) {
+          nomToId[s.produit_nom] = s.produit_id;
+        }
+        const reservedById: Record<string, number> = {};
+        if (activeOrders) {
+          for (const order of activeOrders) {
+            const lignes = (order.lignes ?? []) as Array<{ produit_nom: string; quantite: number }>;
+            for (const l of lignes) {
+              const pid = nomToId[l.produit_nom];
+              if (pid) reservedById[pid] = (reservedById[pid] ?? 0) + l.quantite;
+            }
+          }
+        }
+
+        // Vérifier que chaque panier flash ne dépasse pas le stock disponible
+        const warnings: string[] = [];
+        for (const p of paniers) {
+          const totalProd = prodMap[p.produit_id];
+          if (totalProd === undefined) continue; // Produit pas dans la journée → pas de vérif
+          const reserved = reservedById[p.produit_id] ?? 0;
+          const disponible = totalProd - reserved;
+          if (p.quantite_initiale > disponible) {
+            warnings.push(
+              `${p.produit_nom} : ${Math.max(0, disponible)} dispo (${reserved} réservé C&C), ${p.quantite_initiale} demandé pour flash`
+            );
+          }
+        }
+
+        if (warnings.length > 0) {
+          return NextResponse.json(
+            { error: 'Stock insuffisant pour certains paniers flash', details: warnings },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const rows = paniers.map(p => ({
       boulangerie_id:    boulangerieId,
       date:              dateAujourd,

@@ -114,6 +114,7 @@ function SnapshotCellTouch({
 export default function VueSnapshot() {
   const {
     todayStocks,
+    reservedByProduct,
     updateSnapshot,
     validateSnapshot,
     syncStatus,
@@ -290,6 +291,12 @@ export default function VueSnapshot() {
                     {refLabel}
                     {vendus > 0 && (
                       <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>
+                    )}
+                    {/* Indicateur réservations C&C actives */}
+                    {(reservedByProduct[stock.name] ?? 0) > 0 && (
+                      <span className="text-amber-400/80 ml-2 font-medium">
+                        · {reservedByProduct[stock.name]} réservé{reservedByProduct[stock.name] > 1 ? 's' : ''} C&C
+                      </span>
                     )}
                     {/* Indicateur 14h bloqué si tout vendu à 10h */}
                     {slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0 && (

@@ -152,7 +152,7 @@ export interface DbCommande {
   heure_retrait:    string;
   notes:            string | null;
   montant_total:    number;
-  statut:           'en_attente' | 'confirmee' | 'prete' | 'recuperee' | 'annulee';
+  statut:           'en_attente' | 'confirmee' | 'prete' | 'recuperee' | 'annulee' | 'non_recuperee';
   lignes:           DbLigneCommande[];
   created_at:       string;
   updated_at:       string;

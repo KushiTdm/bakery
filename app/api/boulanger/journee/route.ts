@@ -94,7 +94,8 @@ async function getReportsVeille(
       `)
       .eq('boulangerie_id', boulangerieId)
       .eq('date', yesterday)
-      .eq('cloturee', true)          // Seulement si la journée d'hier était clôturée
+      // Pas de contrainte cloturee=true : les invendus sont visibles même si
+      // la journée n'a pas été formellement clôturée (boulanger oublie de fermer)
       .single();
 
     if (!journeeHier?.stocks_journaliers?.length) {
@@ -331,6 +332,8 @@ export async function POST(req: NextRequest) {
 }
 
 // ── PUT — Clôture ────────────────────────────────────────────
+// Clôture la journée du jour et prépare le roll-over des invendus
+// pour le lendemain (produits avec duree_conservation > 1).
 
 export async function PUT(req: NextRequest) {
   try {
@@ -352,7 +355,107 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Erreur clôture journée' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    // ── Roll-over automatique des invendus pour J+1 ──────────
+    // Non-bloquant : si ça échoue, la clôture est quand même valide.
+    // Le boulanger pourra toujours ajuster manuellement.
+    let rolloverCount = 0;
+    try {
+      // Récupérer les stocks du jour avec invendus
+      const { data: journeeData } = await admin
+        .from('journees')
+        .select('id')
+        .eq('boulangerie_id', boulangerieId)
+        .eq('date', today)
+        .single();
+
+      if (journeeData) {
+        const { data: stocks } = await admin
+          .from('stocks_journaliers')
+          .select('produit_id, produit_nom, produit_emoji, categorie, stock_final, est_reporte, prix_vente, cout_production')
+          .eq('journee_id', journeeData.id)
+          .gt('stock_final', 0);
+
+        if (stocks && stocks.length > 0) {
+          // Récupérer durées de conservation des produits
+          const produitIds = stocks.map(s => s.produit_id);
+          const { data: produits } = await admin
+            .from('produits')
+            .select('id, duree_conservation_jours, categorie')
+            .in('id', produitIds)
+            .eq('boulangerie_id', boulangerieId);
+
+          const dureeMap = new Map<string, number>();
+          for (const p of produits ?? []) {
+            dureeMap.set(
+              p.id,
+              p.duree_conservation_jours
+                ?? DUREE_CONSERVATION_PAR_CATEGORIE[p.categorie as string]
+                ?? 1
+            );
+          }
+
+          // Calculer la date de demain
+          const todayDate = new Date(today + 'T12:00:00');
+          todayDate.setDate(todayDate.getDate() + 1);
+          const tomorrow = todayDate.toISOString().split('T')[0];
+
+          // Créer ou récupérer la journée de demain
+          const { data: journeeDemain } = await admin
+            .from('journees')
+            .upsert(
+              { boulangerie_id: boulangerieId, date: tomorrow },
+              { onConflict: 'boulangerie_id,date' }
+            )
+            .select('id')
+            .single();
+
+          if (journeeDemain) {
+            const rolloverStocks = [];
+
+            for (const stock of stocks) {
+              if (stock.est_reporte) continue; // Pas d'enchaînement J-2 → J-1 → J
+
+              const duree = dureeMap.get(stock.produit_id)
+                ?? DUREE_CONSERVATION_PAR_CATEGORIE[stock.categorie as string]
+                ?? 1;
+
+              if (duree <= 1) continue; // Non reportable
+
+              rolloverStocks.push({
+                journee_id:      journeeDemain.id,
+                boulangerie_id:  boulangerieId,
+                produit_id:      stock.produit_id,
+                produit_nom:     stock.produit_nom,
+                produit_emoji:   stock.produit_emoji ?? '🥖',
+                categorie:       stock.categorie ?? 'boulangerie',
+                prix_vente:      stock.prix_vente ?? 0,
+                cout_production: stock.cout_production ?? 0,
+                production:      0,
+                report_veille:   stock.stock_final,
+                est_reporte:     true,
+                stock_final:     0,
+                snapshot_10h:    0,
+                snapshot_10h_done: false,
+                snapshot_14h:    0,
+                snapshot_14h_done: false,
+              });
+            }
+
+            if (rolloverStocks.length > 0) {
+              await admin
+                .from('stocks_journaliers')
+                .upsert(rolloverStocks, { onConflict: 'journee_id,produit_id' });
+
+              rolloverCount = rolloverStocks.length;
+            }
+          }
+        }
+      }
+    } catch (rolloverErr) {
+      console.warn('[/api/boulanger/journee PUT] roll-over non-bloquant:', rolloverErr);
+    }
+
+    return NextResponse.json({ success: true, rollover: rolloverCount });
 
   } catch (err) {
     console.error('[/api/boulanger/journee PUT]', err);

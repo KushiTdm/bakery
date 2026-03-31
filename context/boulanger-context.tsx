@@ -21,11 +21,12 @@ import {
 export type { ViewType, SyncStatus, StockEntry, HistoryEntry, ProductionSuggestion };
 
 interface Boulangerie {
-  id:    string;
-  nom:   string;
-  slug:  string;
-  plan:  'starter' | 'pro' | 'multi';
-  actif: boolean;
+  id:       string;
+  nom:      string;
+  slug:     string;
+  plan:     'starter' | 'pro' | 'multi';
+  actif:    boolean;
+  timezone?: string;
 }
 
 // ── Mapper DB → StockEntry ─────────────────────────────────────
@@ -166,6 +167,7 @@ interface BoulangerContextType {
   isAuthenticated:     boolean;
   authLoading:         boolean;
   logout:              () => Promise<void>;
+  boulangerieTz:       string;  // Timezone opérationnelle de la boulangerie
 
   userRole:    BoulangerRole | null;
   memberId:    string | null;
@@ -177,6 +179,7 @@ interface BoulangerContextType {
   setActiveView:       (v: ViewType) => void;
   syncStatus:          SyncStatus;
   todayStocks:         StockEntry[];
+  reservedByProduct:   Record<string, number>;  // quantités réservées par produit_nom (C&C actives)
   // ── Report inter-journées ──────────────────────────────────
   reportsVeille:       Record<string, ReportVeilleInfo>;
   updateReportVeille:  (produitId: string, quantite: number) => void;
@@ -210,6 +213,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   const [history, setHistory]         = useState<HistoryEntry[]>([]);
   // ── Reports inter-journées disponibles ──────────────────────
   const [reportsVeille, setReportsVeille] = useState<Record<string, ReportVeilleInfo>>({});
+
+  const [boulangerieTz, setBoulangerieTz]   = useState<string>('Europe/Paris');
+  const [reservedByProduct, setReservedByProduct] = useState<Record<string, number>>({});
 
   const [userRole, setUserRole]       = useState<BoulangerRole | null>(null);
   const [memberId, setMemberId]       = useState<string | null>(null);
@@ -252,6 +258,8 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   function resetState() {
     setBoulangerie(null);
+    setBoulangerieTz('Europe/Paris');
+    setReservedByProduct({});
     setUserRole(null);
     setMemberId(null);
     setPermissions(DEFAULT_PERMISSIONS.owner);
@@ -282,11 +290,19 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
           plan:  row.boulangerie_plan,
           actif: row.boulangerie_actif,
         });
+        // Charger le timezone de la boulangerie
+        const { data: tzRow } = await supabase
+          .from('boulangeries')
+          .select('timezone')
+          .eq('id', row.boulangerie_id)
+          .single();
+        const tz = (tzRow as { timezone?: string } | null)?.timezone ?? 'Europe/Paris';
+        setBoulangerieTz(tz);
         const role = row.user_role as BoulangerRole;
         setUserRole(role);
         setMemberId(row.membre_id ?? null);
         setPermissions(mergePermissions(role, (row.custom_permissions ?? {}) as Partial<PermissionsMap>));
-        await Promise.all([loadTodayData(), loadHistory()]);
+        await Promise.all([loadTodayData(tz), loadHistory()]);
         return;
       }
 
@@ -296,17 +312,19 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
       const { data, error } = await supabase
         .from('boulangeries')
-        .select('id, nom, slug, plan, actif')
+        .select('id, nom, slug, plan, actif, timezone')
         .eq('user_id', currentUser.id)
         .single();
 
       if (error || !data) { setBoulangerie(null); setUserRole(null); return; }
 
+      const tz = (data as Boulangerie & { timezone?: string }).timezone ?? 'Europe/Paris';
       setBoulangerie(data as Boulangerie);
+      setBoulangerieTz(tz);
       setUserRole('owner');
       setMemberId(null);
       setPermissions(DEFAULT_PERMISSIONS.owner);
-      await Promise.all([loadTodayData(), loadHistory()]);
+      await Promise.all([loadTodayData(tz), loadHistory()]);
 
     } catch (err) {
       console.error('[BoulangerContext]', err);
@@ -321,7 +339,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
   // L'API journee retourne maintenant :
   //   { journee, reports_veille }
   // reports_veille = produits non périssables avec stock_final > 0 hier
-  async function loadTodayData() {
+  async function loadTodayData(tz: string = 'Europe/Paris') {
     try {
       const token = await getToken();
       if (!token) return;
@@ -332,6 +350,10 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       if (!res.ok) { await loadProduitsAsList(token); return; }
 
       const { journee, reports_veille } = await res.json() as JourneeApiResponse;
+
+      // ── Charger les réservations C&C actives du jour ──────────
+      // Permet d'afficher "X réservé(s)" dans le snapshot
+      loadTodayReservations(token, tz);
 
       // Stocker les reports disponibles (pour l'affichage dans vue-matin)
       setReportsVeille(reports_veille ?? {});
@@ -355,6 +377,31 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.warn('[BoulangerContext] loadTodayData:', err);
+    }
+  }
+
+  // ── loadTodayReservations — quantités C&C réservées par produit ─
+  // Utilisé par vue-snapshot pour afficher les réservations en cours.
+  // Non bloquant (fire-and-forget via appel indépendant).
+  async function loadTodayReservations(token: string, tz: string) {
+    try {
+      const todayLocal = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+      const res = await fetch(`/api/boulanger/commandes?date=${todayLocal}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const { commandes } = await res.json() as { commandes: Array<{ statut: string; lignes: Array<{ produit_nom: string; quantite: number }> }> };
+      const reserved: Record<string, number> = {};
+      for (const c of commandes ?? []) {
+        if (!['en_attente', 'confirmee', 'prete'].includes(c.statut)) continue;
+        for (const l of c.lignes ?? []) {
+          reserved[l.produit_nom] = (reserved[l.produit_nom] ?? 0) + l.quantite;
+        }
+      }
+      setReservedByProduct(reserved);
+    } catch (err) {
+      console.warn('[BoulangerContext] loadTodayReservations:', err);
     }
   }
 
@@ -572,10 +619,12 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       session, user, boulangerie,
       isAuthenticated: !!session,
       authLoading, logout,
+      boulangerieTz,
       userRole, memberId, permissions, canRead, canWrite,
       activeView, setActiveView,
       syncStatus,
       todayStocks,
+      reservedByProduct,
       reportsVeille,
       updateReportVeille,
       updateProduction, updateSnapshot, validateSnapshot, updateStockFinal,

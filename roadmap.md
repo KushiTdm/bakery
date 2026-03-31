@@ -1,13 +1,13 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.7 — Mise à jour 29 mars 2026*
+*Version 4.8 — Mise à jour 30 mars 2026*
 
 ---
 
-## Score de Maturité Produit — 97 / 100
+## Score de Maturité Produit — 98 / 100
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
-| Core Produit & IA Levain | 98/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user, JSON IA robuste |
+| Core Produit & IA Levain | 99/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user, JSON IA robuste, stock check, achat flash |
 | Architecture & Sécurité | 98/100 | ✅ Complet | Headers HTTP, CSP, soft delete, magic bytes, AbortController saves, ESLint clean |
 | Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
 | Infrastructure Prod | 60/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
@@ -38,6 +38,16 @@
 - **P1-13** ESLint réactivé — `ignoreDuringBuilds: false`, règle `react/no-unescaped-entities` désactivée pour le français ✅ *(v4.7)*
 - **P1-14** N+1 équipe — `boulangeries` select inclut `user_id` directement, requête dupliquée supprimée ✅ *(v4.7)*
 - **P1-15** Nettoyage — 30 composants shadcn/ui inutilisés supprimés, `migration.sql.bak` supprimé, fichiers `.md` redondants supprimés ✅ *(v4.7)*
+- **P1-16** Vérification stock à la commande — `orders/route.ts` vérifie la disponibilité produit avant insertion (production - réservé), fallback si production non saisie ✅ *(v4.8)*
+- **P1-17** Pénalités no-show clients — table `client_penalites`, seuil configurable par boulangerie, blocage automatique, déblocage admin avec audit ✅ *(v4.8)*
+- **P1-18** Auth migration `orders/[id]` — migré vers `getBoulangerSession()` + `canAccess()` (employés peuvent gérer les commandes), ajout paramètre `raison` ✅ *(v4.8)*
+- **P1-19** Achat flash atomique — `POST /api/paniers/[slug]/acheter` avec RPC transactionnelle, décrémentation atomique, création commande `type='anti_gaspi'`, email + push ✅ *(v4.8)*
+- **P1-20** UI gestion clients — composant `gestion-clients.tsx` intégré dans la page commandes, liste pénalités, déblocage avec note, filtres ✅ *(v4.8)*
+- **P1-21** Flash réservation en ligne — `flash-section.tsx` transformé de "add to cart" à achat direct avec confirmation, gestion erreurs stock épuisé ✅ *(v4.8)*
+- **P1-22** Liaison flash ↔ stock — `orders/route.ts` et `flash/route.ts` vérifient mutuellement les allocations flash et C&C pour empêcher la double-vente ✅ *(v4.8)*
+- **P1-23** Roll-over automatique invendus — Clôture journée (`journee/route.ts` PUT) reporte automatiquement les produits conservables (duree_conservation > 1j) vers J+1 avec flag `est_reporte` anti-chaînage ✅ *(v4.8)*
+- **P1-24** Statut `non_recuperee` natif — Migration SQL, types TS, mappings UI corrigés : `non_recuperee` est un vrai statut DB (plus de mapping local `annulee`) ✅ *(v4.8)*
+- **P1-25** Restauration stock flash — Annulation ou non-récupération d'une commande `anti_gaspi` restaure `quantite_restante` dans `paniers_flash` ✅ *(v4.8)*
 
 ### Détail P1-7 — Pourquoi les images ne chargeaient pas côté client
 
@@ -157,16 +167,16 @@ Fichiers à créer :
 
 ### 3.1 Court Terme — Avant Beta (< 2 semaines)
 
-**Notifications push commandes temps réel**
+~~**Notifications push commandes temps réel**~~ ✅ Effectué (v4.6)
 
-L'infra push est prête mais le trigger sur `/api/orders` manque.
-- Dans `POST /api/orders` : déclencher `fetch` vers `/api/notifications/send` après insertion
-- Payload : `titre '🛒 Nouvelle commande — X€', url '/boulanger/commandes'`
+~~**Email bienvenue post-inscription**~~ ✅ Effectué (v4.6)
 
-**Email bienvenue post-inscription**
-
-Aucun email envoyé après `register`. Taux d'activation probablement faible.
-- Envoyer via Resend en fin de `POST /api/boulanger/auth?action=register`
+**Commandes — Disponibilité & No-Show** ✅ Effectué (v4.8)
+- Vérification stock à la commande (production - réservé)
+- Système pénalités no-show avec seuil configurable
+- Déblocage admin avec audit log
+- Achat flash en ligne atomique (RPC transactionnelle)
+- UI gestion clients intégrée page commandes
 
 **Page pricing publique (`/pricing`)**
 
@@ -415,4 +425,39 @@ npm run test:report   # Rapport HTML
 
 ---
 
-*Mis à jour le 29 mars 2026 (v4.7) — Pagination historique, ESLint réactivé, N+1 équipe corrigé, 30 composants + fichiers .md nettoyés, toutes les routes migrées vers getBoulangerSession*
+### 3.5 Corrections critiques v4.8 — Intégrité Stock & Statuts
+
+5 corrections apportées pour garantir la cohérence du modèle de stock et des statuts commandes :
+
+| # | Sévérité | Problème | Solution |
+|---|---|---|---|
+| P1-22 | 🔴 CRITIQUE | Paniers flash et stocks_journaliers indépendants → double-vente possible | `orders/route.ts` soustrait les allocations flash du stock disponible ; `flash/route.ts` valide contre les réservations C&C |
+| P1-23 | 🟠 IMPORTANT | Pas de roll-over automatique des invendus à la clôture | `journee/route.ts` PUT insère les produits conservables (duree_conservation > 1j) dans J+1 avec `est_reporte=true` |
+| P1-24 | 🟠 BUG | `non_recuperee` existait uniquement côté UI, DB stockait `annulee` | Migration SQL ajoute le statut, types TS et mappings UI corrigés |
+| P1-25 | 🟠 BUG | Stock flash non restauré à l'annulation d'une commande anti_gaspi | `orders/[id]/route.ts` incrémente `quantite_restante` dans paniers_flash |
+
+**Modèle de stock corrigé :**
+```
+disponible = production + report_veille - réservé_C&C - alloué_flash
+```
+
+### 3.6 Pistes d'amélioration — Post v4.8
+
+| Suggestion | Priorité | Description |
+|---|---|---|
+| **Email avertissement no-show** | 🟠 Moyen | Envoyer un email au client quand `nb_non_recupere` atteint `seuil - 1` (dernier avertissement avant blocage) |
+| **Paiement en ligne flash (Stripe)** | 🔴 P0 | Intégrer Stripe Checkout pour les paniers flash — réservation gratuite actuelle → paiement à la commande |
+| **Historique pénalités** | 🟡 Faible | Table `penalite_historique` avec timestamp de chaque incident (aujourd'hui on ne garde que le compteur) |
+| **Timer réservation flash** | 🟠 Moyen | Expiration automatique des réservations flash non récupérées après 30min (libère le stock) |
+| **Quantité par produit flash** | 🟡 Faible | Permettre au client de choisir la quantité par produit (aujourd'hui = 1 de chaque) |
+| **Stock temps réel Realtime** | 🟡 Faible | Utiliser Supabase Realtime sur `paniers_flash` pour mettre à jour les quantités sans polling |
+| **Tests E2E commandes** | 🟠 Moyen | Ajouter des tests Playwright pour le flow commande + stock check + pénalité + flash achat |
+| **Dashboard stats pénalités** | 🟡 Faible | Widget dans le dashboard supervision montrant le taux de no-show par période |
+| **Roll-over configurable** | 🟡 Faible | Permettre au boulanger de choisir quels produits sont reportables (override par produit vs `duree_conservation`) |
+| **Alerte stock bas temps réel** | 🟠 Moyen | Push notification au boulanger quand un produit tombe sous un seuil de stock (ex: < 3 unités restantes) |
+| **Réconciliation stock flash/C&C** | 🟡 Faible | Cron job vérifiant quotidiennement la cohérence entre `paniers_flash.quantite_restante` et les commandes `anti_gaspi` |
+| **Historique roll-over** | 🟡 Faible | Traçabilité des reports (quel produit, quelle quantité, de quelle journée) pour audit qualité |
+
+---
+
+*Mis à jour le 29 mars 2026 (v4.8) — Stock check commandes, pénalités no-show, achat flash atomique, auth migration orders/[id], UI gestion clients, liaison flash↔stock, roll-over automatique, statut non_recuperee natif, restauration stock flash*

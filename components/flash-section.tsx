@@ -5,9 +5,11 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, Clock, X, ShoppingBag, Package, Info, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Zap, Clock, X, ShoppingBag, Package, Info, ChevronRight, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { useFlashPaniers } from '@/hooks/use-flash-paniers';
 import { useCart } from '@/context/cart-context';
+import { useSlug } from '@/hooks/use-slug';
+import { supabase } from '@/lib/supabase';
 
 // ── Types étendus (alignés avec la nouvelle fonction SQL) ─────
 
@@ -83,14 +85,20 @@ function ModalePanier({
   heureFin,
   timeLeft,
   onClose,
-  onAddToCart,
+  onPurchase,
+  purchasing,
+  purchaseOk,
+  purchaseError,
 }: {
-  invendus:    InvenduItem[];
-  remise:      number;
-  heureFin:    number;
-  timeLeft:    string;
-  onClose:     () => void;
-  onAddToCart: () => void;
+  invendus:      InvenduItem[];
+  remise:        number;
+  heureFin:      number;
+  timeLeft:      string;
+  onClose:       () => void;
+  onPurchase:    () => void;
+  purchasing:    boolean;
+  purchaseOk:    boolean;
+  purchaseError: string | null;
 }) {
   const totalOriginal = invendus.reduce((s, p) => s + p.prixOriginal, 0);
   const totalFlash    = invendus.reduce((s, p) => s + p.prixFlash,    0);
@@ -254,24 +262,41 @@ function ModalePanier({
             <div className="flex items-start gap-2 bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl px-3 py-2.5">
               <Info size={13} className="text-[#C19A6B] flex-shrink-0 mt-0.5" />
               <p className="text-white/45 text-xs leading-relaxed">
-                Paiement sur place uniquement · Pas de réservation ·
-                Premier arrivé, premier servi
+                Réservation en ligne · Paiement sur place ·
+                Retrait avant la fermeture du flash
               </p>
             </div>
           </div>
 
           {/* Footer CTA */}
-          <div className="flex-shrink-0 px-5 pb-5 pt-3 border-t border-white/8">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={onAddToCart}
-              className="w-full bg-gradient-to-r from-[#8B4513] to-[#C19A6B] hover:from-[#C19A6B] hover:to-[#8B4513] text-white py-3.5 rounded-2xl font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2"
-            >
-              <ShoppingBag size={16} />
-              Ajouter au panier — {totalFlash.toFixed(2)}€
-              <ChevronRight size={14} />
-            </motion.button>
+          <div className="flex-shrink-0 px-5 pb-5 pt-3 border-t border-white/8 space-y-2">
+            {purchaseError && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 flex items-center gap-2">
+                <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />
+                <p className="text-red-300 text-xs">{purchaseError}</p>
+              </div>
+            )}
+            {purchaseOk ? (
+              <div className="bg-green-500/15 border border-green-500/25 rounded-2xl py-3.5 flex items-center justify-center gap-2">
+                <Check size={16} className="text-green-400" />
+                <span className="text-green-400 font-bold text-sm">Commande confirmée !</span>
+              </div>
+            ) : (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={onPurchase}
+                disabled={purchasing}
+                className="w-full bg-gradient-to-r from-[#8B4513] to-[#C19A6B] hover:from-[#C19A6B] hover:to-[#8B4513] text-white py-3.5 rounded-2xl font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {purchasing ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <ShoppingBag size={16} />
+                )}
+                {purchasing ? 'Réservation...' : `Réserver mon panier — ${totalFlash.toFixed(2)}€`}
+              </motion.button>
+            )}
           </div>
         </motion.div>
       </motion.div>
@@ -282,9 +307,13 @@ function ModalePanier({
 // ── Composant principal ───────────────────────────────────────
 
 export default function FlashSection() {
-  const { data, loading }                 = useFlashPaniers();
-  const { addItem, user, setIsAuthOpen }  = useCart();
+  const { data, loading, refetch }        = useFlashPaniers();
+  const { user, setIsAuthOpen }           = useCart();
+  const resolution                         = useSlug();
   const [modaleOuverte, setModaleOuverte] = useState(false);
+  const [purchasing,    setPurchasing]    = useState(false);
+  const [purchaseOk,    setPurchaseOk]    = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
   const { flashActif, heureDebut, heureFin, remise, nbPaniers } = data;
 
@@ -293,22 +322,50 @@ export default function FlashSection() {
 
   const { timeLeft, isLive } = useCountdown(heureDebut, heureFin);
 
-  const handleAddToCart = () => {
+  const handlePurchase = async () => {
     if (!user) {
       setIsAuthOpen(true);
       setModaleOuverte(false);
       return;
     }
-    const totalFlash = invendus.reduce((s, p) => s + p.prixFlash, 0);
-    addItem({
-      id:          `panier-flash-${Date.now()}`,
-      name:        `Panier Anti-Gaspi ⚡`,
-      description: invendus.map(p => p.nom).join(', '),
-      category:    'patisserie',
-      price:       parseFloat(totalFlash.toFixed(2)),
-      image:       '/products/Croissant.png',
-    });
-    setModaleOuverte(false);
+
+    if (!resolution?.slug) return;
+
+    setPurchasing(true);
+    setPurchaseError(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setIsAuthOpen(true);
+        return;
+      }
+
+      const res = await fetch(`/api/paniers/${resolution.slug}/acheter`, {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ panier_complet: true }),
+      });
+
+      if (res.ok) {
+        setPurchaseOk(true);
+        refetch(); // Rafraîchir les quantités
+        setTimeout(() => {
+          setModaleOuverte(false);
+          setPurchaseOk(false);
+        }, 2500);
+      } else {
+        const err = await res.json().catch(() => ({ error: 'Erreur inconnue' })) as { error?: string };
+        setPurchaseError(err.error ?? 'Erreur lors de l\'achat');
+      }
+    } catch {
+      setPurchaseError('Erreur réseau');
+    } finally {
+      setPurchasing(false);
+    }
   };
 
   if (loading) {
@@ -471,7 +528,7 @@ export default function FlashSection() {
             className="w-full bg-white/15 hover:bg-white/25 border border-white/20 text-white font-bold py-3 rounded-2xl text-sm transition-all flex items-center justify-center gap-2"
           >
             <ShoppingBag size={15} />
-            Voir le panier du soir · détail + allergènes
+            Réserver mon panier · détail + allergènes
             <ChevronRight size={14} />
           </motion.button>
         </div>
@@ -484,8 +541,11 @@ export default function FlashSection() {
           remise={remise}
           heureFin={heureFin}
           timeLeft={timeLeft}
-          onClose={() => setModaleOuverte(false)}
-          onAddToCart={handleAddToCart}
+          onClose={() => { setModaleOuverte(false); setPurchaseError(null); }}
+          onPurchase={handlePurchase}
+          purchasing={purchasing}
+          purchaseOk={purchaseOk}
+          purchaseError={purchaseError}
         />
       )}
     </>

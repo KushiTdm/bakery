@@ -5,13 +5,44 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle, Loader2, Save, Bell,
   MapPin, Clock, Zap, Plus, X, Building2,
-  Download, Shield, AlertTriangle,
+  Download, Shield, AlertTriangle, Globe,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
 import PushNotificationToggle from './push-notification-toggle';
 
 // ── Types profil ──────────────────────────────────────────────
+
+const TIMEZONES: { label: string; value: string }[] = [
+  { label: 'Paris (UTC+1/+2)',         value: 'Europe/Paris' },
+  { label: 'Londres (UTC+0/+1)',        value: 'Europe/London' },
+  { label: 'Berlin (UTC+1/+2)',         value: 'Europe/Berlin' },
+  { label: 'Madrid (UTC+1/+2)',         value: 'Europe/Madrid' },
+  { label: 'Rome (UTC+1/+2)',           value: 'Europe/Rome' },
+  { label: 'New York (UTC-5/-4)',       value: 'America/New_York' },
+  { label: 'Chicago (UTC-6/-5)',        value: 'America/Chicago' },
+  { label: 'Denver (UTC-7/-6)',         value: 'America/Denver' },
+  { label: 'Los Angeles (UTC-8/-7)',    value: 'America/Los_Angeles' },
+  { label: 'Bogotá (UTC-5)',            value: 'America/Bogota' },
+  { label: 'Lima (UTC-5)',              value: 'America/Lima' },
+  { label: 'Santiago (UTC-4/-3)',       value: 'America/Santiago' },
+  { label: 'São Paulo (UTC-3)',         value: 'America/Sao_Paulo' },
+  { label: 'Buenos Aires (UTC-3)',      value: 'America/Buenos_Aires' },
+  { label: 'Mexico City (UTC-6/-5)',    value: 'America/Mexico_City' },
+  { label: 'Montréal (UTC-5/-4)',       value: 'America/Montreal' },
+  { label: 'Toronto (UTC-5/-4)',        value: 'America/Toronto' },
+  { label: 'Vancouver (UTC-8/-7)',      value: 'America/Vancouver' },
+  { label: 'Casablanca (UTC+1)',        value: 'Africa/Casablanca' },
+  { label: 'Tunis (UTC+1)',             value: 'Africa/Tunis' },
+  { label: 'Abidjan (UTC+0)',           value: 'Africa/Abidjan' },
+  { label: 'Dubai (UTC+4)',             value: 'Asia/Dubai' },
+  { label: 'Beyrouth (UTC+2/+3)',       value: 'Asia/Beirut' },
+  { label: 'Tokyo (UTC+9)',             value: 'Asia/Tokyo' },
+  { label: 'Shanghai (UTC+8)',          value: 'Asia/Shanghai' },
+  { label: 'Singapour (UTC+8)',         value: 'Asia/Singapore' },
+  { label: 'Sydney (UTC+10/+11)',       value: 'Australia/Sydney' },
+  { label: 'Auckland (UTC+12/+13)',     value: 'Pacific/Auckland' },
+];
 
 interface ProfilComplet {
   id:            string;
@@ -28,6 +59,7 @@ interface ProfilComplet {
   flash_heure_fin:   number;
   flash_remise_pct:  number;
   creneaux_retrait:  string[];
+  timezone:          string;
 }
 
 // ── Composant Section ─────────────────────────────────────────
@@ -229,6 +261,9 @@ export default function Parametres() {
   const [codePostal, setCodePostal] = useState('');
   const [telephone,  setTelephone]  = useState('');
 
+  // Section Timezone
+  const [timezone, setTimezone] = useState('Europe/Paris');
+
   // Section Flash
   const [flashDebut,  setFlashDebut]  = useState(18);
   const [flashFin,    setFlashFin]    = useState(20);
@@ -271,6 +306,7 @@ export default function Parametres() {
       setFlashFin(data.flash_heure_fin ?? 20);
       setFlashRemise(data.flash_remise_pct ?? 40);
       setCreneaux(data.creneaux_retrait ?? ['08:00', '09:00', '10:00']);
+      setTimezone(data.timezone ?? 'Europe/Paris');
     } finally {
       setLoading(false);
     }
@@ -402,6 +438,47 @@ export default function Parametres() {
             onClick={() => saveSection('adresse', { adresse, ville, code_postal: codePostal || null, telephone: telephone || null })}
             saving={saving}
             saved={saved === 'adresse'}
+          />
+        </div>
+      </Section>
+
+      {/* ── Timezone ─────────────────────────────────────────── */}
+      <Section title="Fuseau horaire" icon={Globe}>
+        <p className="text-white/35 text-xs mb-3 leading-relaxed">
+          Définit le "aujourd'hui" utilisé pour les commandes, stocks et rapports.
+          Changez-le si vous gérez votre boulangerie depuis un autre pays.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="text-white/40 text-xs uppercase tracking-wider block mb-1.5">
+              Fuseau horaire de la boulangerie
+            </label>
+            <select
+              value={timezone}
+              onChange={e => setTimezone(e.target.value)}
+              className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-[#C19A6B]/50 transition-colors appearance-none"
+            >
+              {TIMEZONES.map(tz => (
+                <option key={tz.value} value={tz.value}>{tz.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl px-4 py-3">
+            <p className="text-[#C19A6B]/80 text-xs">
+              Heure locale actuelle :{' '}
+              <strong>
+                {new Date().toLocaleTimeString('fr-FR', { timeZone: timezone, hour: '2-digit', minute: '2-digit' })}
+              </strong>
+              {' '}· Date :{' '}
+              <strong>
+                {new Intl.DateTimeFormat('fr-FR', { timeZone: timezone, day: '2-digit', month: 'long' }).format(new Date())}
+              </strong>
+            </p>
+          </div>
+          <SaveButton
+            onClick={() => saveSection('timezone', { timezone })}
+            saving={saving}
+            saved={saved === 'timezone'}
           />
         </div>
       </Section>
