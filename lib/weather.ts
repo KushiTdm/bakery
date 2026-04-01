@@ -161,51 +161,177 @@ export async function fetchMeteo(
 // ── Impact météo sur la consommation (expertise boulangerie) ──
 // Basé sur des études de comportement client en boulangerie
 
+// Impact météo par catégorie de produit — basé sur études de consommation boulangerie FR
+export interface ImpactParCategorie {
+  boulangerie:  string;  // pains
+  viennoiserie: string;
+  patisserie:   string;
+  sandwich:     string;
+}
+
 export function analyserImpactMeteo(meteo: MeteoComplet): {
-  impact_global:    string;
-  conseils:         string[];
-  facteur_trafic:   string;  // "+10-15%", "-5%", "stable", etc.
+  impact_global:       string;
+  conseils:            string[];
+  facteur_trafic:      string;
+  impact_par_categorie: ImpactParCategorie;
 } {
   const { actuelle, demain } = meteo;
   const conseils: string[] = [];
   let facteur = 'stable';
+  const impact_cat: ImpactParCategorie = {
+    boulangerie:  'stable',
+    viennoiserie: 'stable',
+    patisserie:   'stable',
+    sandwich:     'stable',
+  };
 
-  // ── Pluie / mauvais temps → impact positif boulangerie ───
-  const pluieDemain = demain.precip_mm > 2 || [51,53,55,61,63,65,80,81,82,95,96,99].includes(demain.code_meteo);
+  // Classification météo demain
+  const pluieLegere = demain.precip_mm > 0.5 && demain.precip_mm <= 5;
+  const pluieForte  = demain.precip_mm > 5 || [65,82,95,96,99].includes(demain.code_meteo);
+  const pluieDemain = pluieLegere || pluieForte;
+  const orageDemain = [95,96,99].includes(demain.code_meteo);
+  const neigeLegere = [71].includes(demain.code_meteo);
+  const neigeForte  = [73,75].includes(demain.code_meteo);
   const soleilDemain = [0,1].includes(demain.code_meteo);
-  const froidDemain = demain.temp_max_c < 12;
-  const chaudDemain = demain.temp_max_c > 26;
+  const tempDoux = demain.temp_max_c >= 15 && demain.temp_max_c <= 22;
+  const froidDemain = demain.temp_max_c < 5;
+  const fraisDemain = demain.temp_max_c >= 5 && demain.temp_max_c < 12;
+  const chaudDemain = demain.temp_max_c >= 26 && demain.temp_max_c < 30;
+  const caniculeDemain = demain.temp_max_c >= 30;
+  const ventFort = actuelle.vitesse_vent_kmh > 40;
 
-  if (pluieDemain) {
-    facteur = '+10 à +20%';
-    conseils.push(`${demain.icone} Pluie prévue demain (${demain.precip_mm}mm) → les clients restent dedans. Viennoiseries et pains chauds en hausse, prévoir +15% sur viennoiserie.`);
-    conseils.push('Préparer plus de chocolatines, croissants et pains chauds — la pluie augmente la demande de réconfort.');
+  // ── Pluie légère à modérée ────────────────────────────────
+  if (pluieLegere && !pluieForte) {
+    facteur = 'fréquentation -8-12%, panier moyen en hausse';
+    impact_cat.boulangerie  = 'neutre';
+    impact_cat.viennoiserie = '+10-15% (réconfort)';
+    impact_cat.patisserie   = 'neutre à +5%';
+    impact_cat.sandwich     = '-10%';
+    conseils.push(`${demain.icone} Pluie légère (${demain.precip_mm}mm) — fréquentation en baisse mais compensée par panier moyen plus élevé. Les clients achètent "plus en une fois" pour éviter de ressortir.`);
+    conseils.push('Hausse viennoiseries réconfort +10-15%. Réduire les sandwichs froids.');
   }
-  if (soleilDemain && !froidDemain) {
-    facteur = '-5 à +5%';
-    conseils.push(`${demain.icone} Beau temps prévu — les clients sont pressés. Favoriser les formats emporter (sandwichs, viennoiseries individuelles).`);
+
+  // ── Pluie forte / orage ───────────────────────────────────
+  if (pluieForte || orageDemain) {
+    facteur = '-25 à -40% fréquentation';
+    impact_cat.boulangerie  = '+5% (achats de base rapides)';
+    impact_cat.viennoiserie = '+10% (réconfort)';
+    impact_cat.patisserie   = '-10%';
+    impact_cat.sandwich     = '-25% (gens restent chez eux)';
+    conseils.push(`⛈️ Pluie forte/orage prévus (${demain.precip_mm}mm) — forte baisse de passage -25-40%. Réduire la production globale de 20%.`);
+    conseils.push('Ceux qui viennent ont une vraie intention d\'achat. Hausse baguette. Sandwichs fortement délaissés.');
+    conseils.push('Prévoir paniers flash dès 17h — risque d\'invendu élevé.');
   }
+
+  // ── Vent fort ─────────────────────────────────────────────
+  if (ventFort) {
+    conseils.push(`💨 Vent fort (${actuelle.vitesse_vent_kmh} km/h) — fréquentation -10-15%, surtout personnes âgées et familles avec enfants. Peu d'impact sur les types de produits achetés.`);
+    if (facteur === 'stable') facteur = '-10-15%';
+  }
+
+  // ── Soleil doux (15-22°C) — MEILLEURE MÉTÉO ──────────────
+  if (soleilDemain && tempDoux) {
+    facteur = '+15% achats d\'impulsion';
+    impact_cat.boulangerie  = 'neutre';
+    impact_cat.viennoiserie = 'neutre';
+    impact_cat.patisserie   = '+15% (achats spontanés)';
+    impact_cat.sandwich     = '+15-20% (pique-niques, parcs)';
+    conseils.push(`${demain.icone} Soleil doux (${demain.temp_max_c}°C) — meilleure météo pour la boulangerie ! Les gens flânent, achats d'impulsion +15%.`);
+    conseils.push('Préparer plus de sandwichs (pique-niques) et pâtisseries individuelles. Bonne journée toutes catégories.');
+  }
+
+  // ── Soleil + frais (sans froid intense) ───────────────────
+  if (soleilDemain && !tempDoux && fraisDemain) {
+    facteur = '+5%';
+    impact_cat.viennoiserie = '+10%';
+    conseils.push(`${demain.icone} Beau temps frais (${demain.temp_max_c}°C) — bonne fréquentation. Légère hausse viennoiseries.`);
+  }
+
+  // ── Chaleur (26-30°C) ─────────────────────────────────────
+  if (chaudDemain && !caniculeDemain) {
+    facteur = '-5 à -10% global';
+    impact_cat.boulangerie  = '-5% (pains denses)';
+    impact_cat.viennoiserie = '-10% (produits gras)';
+    impact_cat.patisserie   = '-10% (produits lourds)';
+    impact_cat.sandwich     = '+10% (produits frais légers)';
+    conseils.push(`🌡️ Chaleur (${demain.temp_max_c}°C) — réduire pains de campagne, ciabattas, pains spéciaux lourds.`);
+    conseils.push('Favoriser sandwichs frais et produits légers. Désaffection créneau 12h-16h.');
+  }
+
+  // ── Canicule (>30°C) ──────────────────────────────────────
+  if (caniculeDemain) {
+    facteur = '-10 à -20% global, creux 12h-16h';
+    impact_cat.boulangerie  = '-10% (pains denses)';
+    impact_cat.viennoiserie = '-15-20% (gras = repoussoir)';
+    impact_cat.patisserie   = '-15% (lourdes)';
+    impact_cat.sandwich     = '+5% (sandwichs frais uniquement)';
+    conseils.push(`🥵 CANICULE (${demain.temp_max_c}°C) — Impact négatif global. Baisse appétit produits lourds. Effondrement 12h-16h.`);
+    conseils.push('Réduire fortement production pains campagne, viennoiseries grasses. Miser sur produits légers.');
+    conseils.push('Risque d\'invendu important en fin de journée. Activer paniers flash tôt (dès 14h si samedi).');
+  }
+
+  // ── Froid intense (<5°C) ──────────────────────────────────
   if (froidDemain) {
-    conseils.push(`🌡️ Froid prévu (max ${demain.temp_max_c}°C) → augmenter les pains de mie, brioches et viennoiseries chaudes.`);
-    if (!pluieDemain) facteur = '+5 à +10%';
+    facteur = '+5-10% global, +20% viennoiseries';
+    impact_cat.boulangerie  = '+5% (baguette)';
+    impact_cat.viennoiserie = '+20% (réconfort chaud)';
+    impact_cat.patisserie   = 'neutre';
+    impact_cat.sandwich     = '-10%';
+    conseils.push(`🥶 Froid intense (max ${demain.temp_max_c}°C) — hausse viennoiseries chaudes +20% : chocolatines, croissants chauds, pains briochés.`);
+    conseils.push('Les gens veulent du chaud et du réconfort. Augmenter production viennoiseries.');
   }
-  if (chaudDemain) {
-    conseils.push(`🌡️ Chaleur prévue (max ${demain.temp_max_c}°C) → réduire les viennoiseries lourdes, favoriser baguettes et produits légers.`);
-    facteur = '-5 à -10% sur viennoiserie';
+
+  // ── Froid modéré (5-12°C) ─────────────────────────────────
+  if (fraisDemain && !froidDemain && !soleilDemain) {
+    impact_cat.viennoiserie = '+10%';
+    conseils.push(`🌡️ Frais (${demain.temp_max_c}°C) — légère hausse viennoiseries chaudes.`);
+  }
+
+  // ── Neige légère ──────────────────────────────────────────
+  if (neigeLegere) {
+    facteur = 'neutre à +10% (ambiance)';
+    impact_cat.viennoiserie = '+15-20% (réconfort)';
+    conseils.push('❄️ Neige légère — ambiance appréciée, enfants dehors. Hausse réconfort et viennoiseries +15-20%.');
+  }
+
+  // ── Neige forte ───────────────────────────────────────────
+  if (neigeForte) {
+    facteur = '-40 à -60% fréquentation';
+    impact_cat.boulangerie  = '+10% (achats de précaution, pains gros grammage)';
+    impact_cat.viennoiserie = '+10% (réconfort)';
+    impact_cat.patisserie   = '-20%';
+    impact_cat.sandwich     = '-30%';
+    conseils.push('🌨️ NEIGE FORTE — Effondrement fréquentation -40-60%. Réduire production fortement.');
+    conseils.push('La boulangerie reste "commerce essentiel" — les clients qui viennent achètent des pains de précaution (gros pains, pain de mie).');
   }
 
   // ── Humidité → impact sur conservation ───────────────────
   if (actuelle.humidite_pct > 75) {
-    conseils.push(`💧 Humidité élevée (${actuelle.humidite_pct}%) — les pains ramollissent plus vite. Étaler la cuisson en 2 fournées plutôt qu'une seule.`);
+    conseils.push(`💧 Humidité élevée (${actuelle.humidite_pct}%) — les pains ramollissent plus vite. Privilégier plusieurs petites fournées pour garantir le croustillant.`);
   }
 
-  const impact_global = pluieDemain
-    ? `Journée favorable pour la boulangerie (pluie prévue ${demain.icone})`
-    : soleilDemain && chaudDemain
-      ? `Beau temps chaud — adapter la production vers les produits légers ${demain.icone}`
-      : froidDemain
-        ? `Temps froid — privilégier les produits chauds et réconfortants ${demain.icone}`
-        : `Conditions météo standard ${demain.icone}`;
+  // ── Brouillard ────────────────────────────────────────────
+  if ([45,48].includes(demain.code_meteo)) {
+    conseils.push('🌫️ Brouillard prévu — circulation ralentie, fréquentation décalée. Rush matinal étalé sur 7h30-10h.');
+  }
 
-  return { impact_global, conseils, facteur_trafic: facteur };
+  const impact_global = pluieForte || orageDemain
+    ? `Journée difficile (pluie forte/orage ${demain.icone}) — réduire production, prévoir flash anti-gaspi`
+    : pluieLegere
+      ? `Pluie légère — hausse réconfort, panier moyen en hausse ${demain.icone}`
+      : neigeForte
+        ? `Neige forte — réduire fortement la production ${demain.icone}`
+        : neigeLegere
+          ? `Neige légère — ambiance positive, hausse viennoiseries ${demain.icone}`
+          : caniculeDemain
+            ? `CANICULE — réduire produits lourds, miser sur le frais ${demain.icone}`
+            : chaudDemain
+              ? `Chaleur — adapter vers produits légers ${demain.icone}`
+              : froidDemain
+                ? `Froid intense — viennoiseries chaudes +20%, réconfort ${demain.icone}`
+                : soleilDemain && tempDoux
+                  ? `Conditions idéales — meilleure météo pour la boulangerie ${demain.icone}`
+                  : `Conditions météo standard ${demain.icone}`;
+
+  return { impact_global, conseils, facteur_trafic: facteur, impact_par_categorie: impact_cat };
 }

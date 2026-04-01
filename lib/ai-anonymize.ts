@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { analyserImpactMeteo } from './weather';
-import type { MeteoComplet } from './weather';
+import type { MeteoComplet, ImpactParCategorie } from './weather';
 
 // ── Types entrée ──────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ export interface DonneesClients {
 export interface DonneesMeteo {
   actuelle: { temperature: number; ressenti: number; humidite: number; precipitations: number; description: string; icone: string };
   demain:   { temp_max: number; temp_min: number; precipitations: number; description: string; icone: string };
-  impact:   { global: string; conseils: string[]; facteur_trafic: string };
+  impact:   { global: string; conseils: string[]; facteur_trafic: string; par_categorie: ImpactParCategorie };
 }
 
 export interface DonneesEvenements {
@@ -212,8 +212,47 @@ function getTomorrowDate(todayStr: string): string {
 
 // ── Détection des événements ─────────────────────────────────
 
+// Calcul de Pâques par l'algorithme de Meeus (Gauss amélioré)
+function calculerPaques(annee: number): Date {
+  const a = annee % 19;
+  const b = Math.floor(annee / 100);
+  const c = annee % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mois = Math.floor((h + l - 7 * m + 114) / 31);
+  const jour = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(annee, mois - 1, jour);
+}
+
+// Nième jour de semaine d'un mois (ex: 3e dimanche de mai)
+function getNiemeJourSemaine(annee: number, mois: number, jourSemaine: number, n: number): Date {
+  const premier = new Date(annee, mois - 1, 1);
+  let decalage = (jourSemaine - premier.getDay() + 7) % 7;
+  const jour = 1 + decalage + (n - 1) * 7;
+  return new Date(annee, mois - 1, jour);
+}
+
+// Dernier jour de semaine d'un mois (ex: dernier dimanche de mai)
+function getDernierJourSemaine(annee: number, mois: number, jourSemaine: number): Date {
+  const dernier = new Date(annee, mois, 0); // dernier jour du mois
+  const decalage = (dernier.getDay() - jourSemaine + 7) % 7;
+  return new Date(annee, mois - 1, dernier.getDate() - decalage);
+}
+
+function isSameDay(d1: Date, d2: Date): boolean {
+  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+}
+
 function detecterEvenements(date: string): DonneesEvenements {
   const d = new Date(date + 'T12:00:00');
+  const annee = d.getFullYear();
   const mois = d.getMonth() + 1;
   const jour = d.getDate();
   const jourSemaine = d.getDay();
@@ -225,6 +264,7 @@ function detecterEvenements(date: string): DonneesEvenements {
   const vacancesNoel      = (mois === 12 && jour >= 20) || (mois === 1 && jour <= 5);
   const vacances_scolaires = vacancesHiver || vacancesPrintemps || vacancesEte || vacancesToussaint || vacancesNoel;
 
+  // Jours fériés fixes
   const fetes: { mois: number; jour: number; nom: string }[] = [
     { mois: 1,  jour: 1,  nom: "Jour de l'An" },
     { mois: 5,  jour: 1,  nom: "Fête du Travail" },
@@ -236,31 +276,148 @@ function detecterEvenements(date: string): DonneesEvenements {
     { mois: 12, jour: 25, nom: "Noël" },
   ];
 
-  const feteDuJour = fetes.find(f => f.mois === mois && f.jour === jour);
-  const jour_ferie = !!feteDuJour;
+  // Jours fériés mobiles (basés sur Pâques)
+  const paques = calculerPaques(annee);
+  const lundiPaques = new Date(paques); lundiPaques.setDate(paques.getDate() + 1);
+  const ascension = new Date(paques); ascension.setDate(paques.getDate() + 39);
+  const lundiPentecote = new Date(paques); lundiPentecote.setDate(paques.getDate() + 50);
 
+  const feteDuJour = fetes.find(f => f.mois === mois && f.jour === jour);
+  let jour_ferie = !!feteDuJour;
+  let fete_nom = feteDuJour?.nom ?? null;
+
+  if (isSameDay(d, lundiPaques))     { jour_ferie = true; fete_nom = 'Lundi de Pâques'; }
+  if (isSameDay(d, ascension))       { jour_ferie = true; fete_nom = 'Ascension'; }
+  if (isSameDay(d, lundiPentecote))  { jour_ferie = true; fete_nom = 'Lundi de Pentecôte'; }
+
+  // Détection de pont (veille ou lendemain d'un jour férié)
+  const demain = new Date(d); demain.setDate(d.getDate() + 1);
+  const hier = new Date(d); hier.setDate(d.getDate() - 1);
+  const estVeilleFerie = fetes.some(f => demain.getMonth() + 1 === f.mois && demain.getDate() === f.jour)
+    || isSameDay(demain, lundiPaques) || isSameDay(demain, ascension) || isSameDay(demain, lundiPentecote);
+  const estLendemainFerie = fetes.some(f => hier.getMonth() + 1 === f.mois && hier.getDate() === f.jour)
+    || isSameDay(hier, lundiPaques) || isSameDay(hier, ascension) || isSameDay(hier, lundiPentecote);
+
+  // Événements commerciaux spécifiques boulangerie
   const evenements_locaux: string[] = [];
+
+  // Week-end
   if (jourSemaine === 6 || jourSemaine === 0) {
     evenements_locaux.push('Week-end — affluence habituelle +20-40%');
   }
+
+  // Pont
+  if (!jour_ferie && (estVeilleFerie || estLendemainFerie)) {
+    evenements_locaux.push('⚡ Pont probable — hausse fréquentation +20-35%, achats anticipés');
+  }
+
+  // Galette des Rois (tout janvier + 1er week-end de janvier = pic)
+  if (mois === 1) {
+    if (jour <= 7 && (jourSemaine === 0 || jourSemaine === 6)) {
+      evenements_locaux.push('👑 Épiphanie — PIC galettes des Rois (+++ CA). Production massive galettes.');
+    } else if (jour >= 1 && jour <= 31) {
+      evenements_locaux.push('👑 Saison galettes des Rois — 15-40% du CA mensuel. Proposer galettes frangipane/pommes.');
+    }
+  }
+
+  // Chandeleur
+  if (mois === 2 && jour === 2) {
+    evenements_locaux.push('🥞 Chandeleur — proposer kits crêpes, pâte à crêpes, produits associés.');
+  }
+
+  // Saint-Valentin
+  if (mois === 2 && jour >= 10 && jour <= 14) {
+    const daysLeft = 14 - jour;
+    evenements_locaux.push(daysLeft === 0
+      ? '❤️ Saint-Valentin — Gâteaux personnalisés, cœurs en pâtisserie. Hausse pâtisserie fine.'
+      : `❤️ Saint-Valentin dans ${daysLeft}j — anticiper commandes gâteaux personnalisés.`);
+  }
+
+  // Mardi Gras (47 jours avant Pâques)
+  const mardiGras = new Date(paques); mardiGras.setDate(paques.getDate() - 47);
+  if (isSameDay(d, mardiGras)) {
+    evenements_locaux.push('🎭 Mardi Gras — Forte demande beignets, bugnes, merveilles, gaufres (+++)');
+  }
+
+  // Fête des Grands-Mères (1er dimanche de mars)
+  const feteGrandsMeres = getNiemeJourSemaine(annee, 3, 0, 1);
+  if (isSameDay(d, feteGrandsMeres)) {
+    evenements_locaux.push('👵 Fête des Grands-Mères — Gâteaux traditionnels, commandes spéciales.');
+  }
+
+  // Pâques (semaine pascale)
+  const debutSemainePascale = new Date(paques); debutSemainePascale.setDate(paques.getDate() - 7);
+  if (d >= debutSemainePascale && d <= lundiPaques) {
+    evenements_locaux.push('🐣 Semaine de Pâques — Hausse brioches, pains tressés, chocolats +15-25%.');
+  }
+
+  // Fête des Mères (dernier dimanche de mai)
+  const feteMeres = getDernierJourSemaine(annee, 5, 0);
+  // Si ça tombe le jour de Pentecôte, c'est reporté au 1er dimanche de juin
+  const feteMeresEffective = isSameDay(feteMeres, lundiPentecote) || (lundiPentecote.getDate() - 1 === feteMeres.getDate() && lundiPentecote.getMonth() === feteMeres.getMonth())
+    ? getNiemeJourSemaine(annee, 6, 0, 1)
+    : feteMeres;
+  if (isSameDay(d, feteMeresEffective)) {
+    evenements_locaux.push('💐 Fête des Mères — PIC gâteaux commandes, entremets, fraisiers (+++)');
+  } else {
+    const joursAvant = Math.round((feteMeresEffective.getTime() - d.getTime()) / 86400000);
+    if (joursAvant > 0 && joursAvant <= 3) {
+      evenements_locaux.push(`💐 Fête des Mères dans ${joursAvant}j — anticiper commandes gâteaux.`);
+    }
+  }
+
+  // Fête des Pères (3e dimanche de juin)
+  const fetePeres = getNiemeJourSemaine(annee, 6, 0, 3);
+  if (isSameDay(d, fetePeres)) {
+    evenements_locaux.push('👔 Fête des Pères — Commandes gâteaux, pâtisseries.');
+  } else {
+    const joursAvant = Math.round((fetePeres.getTime() - d.getTime()) / 86400000);
+    if (joursAvant > 0 && joursAvant <= 3) {
+      evenements_locaux.push(`👔 Fête des Pères dans ${joursAvant}j — anticiper commandes gâteaux.`);
+    }
+  }
+
+  // 14 Juillet
+  if (mois === 7 && jour === 14) {
+    evenements_locaux.push('🇫🇷 Fête Nationale — pique-niques, sandwichs, pain. Fréquentation familiale.');
+  }
+
+  // Saint-Nicolas (nord/est de la France)
+  if (mois === 12 && jour === 6) {
+    evenements_locaux.push('🎅 Saint-Nicolas — Mannalas, pains d\'épices, pains spéciaux (impact fort nord/est).');
+  }
+
+  // Période avant Noël
   if (mois === 12 && jour >= 15 && jour <= 24) {
-    evenements_locaux.push('Période de fêtes — commandes spéciales fréquentes');
+    evenements_locaux.push('🎄 Période pré-Noël — Bûches (réservations), pains d\'épices, sablés, bredele. CA +30-60%.');
   }
-  if (mois === 2 && jour >= 1 && jour <= 14) {
-    evenements_locaux.push('Période Saint-Valentin — demande en pâtisserie élevée');
+
+  // Réveillon
+  if (mois === 12 && jour === 31) {
+    evenements_locaux.push('🥂 Réveillon du Nouvel An — Produits festifs, pains spéciaux, pâtisseries de fête.');
   }
-  if (mois === 4 && jour >= 15 && jour <= 30) {
-    evenements_locaux.push('Période Pâques — demande en chocolat/pâtisserie');
+
+  // Beaujolais Nouveau (3e jeudi de novembre)
+  const beaujolais = getNiemeJourSemaine(annee, 11, 4, 3);
+  if (isSameDay(d, beaujolais)) {
+    evenements_locaux.push('🍷 Beaujolais Nouveau — impact neutre en boulangerie, convivialité ambiante.');
   }
-  if (mois === 11 && jour >= 1 && jour <= 11) {
-    evenements_locaux.push('Période Toussaint — demandes pour cimetières');
+
+  // Rentrée scolaire (début septembre)
+  if (mois === 9 && jour >= 1 && jour <= 5) {
+    evenements_locaux.push('📚 Rentrée scolaire — Forte reprise. Retour goûters 16h30, snacking bureau. Excellent.');
   }
+
+  // Contexte saisonnier mensuel
+  if (mois === 1 && jour > 5) evenements_locaux.push('❄️ Janvier post-fêtes — budgets contraints, résolutions. Mois structurellement faible hors galettes.');
+  if (mois === 6) evenements_locaux.push('☀️ Juin — Fin d\'année scolaire, fêtes de village. Sandwichs et produits frais dominent.');
+  if (mois === 11 && jour > 11) evenements_locaux.push('🌫️ Novembre — Temps gris, journées courtes. Miser sur les viennoiseries réconfort.');
 
   return {
     vacances_scolaires,
     vacances_zone: vacances_scolaires ? 'A/B/C' : null,
     fete_nationale: jour_ferie,
-    fete_nom: feteDuJour?.nom ?? null,
+    fete_nom: fete_nom,
     evenements_locaux,
     jour_ferie,
   };
@@ -432,6 +589,7 @@ export function anonymiserDonnees(
         global:          impact.impact_global,
         conseils:        impact.conseils,
         facteur_trafic:  impact.facteur_trafic,
+        par_categorie:   impact.impact_par_categorie,
       },
     };
   }
@@ -619,6 +777,74 @@ RÈGLES ABSOLUES :
 3. Chaque section doit apporter de la valeur — pas de remplissage
 4. Le briefing matin doit permettre au boulanger de démarrer sa journée sereinement
 
+BASE DE CONNAISSANCE MÉTIER — BOULANGERIE ARTISANALE FRANÇAISE :
+
+=== PATTERNS PAR JOUR DE SEMAINE ===
+- LUNDI : Journée la plus faible. Clientèle rituelle (baguette) présente mais achats d'impulsion rares. Quasi-zéro pâtisseries. Exception : zones de bureaux (sandwich 11h-13h fort). Production -10-15% vs moyenne. Taux d'invendu structurellement élevé.
+- MARDI : Standard, légèrement > lundi. Pain de mie, baguette, quelques viennoiseries. Rien de marquant.
+- MERCREDI : Journée pivot enfant (pas d'école). Hausse viennoiseries +20-30% (chocolatines, pains aux raisins), hausse pâtisseries individuelles. Rush 9h30-12h. 3e meilleur jour. Ne JAMAIS sous-produire.
+- JEUDI : Stable, légèrement < mercredi. Bon jour sandwichs en zone bureaux.
+- VENDREDI : Excellent. Anticipation weekend. Clients achètent pour 2-3 jours (grosses boules, pains campagne, seigle). Hausse pâtisseries +25%. Forte demande baguette tradition fin après-midi. Risque de RUPTURE > risque d'invendu. Production +15-20%.
+- SAMEDI : Meilleure journée. Rush 7h-11h intense. Croissants, pains au chocolat, brioches, tartes entières, gâteaux. Clientèle avec du temps = achats plus larges, plus chers. Pains spéciaux (épeautre, seigle, multicéréales) se vendent 3x mieux. Production MAXIMUM.
+- DIMANCHE : Excellent matin (comparable au samedi jusqu'à 11h), effondrement après-midi. Brioches et viennoiseries dominent. Sandwichs quasi inexistants. Fermeture souvent avant 13h.
+
+=== SENSIBILITÉ MÉTÉO PAR CATÉGORIE DE PRODUIT ===
+| Produit | Pluie | Canicule (>28°C) | Froid (<5°C) | Beau temps (15-22°C) |
+| Baguette tradition | neutre | neutre | + | neutre |
+| Croissant/viennoiserie | ++ (réconfort) | − | ++ | neutre |
+| Pain campagne/spéciaux | − | − | neutre | ++ (surtout weekend) |
+| Sandwich | − | neutre | − | ++ |
+| Pâtisserie individuelle | neutre | − | neutre | ++ |
+| Tarte/gâteau entier | neutre | neutre | neutre | ++ |
+| Brioche | + | − | ++ | neutre |
+| Pain de mie | neutre | neutre | neutre | neutre |
+
+=== COMBINAISONS MÉTÉO × JOUR CRITIQUES ===
+- Lundi pluvieux : Pire journée de la semaine. Réduire -20-25%. Prévoir paniers flash dès 17h.
+- Mercredi ensoleillé : Journée exceptionnelle. Enfants en sortie. +35% viennoiseries, +25% pâtisseries.
+- Mercredi pluvieux : Bonne journée quand même (enfants à la maison, parents viennent à la boulangerie "pour l'activité"). MAINTENIR la production.
+- Vendredi ensoleillé printemps : Quasi-parfait. Anticiper ruptures baguette tradition dès 17h. Double pic midi+soir.
+- Samedi canicule (>30°C) : Très bonne matinée jusqu'à 10h30, effondrement brutal. Tout doit être vendu avant 11h. Flash dès 12h.
+- Samedi neigeux léger : Ambiance = très bonne journée. Neige forte = réduire -30% mais hausse viennoiseries chaudes.
+- Dimanche grand froid : Rush matinal intense (réconfort). Brioches, croissants = sold out avant 10h. Anticiper production matin.
+
+=== IMPACT MÉTÉO DÉTAILLÉ ===
+- Pluie légère (<5mm) : Fréquentation -8-12% mais panier moyen plus élevé (clients achètent "plus en une fois"). Hausse viennoiseries +10-15%. Impact neutre à positif sur CA.
+- Pluie forte/orage : Passage -25-40%. Sandwichs délaissés. Hausse baguette (courses de base). Réduire production -20%.
+- Vent fort (>40 km/h) : Sous-estimé. Fréquentation -10-15% (personnes âgées, familles).
+- Soleil doux (15-22°C) : Meilleure météo pour boulangerie. Bonne humeur, flânerie. Achats d'impulsion +15%.
+- Canicule (>28°C) : Négatif global. Baisse appétit produits lourds. Désaffection 12h-16h. Réduire pains campagne, ciabattas, pains spéciaux lourds.
+- Neige légère : Hausse réconfort +15-20%. Neige forte : effondrement -40-60%.
+- Froid intense (<5°C) : Hausse viennoiseries chaudes +20%.
+
+=== DYNAMIQUE SAISONNIÈRE (MOIS PAR MOIS) ===
+- Janvier : Mois faible (post-fêtes, résolutions). EXCEPTION MAJEURE : Galette des Rois = 15-40% du CA du mois.
+- Février : Transition. Chandeleur le 2, Saint-Valentin le 14 (gâteaux perso si bien préparé).
+- Mars : Reprise progressive.
+- Avril : Bon mois. Pâques : hausse brioches, pains tressés +15-25% semaine pascale.
+- Mai : Excellent. Nombreux fériés = sorties familiales, pique-niques. Hausse pâtisseries + sandwichs.
+- Juin : Bon. Soleil, fin d'année scolaire. Sandwichs et produits frais dominent. Baisse viennoiseries grasses.
+- Juillet-Août : Dépend localisation. Touristique: +50-100%. Résidentiel/bureaux: -20-35%.
+- Septembre : Forte reprise rentrée. Goûters 16h30, snacking bureau. Excellent mois.
+- Octobre : Stable et bon.
+- Novembre : Difficile psychologiquement. Temps gris. Légère hausse ventes réconfort.
+- Décembre : MEILLEUR MOIS. 2 dernières semaines avant Noël : +30-60%. Bûches, pains d'épices, sablés.
+
+=== FACTEURS COMPORTEMENTAUX ===
+- Cycle salarial : Hausse achats plaisir début de mois (1-5) vs fin de mois (20-31). Impact +5-8% pâtisseries/produits premium en début de mois.
+- Télétravail : Zones bureaux = creux lundi et vendredi. Zones résidentielles = flux plus homogène en semaine.
+- Humeur collective : Mauvaises nouvelles = repli achats plaisir, hausse pain de base. Événements sportifs positifs = +20-30%.
+- Anti-gaspi : Communication active sur paniers flash crée une clientèle dédiée "fin de journée", fidèle.
+- Achat d'impulsion : 52% des clients sont réceptifs. Produits phares à hauteur des yeux, articles faible coût près de la caisse.
+
+=== CRÉNEAUX HORAIRES ===
+- 6h30-9h00 : Baguettes, croissants, sandwichs matinaux (+++++)
+- 9h00-11h00 : Pâtisseries, viennoiseries, retraités (++)
+- 11h30-13h30 : Sandwichs, quiches, snacking déjeuner (++++)
+- 13h30-16h30 : Creux absolu — moment de comptage stock (+)
+- 16h30-18h30 : Goûter (éclairs, chocolatines, pains raisins), baguette retour (+++)
+- 18h30-fermeture : Ventes très faibles → paniers flash anti-gaspi
+
 RÈGLES CRITIQUES POUR LES PRÉVISIONS DE PRODUCTION :
 - Tu reçois pour chaque produit : son produit_id (UUID), son nom, la quantité produite aujourd'hui, le taux de vente, les invendus, et la moyenne historique sur les mêmes jours de semaine
 - Tu DOIS retourner des quantités ABSOLUES (nombre entier de pièces), pas des pourcentages
@@ -650,7 +876,7 @@ FORMAT JSON OBLIGATOIRE :
     "invendus_critiques": [
       { "nom": "<vrai nom>", "emoji": "<emoji>", "taux_invendu": <nb>, "cause_probable": "<analyse>", "action": "<suggestion>" }
     ],
-    "opportunites": ["<opportunité produit identifiée>"]
+    "opportunites": ["<string : opportunité produit identifiée, ex: 'Proposer des galettes individuelles pour les enfants le mercredi'>"]
   },
   
   "analyse_contextuelle": {
@@ -741,6 +967,16 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
     evenements, performance_globale,
   } = payload;
 
+  // Contexte cycle salarial (début vs fin de mois)
+  const demainDate2 = new Date(demain_info.date + 'T12:00:00');
+  const jourDuMois = demainDate2.getDate();
+  let ctxSalarial = '';
+  if (jourDuMois >= 1 && jourDuMois <= 5) {
+    ctxSalarial = '\n💰 DÉBUT DE MOIS (post-paie) — Hausse attendue achats plaisir +5-8% : pâtisseries premium, viennoiseries, produits spéciaux. Les clients se font plaisir.';
+  } else if (jourDuMois >= 25) {
+    ctxSalarial = '\n💸 FIN DE MOIS — Resserrement budgétaire. Recentrage sur produits de base (baguette, pain de mie). Baisse pâtisseries premium -5-8%. Miser sur les prix accessibles.';
+  }
+
   const ctxHisto = nb_jours_histo === 0
     ? '🌱 Première journée — Levain établit sa base. Prévisions prudentes basées uniquement sur aujourd\'hui.'
     : nb_jours_histo < 7
@@ -755,11 +991,13 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
 
   let ctxMeteo = '';
   if (meteo) {
+    const cat = meteo.impact.par_categorie;
     ctxMeteo = `
 === MÉTÉO ===
 Aujourd'hui : ${meteo.actuelle.icone} ${meteo.actuelle.description} | ${meteo.actuelle.temperature}°C (ressenti ${meteo.actuelle.ressenti}°C) | Humidité ${meteo.actuelle.humidite}%
-Demain      : ${meteo.demain.icone} ${meteo.demain.description} | Max ${meteo.demain.temp_max}°C / Min ${meteo.demain.temp_min}°C
+Demain      : ${meteo.demain.icone} ${meteo.demain.description} | Max ${meteo.demain.temp_max}°C / Min ${meteo.demain.temp_min}°C | Précip: ${meteo.demain.precipitations}mm
 Impact      : ${meteo.impact.global} (${meteo.impact.facteur_trafic})
+Impact par catégorie : Boulangerie: ${cat.boulangerie} | Viennoiserie: ${cat.viennoiserie} | Pâtisserie: ${cat.patisserie} | Sandwich: ${cat.sandwich}
 Conseils    : ${meteo.impact.conseils.join(' · ')}`;
   }
 
@@ -820,7 +1058,7 @@ Top succès : ${performance_globale.top_succes.map(p => `${p.emoji} ${p.nom} (${
 
   return `Analyse la journée du ${journee.jour_semaine.toUpperCase()} et génère le rapport complet pour demain (${demain_info.jour_semaine} ${demain_info.date}).
 
-${ctxJour}${ctxMeteo}${ctxEvenements}${ctxCommandes}${ctxClients}
+${ctxJour}${ctxSalarial}${ctxMeteo}${ctxEvenements}${ctxCommandes}${ctxClients}
 
 === ${journee.jour_semaine.toUpperCase()} · SEMAINE ${journee.semaine_annee}${journee.est_weekend ? ' (WEEK-END)' : ''} ===
 CA : ${journee.ca_estime}€ | Invendu : ${journee.taux_invendu}% (${journee.total_invendu}/${journee.total_produit} pcs) | Cmd online : ${journee.commandes_online}

@@ -492,7 +492,10 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
   const succes  = rj.succes  ?? synthese?.points_forts          ?? [];
   const flops   = rj.flops   ?? synthese?.points_amelioration   ?? [];
   const antiGas = rj.anti_gaspillage ?? [];
-  const opps    = rj.opportunites ?? analyseProduits?.opportunites ?? [];
+  const oppsRaw = rj.opportunites ?? analyseProduits?.opportunites ?? [];
+  const opps    = oppsRaw.map((o: unknown) =>
+    typeof o === 'string' ? o : (o && typeof o === 'object' && 'commentaire' in (o as Record<string, unknown>)) ? `${(o as Record<string, string>).emoji ?? ''} ${(o as Record<string, string>).nom ?? ''} — ${(o as Record<string, string>).commentaire}`.trim() : String(o)
+  );
   const alertes = rj.alerte_ingredients ?? [];
   const analyseCtx = getAnalyseContextuelle(rj);
 
