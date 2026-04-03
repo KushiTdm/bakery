@@ -250,7 +250,9 @@ ${boulangerie.nom}
     `.trim();
 
     // 8. Envoi via Resend (avec 1 retry automatique)
-    const fromAddress = `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr'}>`;
+    const fromAddress = process.env.RESEND_FROM_DOMAIN
+      ? `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN}>`
+      : 'onboarding@resend.dev';
     const emailPayload = { from: fromAddress, to: data.client_email, subject, html: htmlContent, text: textContent };
 
     let emailResult: { id?: string } | null = null;

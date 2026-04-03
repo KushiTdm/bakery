@@ -41,6 +41,11 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
     {
+      name: 'stock',
+      testDir: './tests/stock',
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
+    },
+    {
       name: 'e2e',
       testDir: './tests/e2e',
       use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },

@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
             'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
           },
           body: JSON.stringify({
-            from:    `BakeryOS <noreply@${process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr'}>`,
+            from:    process.env.RESEND_FROM_DOMAIN ? `BakeryOS <noreply@${process.env.RESEND_FROM_DOMAIN}>` : 'onboarding@resend.dev',
             to:      [email],
             subject: `Invitation à rejoindre l'équipe BakeryOS`,
             html:    buildInviteEmail(inviteUrl, role, appUrl),

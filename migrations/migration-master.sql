@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS boulangeries (
   slug                     TEXT        UNIQUE NOT NULL,
   email_contact            TEXT,
   plan                     TEXT        NOT NULL DEFAULT 'starter'
-                           CHECK (plan IN ('starter', 'pro', 'multi')),
+                           CHECK (plan IN ('starter', 'pro', 'multi', 'trial')),
   actif                    BOOLEAN     DEFAULT TRUE,
   adresse                  TEXT        DEFAULT NULL,
   ville                    TEXT        DEFAULT NULL,
@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS boulangeries (
   longitude                NUMERIC(9,6),
   pays                     TEXT        NOT NULL DEFAULT 'FR',
   tour_completed_at        TIMESTAMPTZ DEFAULT NULL,
+  onboarding_completed_at  TIMESTAMPTZ DEFAULT NULL,
   stripe_customer_id       TEXT,
   stripe_subscription_id   TEXT,
   trial_ends_at            TIMESTAMPTZ,
@@ -110,6 +111,7 @@ ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS latitude               NUMERIC
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS longitude              NUMERIC(9,6);
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS pays                   TEXT        NOT NULL DEFAULT 'FR';
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS tour_completed_at      TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ DEFAULT NULL;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS stripe_customer_id     TEXT;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS trial_ends_at          TIMESTAMPTZ;
@@ -1074,6 +1076,19 @@ BEGIN
 END;
 $$;
 
+-- 16b. FONCTIONS ONBOARDING
+-- ────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION complete_onboarding()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_id UUID;
+BEGIN
+  SELECT id INTO v_id FROM boulangeries WHERE user_id = auth.uid() LIMIT 1;
+  IF v_id IS NULL THEN RAISE EXCEPTION 'Boulangerie introuvable'; END IF;
+  UPDATE boulangeries SET onboarding_completed_at = NOW() WHERE id = v_id;
+END;
+$$;
+
 -- ────────────────────────────────────────────────────────────────────────
 -- 17. STORAGE — Bucket photos produits
 -- ────────────────────────────────────────────────────────────────────────
@@ -1538,6 +1553,139 @@ END;
 $$;
 
 -- ────────────────────────────────────────────────────────────────────────
+-- 25b. RPC ATOMIQUE : VÉRIFICATION STOCK COMMANDE C&C
+-- ────────────────────────────────────────────────────────────────────────
+-- Vérifie la disponibilité du stock pour une commande Click & Collect
+-- de manière atomique (SELECT FOR SHARE sur stocks_journaliers).
+--
+-- Résout 3 bugs :
+--   1. Race condition : le verrou empêche deux commandes simultanées
+--      de lire le même état "avant" et de dépasser le stock.
+--   2. Bypass sans journée : la RPC RAISE si aucune journée n'existe.
+--   3. Matching par produit_id : plus de contournement par nom modifié.
+--
+-- Retourne TRUE si le stock est suffisant.
+-- RAISE EXCEPTION si stock insuffisant ou journée absente.
+-- ────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION verifier_stock_commande(
+  p_boulangerie_id   UUID,
+  p_date             DATE,
+  p_lignes           JSONB,  -- [{produit_id, produit_nom, quantite, prix_unitaire}, ...]
+  p_timezone         TEXT DEFAULT 'Europe/Paris',
+  p_client_prenom    TEXT DEFAULT NULL,
+  p_client_email     TEXT DEFAULT NULL,
+  p_client_telephone TEXT DEFAULT NULL,
+  p_heure_retrait    TIME DEFAULT NULL,
+  p_notes            TEXT DEFAULT NULL,
+  p_montant_total    NUMERIC DEFAULT NULL
+) RETURNS UUID LANGUAGE plpgsql AS $$
+DECLARE
+  v_journee_id     UUID;
+  v_ligne          JSONB;
+  v_produit_id     TEXT;
+  v_produit_nom    TEXT;
+  v_quantite       INT;
+  v_production     INT;
+  v_report         INT;
+  v_total_prod     INT;
+  v_reserved_cc    INT;
+  v_reserved_flash INT;
+  v_disponible     INT;
+  v_indisponibles  TEXT := '';
+  v_day_start      TIMESTAMPTZ;
+  v_day_end        TIMESTAMPTZ;
+  v_commande_id    UUID;
+BEGIN
+  -- Bornes de la journée en tenant compte du timezone de la boulangerie
+  v_day_start := (p_date::TEXT || ' 00:00:00')::TIMESTAMP AT TIME ZONE p_timezone;
+  v_day_end   := ((p_date + 1)::TEXT || ' 00:00:00')::TIMESTAMP AT TIME ZONE p_timezone;
+
+  -- 1. Vérifier qu'une journée existe
+  SELECT id INTO v_journee_id
+  FROM journees
+  WHERE boulangerie_id = p_boulangerie_id
+    AND date = p_date;
+
+  IF v_journee_id IS NULL THEN
+    RAISE EXCEPTION 'La production du jour n''a pas encore été saisie.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 2. Pour chaque ligne de la commande
+  FOR v_ligne IN SELECT * FROM jsonb_array_elements(p_lignes) LOOP
+    v_produit_id  := v_ligne->>'produit_id';
+    v_produit_nom := v_ligne->>'produit_nom';
+    v_quantite    := (v_ligne->>'quantite')::INT;
+
+    -- 3. Lire la production avec verrou exclusif (sérialise les transactions concurrentes)
+    SELECT COALESCE(sj.production, 0), COALESCE(sj.report_veille, 0)
+    INTO v_production, v_report
+    FROM stocks_journaliers sj
+    WHERE sj.journee_id = v_journee_id
+      AND sj.produit_id = v_produit_id
+    FOR UPDATE;
+
+    -- Si le produit n'est pas dans la production du jour → refus
+    IF NOT FOUND THEN
+      v_indisponibles := v_indisponibles
+        || v_produit_nom || ' : produit non disponible aujourd''hui|';
+      CONTINUE;
+    END IF;
+
+    v_total_prod := v_production + v_report;
+
+    -- 4. Calculer les réservations C&C actives (par produit_id dans les lignes JSONB)
+    SELECT COALESCE(SUM((l->>'quantite')::INT), 0) INTO v_reserved_cc
+    FROM commandes c,
+         jsonb_array_elements(c.lignes) AS l
+    WHERE c.boulangerie_id = p_boulangerie_id
+      AND c.created_at >= v_day_start
+      AND c.created_at <  v_day_end
+      AND c.statut IN ('en_attente', 'confirmee', 'prete', 'recuperee')
+      AND l->>'produit_id' = v_produit_id;
+
+    -- 5. Calculer les réservations flash (quantite_initiale entière)
+    SELECT COALESCE(SUM(quantite_initiale), 0) INTO v_reserved_flash
+    FROM paniers_flash
+    WHERE boulangerie_id = p_boulangerie_id
+      AND date = p_date
+      AND produit_id = v_produit_id
+      AND actif = TRUE;
+
+    -- 6. Vérifier la disponibilité
+    v_disponible := v_total_prod - v_reserved_cc - v_reserved_flash;
+
+    IF v_quantite > v_disponible THEN
+      v_indisponibles := v_indisponibles
+        || v_produit_nom || ' : '
+        || GREATEST(v_disponible, 0) || ' disponible(s), '
+        || v_quantite || ' demandé(s)|';
+    END IF;
+  END LOOP;
+
+  -- 7. Si des produits sont indisponibles → erreur
+  IF v_indisponibles <> '' THEN
+    RAISE EXCEPTION 'Stock insuffisant|%', v_indisponibles
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- 8. Stock OK → insérer la commande dans la même transaction (atomique)
+  IF p_client_prenom IS NOT NULL THEN
+    INSERT INTO commandes (
+      boulangerie_id, client_prenom, client_email, client_telephone,
+      heure_retrait, notes, montant_total, statut, lignes
+    ) VALUES (
+      p_boulangerie_id, p_client_prenom, p_client_email, p_client_telephone,
+      p_heure_retrait, p_notes, p_montant_total, 'en_attente', p_lignes
+    ) RETURNING id INTO v_commande_id;
+  END IF;
+
+  RETURN v_commande_id;
+END;
+$$;
+
+-- ────────────────────────────────────────────────────────────────────────
 -- 26. VÉRIFICATION FINALE
 -- ────────────────────────────────────────────────────────────────────────
 
@@ -1568,12 +1716,13 @@ BEGIN
        'update_updated_at','set_updated_at',
        'update_push_subscription_timestamp','update_meteo_updated_at',
        'get_catalogue_public','get_paniers_flash',
-       'complete_tour','reset_tour',
+       'complete_tour','reset_tour','complete_onboarding',
        'check_boulanger_access','get_current_user_access',
        'get_team_members','count_active_members',
        'cleanup_expired_invites','get_employee_boulangerie_id',
        'check_and_increment_levain_quota','get_levain_quota',
-       'acheter_paniers_flash'
+       'acheter_paniers_flash',
+       'verifier_stock_commande'
      );
 
   SELECT COUNT(*) INTO n_bucket

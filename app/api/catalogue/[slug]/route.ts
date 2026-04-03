@@ -19,6 +19,11 @@ interface ProduitPublic {
   image_url:   string | null;
 }
 
+interface StockInfo {
+  produit_id: string;
+  disponible: number;
+}
+
 function toProduct(p: ProduitPublic) {
   const imageDefaults: Record<string, string> = {
     boulangerie:  '/products/BaguetteTradition.jpg',
@@ -79,7 +84,7 @@ export async function GET(
       supabase.rpc('get_catalogue_public', { p_slug: slug }),
       admin
         .from('boulangeries')
-        .select('nom, adresse, ville, code_postal, telephone, creneaux_retrait, flash_heure_debut, flash_heure_fin, flash_remise_pct')
+        .select('nom, adresse, ville, code_postal, telephone, creneaux_retrait, flash_heure_debut, flash_heure_fin, flash_remise_pct, timezone')
         .eq('slug', slug)
         .eq('actif', true)
         .single(),
@@ -90,7 +95,8 @@ export async function GET(
       return NextResponse.json({ error: 'Erreur catalogue' }, { status: 500 });
     }
 
-    const products = (catalogueResult.data as ProduitPublic[] ?? []).map(toProduct);
+    const rawProducts = (catalogueResult.data as ProduitPublic[] ?? []);
+    const products = rawProducts.map(toProduct);
 
     const d = boulangerieResult.data;
     const boulangeriePublic = d ? {
@@ -102,8 +108,105 @@ export async function GET(
       creneaux_retrait: d.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
     } : null;
 
+    // ── Enrichir avec la disponibilité stock du jour ──────────
+    const stockMap: Record<string, number> = {};
+    let hasStock = false;
+
+    if (d) {
+      const tz = (boulangerieResult.data as Record<string, unknown>)?.timezone as string ?? 'Europe/Paris';
+      const todayLocal = new Date().toLocaleDateString('sv-SE', { timeZone: tz });
+
+      // Bornes UTC de la journée locale
+      const now = new Date();
+      const localStr = now.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+      const localAsUtc = new Date(localStr + 'Z');
+      const tzOffsetMs = localAsUtc.getTime() - now.getTime();
+      const dayStartUtc = new Date(new Date(`${todayLocal}T00:00:00Z`).getTime() - tzOffsetMs).toISOString();
+      const dayEndUtc = new Date(new Date(`${todayLocal}T00:00:00Z`).getTime() - tzOffsetMs + 86400000).toISOString();
+
+      // Chercher la boulangerie_id et la journée du jour
+      const { data: boul } = await admin
+        .from('boulangeries')
+        .select('id')
+        .eq('slug', slug)
+        .single();
+
+      if (boul) {
+        const { data: journee } = await admin
+          .from('journees')
+          .select('id')
+          .eq('boulangerie_id', boul.id)
+          .eq('date', todayLocal)
+          .single();
+
+        if (journee) {
+          // Production du jour
+          const { data: stocks } = await admin
+            .from('stocks_journaliers')
+            .select('produit_id, production, report_veille')
+            .eq('journee_id', journee.id);
+
+          if (stocks && stocks.length > 0) {
+            hasStock = true;
+            const prodTotal: Record<string, number> = {};
+            for (const s of stocks) {
+              prodTotal[s.produit_id] = (s.production ?? 0) + (s.report_veille ?? 0);
+            }
+
+            // Réservations par commandes actives + récupérées (par produit_id)
+            const { data: activeOrders } = await admin
+              .from('commandes')
+              .select('lignes')
+              .eq('boulangerie_id', boul.id)
+              .gte('created_at', dayStartUtc)
+              .lt('created_at', dayEndUtc)
+              .in('statut', ['en_attente', 'confirmee', 'prete', 'recuperee']);
+
+            const reservedById: Record<string, number> = {};
+            if (activeOrders) {
+              for (const order of activeOrders) {
+                const lignes = (order.lignes ?? []) as Array<{ produit_id?: string; produit_nom: string; quantite: number }>;
+                for (const l of lignes) {
+                  if (l.produit_id) {
+                    reservedById[l.produit_id] = (reservedById[l.produit_id] ?? 0) + l.quantite;
+                  }
+                }
+              }
+            }
+
+            // Réservations flash
+            const { data: flashPaniers } = await admin
+              .from('paniers_flash')
+              .select('produit_id, quantite_initiale')
+              .eq('boulangerie_id', boul.id)
+              .eq('date', todayLocal)
+              .eq('actif', true);
+
+            const flashById: Record<string, number> = {};
+            if (flashPaniers) {
+              for (const fp of flashPaniers) {
+                flashById[fp.produit_id] = (flashById[fp.produit_id] ?? 0) + (fp.quantite_initiale ?? 0);
+              }
+            }
+
+            // Calculer le disponible par produit
+            for (const [pid, total] of Object.entries(prodTotal)) {
+              const reserved = (reservedById[pid] ?? 0) + (flashById[pid] ?? 0);
+              stockMap[pid] = Math.max(0, total - reserved);
+            }
+          }
+        }
+      }
+    }
+
+    // Ajouter stock aux produits
+    const productsWithStock = products.map(p => ({
+      ...p,
+      ...(hasStock ? { stock: stockMap[p.id] ?? 0, en_stock: (stockMap[p.id] ?? 0) > 0 } : {}),
+    }));
+
     return NextResponse.json(
-      { success: true, source: 'supabase', products, boulangerie: boulangeriePublic },
+      { success: true, source: 'supabase', products: productsWithStock, boulangerie: boulangeriePublic, hasStock },
       { headers: NO_CACHE_HEADERS }
     );
   } catch (err) {

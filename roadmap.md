@@ -1,9 +1,9 @@
 # 🥖 BakeryOS — Roadmap & Plan de Mise en Production
-*Version 4.9 — Mise à jour 30 mars 2026*
+*Version 5.1 — Mise à jour 2 avril 2026*
 
 ---
 
-## Score de Maturité Produit — 98 / 100
+## Score de Maturité Produit — 99 / 100
 
 ---
 
@@ -11,7 +11,8 @@
 
 | Fichier | Rôle | Statut |
 |---|---|---|
-| `migrations/migration-master.sql` | **Migration consolidée v5.0** — schema complet (16 tables, 17 fonctions, RLS, storage) | ✅ À utiliser |
+| `migrations/migration-master.sql` | **Migration consolidée v5.1** — schema complet (16 tables, 18 fonctions, RLS, storage) | ✅ À utiliser |
+| `migrations/migration_onboarding_add_on.sql` | **Add-on onboarding** — colonne `onboarding_completed_at`, CHECK plan 'trial', RPC `complete_onboarding()` | ✅ Pour bases existantes |
 | `migrations/seed.sql` | Données de démonstration — à exécuter APRÈS migration-master | ✅ Séparé |
 | `migrations/migration-complete.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
 | `migrations/migration-p2-improvements.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
@@ -20,17 +21,17 @@
 | `migrations/migration-forecasts-fourchette-v2.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
 | `migrations/002_commandes_penalites_flash.sql` | ~~Archive~~ — intégré dans migration-master | ⚠️ Archivé |
 
-> **Déploiement production** : exécuter uniquement `migration-master.sql` puis `seed.sql` si données de démo souhaitées. Les fichiers archivés peuvent être supprimés après validation.
+> **Déploiement production** : exécuter uniquement `migration-master.sql` puis `seed.sql` si données de démo souhaitées. Pour les bases existantes, exécuter `migration_onboarding_add_on.sql` pour ajouter le support onboarding. Les fichiers archivés peuvent être supprimés après validation.
 
 ---
 
 | Dimension | Score | État | Commentaire |
 |---|---|---|---|
-| Core Produit & IA Levain | 99/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user, JSON IA robuste, stock check, achat flash |
+| Core Produit & IA Levain | 100/100 | ✅ Complet | Workflow, briefings, prévisions, multi-user, JSON IA robuste, stock check, achat flash, **base connaissance métier injectée** |
 | Architecture & Sécurité | 98/100 | ✅ Complet | Headers HTTP, CSP, soft delete, magic bytes, AbortController saves, ESLint clean |
-| Monétisation & Stripe | 20/100 | 🔴 Bloquant | Checkout absent, plans non facturés |
+| Monétisation & Stripe | 75/100 | 🟢 Landing intégrée | Checkout Stripe via landing, webhooks, trial 14j, activation compte |
 | Infrastructure Prod | 60/100 | 🟠 À compléter | DNS wildcard, monitoring, SMTP |
-| Onboarding & UX | 88/100 | ✅ Solide | Tour guidé, wizard catalogue, CatalogueStarter |
+| Onboarding & UX | 95/100 | ✅ Complet | Tour guidé, wizard catalogue, CatalogueStarter, **onboarding wizard 3 étapes**, activation compte |
 | Feature Gate (plans) | 70/100 | 🟢 Corrigé | Quota Levain implémenté, filtrage Starter actif |
 | Tests & Qualité | 85/100 | ✅ Complet | 130+ tests E2E + unitaires, RBAC couvert, CI/CD configuré |
 
@@ -121,6 +122,89 @@ BYPASS_RATE_LIMIT=false
 
 ---
 
+## 0. IA Levain v2 — Enrichissement majeur (1er avril 2026)
+
+Refonte complète de la base de connaissance Levain à partir de 5 rapports d'analyse de patterns de consommation (Claude, ChatGPT, Gemini, Grok, Perplexity).
+
+### Fichiers modifiés
+
+| Fichier | Changement |
+|---|---|
+| `lib/ai-anonymize.ts` | System prompt enrichi avec base de connaissance métier complète, détection événements étendue, contexte cycle salarial, impact météo par catégorie |
+| `lib/weather.ts` | `analyserImpactMeteo()` retourne maintenant un `impact_par_categorie` (boulangerie/viennoiserie/pâtisserie/sandwich) avec 10 types de conditions météo |
+| `components/boulanger/vue-rapport-ia.tsx` | Sécurité : normalisation des `opportunites` (objet → string) si l'IA ne respecte pas le format attendu |
+
+### Détail des améliorations
+
+#### 1. Base de connaissance métier injectée dans le system prompt
+
+| Catégorie | Contenu |
+|---|---|
+| **Patterns jour/semaine** | 7 profils détaillés (lundi le plus faible → samedi production max, mercredi pivot enfant) |
+| **Sensibilité météo × produit** | Matrice croisée : 8 produits × 4 conditions (pluie, canicule, froid, beau temps) |
+| **Combinaisons météo × jour** | 7 cas critiques (lundi pluvieux = pire, mercredi ensoleillé = top, samedi canicule, etc.) |
+| **Impact météo détaillé** | 8 types avec chiffres : pluie légère (-8-12% fréquentation, panier moyen ↑), orage (-25-40%), vent fort (-10-15%), etc. |
+| **Saisonnalité mensuelle** | 12 mois avec dynamique (janvier faible sauf galettes, décembre +30-60%, juillet-août selon localisation) |
+| **Facteurs comportementaux** | Cycle salarial (début +5-8% vs fin de mois), télétravail, humeur collective, anti-gaspi |
+| **Créneaux horaires** | 6 tranches avec intensité et produits dominants |
+
+#### 2. Détection d'événements enrichie (`detecterEvenements()`)
+
+| Ajout | Détection |
+|---|---|
+| **Jours fériés mobiles** | Lundi de Pâques, Ascension, Pentecôte (calcul dynamique via algorithme de Meeus) |
+| **Ponts** | Veille/lendemain de férié détectés automatiquement |
+| **Galette des Rois** | Tout janvier + pic Épiphanie (1er weekend) |
+| **Chandeleur** | 2 février |
+| **Saint-Valentin** | 10-14 février avec compte à rebours J-X |
+| **Mardi Gras** | Calculé dynamiquement (47j avant Pâques) |
+| **Fête des Grands-Mères** | 1er dimanche de mars |
+| **Semaine de Pâques** | Pâques - 7j à lundi de Pâques |
+| **Fête des Mères** | Dernier dimanche de mai (avec report si Pentecôte) + anticipation J-3 |
+| **Fête des Pères** | 3e dimanche de juin + anticipation J-3 |
+| **Saint-Nicolas** | 6 décembre (nord/est) |
+| **Beaujolais Nouveau** | 3e jeudi de novembre |
+| **Rentrée scolaire** | 1-5 septembre |
+| **Contexte saisonnier** | Janvier post-fêtes, juin fin d'année scolaire, novembre gris |
+
+#### 3. Contexte cycle salarial dans le user prompt
+
+- **Début de mois (1-5)** : signal hausse achats plaisir +5-8% (pâtisseries premium)
+- **Fin de mois (25+)** : signal resserrement budgétaire, recentrage produits de base
+
+#### 4. Analyse météo enrichie par catégorie (`weather.ts`)
+
+`analyserImpactMeteo()` retourne un nouveau champ `impact_par_categorie` :
+
+| Condition | Boulangerie | Viennoiserie | Pâtisserie | Sandwich |
+|---|---|---|---|---|
+| Pluie légère | neutre | +10-15% | neutre à +5% | -10% |
+| Pluie forte/orage | +5% | +10% | -10% | -25% |
+| Soleil doux (15-22°C) | neutre | neutre | +15% | +15-20% |
+| Canicule (>30°C) | -10% | -15-20% | -15% | +5% |
+| Froid intense (<5°C) | +5% | +20% | neutre | -10% |
+| Neige légère | neutre | +15-20% | neutre | neutre |
+| Neige forte | +10% | +10% | -20% | -30% |
+
+10 types de conditions distincts : pluie légère vs forte, neige légère vs forte, canicule vs chaleur, froid intense vs frais, brouillard, vent fort.
+
+#### 5. Correction bug `opportunites` ([object Object])
+
+- **Prompt** : format explicité comme tableau de strings avec exemple concret
+- **Composant** : normalisation défensive — si l'IA renvoie `{nom, emoji, commentaire}`, converti en string lisible
+
+### Sources de données
+
+| Rapport | Fichier | Contribution principale |
+|---|---|---|
+| Claude | `levain_AI/claude.md` | Patterns jour/semaine, sensibilité météo×produit, combinaisons critiques |
+| ChatGPT | `levain_AI/chatgpt.md` | Variables à tracker, règles heuristiques, idées ML |
+| Gemini | `levain_AI/gemini.md` | Impact météo quantifié, formule température de base, psychologie client |
+| Grok | `levain_AI/grok.md` | Patterns jour simplifiés, facteurs transversaux, vacances scolaires |
+| Perplexity | `levain_AI/perplexity.md` | Données chiffrées secteur (35 000 points de vente, 15 Mds€ CA), effet fin de mois, télétravail |
+
+---
+
 ## 1. Corrections Sécurité Restantes
 
 ### ✅ P1 — Tous les items P1 ont été corrigés (dont P1-7 le 25 mars 2026)
@@ -148,27 +232,83 @@ BYPASS_RATE_LIMIT=false
 
 ---
 
-## 2. Monétisation — Bloquant Lancement
+## 2. Monétisation — Landing → App intégrée (v5.1)
 
-Sans Stripe actif, zéro revenu possible.
+### 2.1 Stripe Checkout — ✅ Intégré via Landing Page (2 avril 2026)
 
-### 2.1 Stripe Checkout à Créer
+**Flow complet implémenté :** Landing → Choix du pack → Stripe Checkout (trial 14j) → Page /bienvenue → Activation compte → Onboarding wizard → Dashboard
 
-Les colonnes `stripe_customer_id`, `stripe_subscription_id`, `stripe_status` existent déjà en base.
+#### Architecture (2 apps, 1 Supabase)
 
-Fichiers à créer :
-- `app/api/billing/checkout/route.ts` — session Stripe Checkout
-- `app/api/billing/portal/route.ts` — portail client self-service
-- `app/api/billing/webhook/route.ts` — événements Stripe (signature obligatoire)
-- `components/boulanger/upgrade-modal.tsx` — modal conversion Starter → Pro
-- `lib/billing.ts` — helpers `createCustomer`, `getSubscription`, `updatePlan`
+| Composant | Localisation | Rôle |
+|---|---|---|
+| `bakery-saas-landing/` | Landing page | Marketing, pricing, trial signup, Stripe Checkout |
+| `project-boulangerie/` | App SaaS | Dashboard boulanger, onboarding, gestion |
 
-Événements Stripe à gérer :
-- `checkout.session.completed` → activer plan, updater `boulangerie.plan`
-- `customer.subscription.updated` → changement de plan
-- `customer.subscription.deleted` → downgrade vers Starter
-- `invoice.payment_failed` → email alerte + grace period 7 jours
-- `invoice.payment_succeeded` → confirmer renouvellement
+#### Fichiers Landing (Stripe)
+
+| Fichier | Rôle | Statut |
+|---|---|---|
+| `app/api/stripe/create-trial/route.tsx` | Crée customer Stripe + user Supabase + lien activation + email bienvenue | ✅ |
+| `app/api/stripe/create-checkout/route.tsx` | Checkout pour upgrade plan existant | ✅ |
+| `app/api/stripe/webhook/route.tsx` | Gestion des événements Stripe (6 types) | ✅ |
+| `app/api/stripe/session-info/route.ts` | Récupère lien activation depuis session Stripe | ✅ Nouveau |
+| `app/bienvenue/page.tsx` | Page post-checkout avec CTA "Activer mon compte" | ✅ Mis à jour |
+| `lib/stripe.ts` | Config Stripe, Price IDs, trial 14j | ✅ |
+
+#### Événements Stripe gérés
+
+- `checkout.session.completed` → active plan + confirme email Supabase ✅
+- `customer.subscription.updated` → met à jour plan & trial ✅
+- `customer.subscription.deleted` → marque `stripe_status: 'canceled'` ✅
+- `invoice.payment_succeeded` → confirme renouvellement ✅
+- `invoice.payment_failed` → marque `stripe_status: 'past_due'` ✅
+- `customer.subscription.trial_will_end` → log (TODO: email rappel) ✅
+
+#### Fichiers App (Activation & Onboarding)
+
+| Fichier | Rôle | Statut |
+|---|---|---|
+| `app/activer/page.tsx` | Page activation compte (choix mot de passe, dark theme) | ✅ Nouveau |
+| `components/boulanger/onboarding-wizard.tsx` | Wizard 3 étapes (infos, horaires, produits) | ✅ Nouveau |
+| `context/boulanger-context.tsx` | Support `onboarding_completed_at` + `plan: 'trial'` | ✅ Mis à jour |
+| `app/boulanger/page.tsx` | Gate onboarding avant dashboard | ✅ Mis à jour |
+| `middleware.ts` | Route `/activer` publique | ✅ Mis à jour |
+
+#### Variables d'environnement requises (Landing)
+
+```bash
+# Stripe
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_STARTER_MONTHLY=price_...
+STRIPE_PRICE_STARTER_ANNUAL=price_...
+STRIPE_PRICE_PRO_MONTHLY=price_...
+STRIPE_PRICE_PRO_ANNUAL=price_...
+STRIPE_PRICE_MULTI_MONTHLY=price_...
+STRIPE_PRICE_MULTI_ANNUAL=price_...
+
+# Supabase (service role pour admin.createUser)
+NEXT_PUBLIC_SUPABASE_URL=https://...
+SUPABASE_SERVICE_KEY=eyJ...
+
+# Email
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL=BakeryOS <bonjour@bakeryos.fr>
+
+# URLs
+NEXT_PUBLIC_APP_URL=https://bakeryos.fr
+NEXT_PUBLIC_BAKERY_APP_URL=https://app.bakeryos.fr
+```
+
+### 2.1b Stripe — Reste à faire
+
+| Tâche | Priorité | Description |
+|---|---|---|
+| **Portail client Stripe** | 🟠 Moyen | `app/api/billing/portal/route.ts` — self-service pour changer plan/carte |
+| **Modal upgrade in-app** | 🟠 Moyen | Connecter `upgrade-modal.tsx` existant au portail Stripe |
+| **Email rappel fin trial** | 🟡 Faible | Envoyer email Resend dans `customer.subscription.trial_will_end` |
+| **Grace period paiement** | 🟡 Faible | Email alerte + 7 jours de grâce avant suspension |
 
 ### 2.2 Feature Gates Plans
 
@@ -197,10 +337,9 @@ Fichiers à créer :
 - Achat flash en ligne atomique (RPC transactionnelle)
 - UI gestion clients intégrée page commandes
 
-**Page pricing publique (`/pricing`)**
-
-Inexistante. Impossible de convertir un visiteur sans page de tarifs.
-- `app/pricing/page.tsx` avec tableau 3 plans + calculateur ROI + CTA register
+~~**Page pricing publique (`/pricing`)**~~ ✅ Remplacé par la landing page dédiée (`bakery-saas-landing/`)
+- Landing page complète avec pricing 3 plans, toggle mensuel/annuel, formulaire trial, FAQ
+- Intégration Stripe Checkout directe depuis la landing
 
 ### 3.2 Moyen Terme — Rétention (2-6 semaines)
 
@@ -360,10 +499,12 @@ npm run test:report   # Rapport HTML
 | ~~Timezone `journee/route.ts`~~ | ~~1h~~ | ✅ Corrigé |
 | ~~Correction CSP (fonts + images SW)~~ | ~~30 min~~ | ✅ Corrigé |
 | **Retirer `BYPASS_RATE_LIMIT` de l'env prod** | **5 min** | **🔴 Avant déploiement** |
-| Stripe Checkout + webhook + portal | 2 jours | 🔴 P0 Revenue |
-| Modal upgrade in-app | 3h | 🟠 P1 |
+| ~~Stripe Checkout + webhook~~ | ~~2 jours~~ | ✅ Intégré via landing (v5.1) |
+| ~~Onboarding wizard + activation compte~~ | ~~1 jour~~ | ✅ Effectué (v5.1) |
+| Stripe portal self-service | 3h | 🟠 P1 |
+| Modal upgrade in-app (connecter au portal) | 3h | 🟠 P1 |
 
-**Durée estimée S1 : 2-3 jours** (toutes les corrections P0 et P1 effectuées)
+**Durée estimée S1 : 1 jour** (Stripe core + onboarding effectués)
 
 ---
 
@@ -376,7 +517,7 @@ npm run test:report   # Rapport HTML
 | SMTP Resend dans Supabase Dashboard | 1h | 🔴 P0 |
 | ~~Notifications push commandes temps réel~~ | ~~2h~~ | ✅ Effectué (v4.6) |
 | ~~Email bienvenue post-inscription~~ | ~~2h~~ | ✅ Effectué (v4.6) |
-| Page `/pricing` publique | 4h | 🟠 P1 |
+| ~~Page `/pricing` publique~~ | ~~4h~~ | ✅ Landing page dédiée (v5.1) |
 | Sentry + alertes Supabase | 2h | 🟠 P1 |
 | ~~Migrer 5 routes vers `getBoulangerSession()`~~ | ~~3h~~ | ✅ Effectué (v4.7) |
 
@@ -414,7 +555,7 @@ npm run test:report   # Rapport HTML
 
 | Phase | Durée | Milestone |
 |---|---|---|
-| S1 — Sécurité restante + Stripe | 2-3 jours | Paiements fonctionnels, Levain verrouillé |
+| S1 — ~~Sécurité restante + Stripe~~ | ~~2-3 jours~~ | ✅ Paiements fonctionnels (landing), onboarding wizard, activation compte |
 | S2 — Infra Prod | 4 jours | Multi-tenant opérationnel, emails, monitoring |
 | S3 — Tests + Beta 0 | 2-3 jours | 5-10 boulangers onboardés *(tests automatisés complétés)* |
 | S4-6 — Itérations | 3 semaines | Corrections retours, nouvelles features |
@@ -499,7 +640,7 @@ disponible = production + report_veille - réservé_C&C - alloué_flash
 | Suggestion | Priorité | Contexte |
 |---|---|---|
 | **Paiement en ligne flash (Stripe)** | 🔴 P0 | Réservation gratuite actuelle → paiement à la commande. Réduction no-show par friction financière |
-| **Page pricing publique (`/pricing`)** | 🟠 Moyen | Tableau 3 plans + calculateur ROI + CTA register. Conversion visiteur impossible sans elle |
+| ~~**Page pricing publique**~~ | ~~🟠 Moyen~~ | ✅ Remplacé par la landing page `bakery-saas-landing/` avec pricing intégré |
 | **Historique stats 90j (plan Pro)** | 🟠 Moyen | Feature gate `historique/route.ts` — actuellement non différencié entre Starter et Pro |
 
 ### 7.3 Stock & Opérations
@@ -546,4 +687,4 @@ disponible = production + report_veille - réservé_C&C - alloué_flash
 
 ---
 
-*Mis à jour le 30 mars 2026 (v4.9) — Consolidation migrations en migration-master.sql, ajout section Propositions d'amélioration*
+*Mis à jour le 2 avril 2026 (v5.1) — Landing → App intégrée : Stripe Checkout via landing, activation compte, onboarding wizard 3 étapes, email bienvenue Resend, webhook Stripe renforcé*

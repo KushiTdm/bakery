@@ -24,9 +24,10 @@ interface Boulangerie {
   id:       string;
   nom:      string;
   slug:     string;
-  plan:     'starter' | 'pro' | 'multi';
+  plan:     'starter' | 'pro' | 'multi' | 'trial';
   actif:    boolean;
   timezone?: string;
+  onboarding_completed_at?: string | null;
 }
 
 // ── Mapper DB → StockEntry ─────────────────────────────────────
@@ -290,14 +291,17 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
           plan:  row.boulangerie_plan,
           actif: row.boulangerie_actif,
         });
-        // Charger le timezone de la boulangerie
+        // Charger le timezone + onboarding de la boulangerie
         const { data: tzRow } = await supabase
           .from('boulangeries')
-          .select('timezone')
+          .select('timezone, onboarding_completed_at')
           .eq('id', row.boulangerie_id)
           .single();
-        const tz = (tzRow as { timezone?: string } | null)?.timezone ?? 'Europe/Paris';
+        const tzData = tzRow as { timezone?: string; onboarding_completed_at?: string | null } | null;
+        const tz = tzData?.timezone ?? 'Europe/Paris';
         setBoulangerieTz(tz);
+        // Mettre à jour la boulangerie avec onboarding_completed_at
+        setBoulangerie(prev => prev ? { ...prev, onboarding_completed_at: tzData?.onboarding_completed_at ?? null } : prev);
         const role = row.user_role as BoulangerRole;
         setUserRole(role);
         setMemberId(row.membre_id ?? null);
@@ -312,7 +316,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
       const { data, error } = await supabase
         .from('boulangeries')
-        .select('id, nom, slug, plan, actif, timezone')
+        .select('id, nom, slug, plan, actif, timezone, onboarding_completed_at')
         .eq('user_id', currentUser.id)
         .single();
 

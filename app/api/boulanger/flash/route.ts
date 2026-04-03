@@ -32,16 +32,20 @@ async function getFlashConfig(boulangerieId: string) {
 }
 
 // ── Date locale boulangerie ───────────────────────────────────
-// Configurable via variable d'environnement BAKERY_TIMEZONE.
-// Défaut : Europe/Paris (prod France).
-// Pour tester depuis un autre fuseau sans modifier le code,
-// positionner BAKERY_TIMEZONE=UTC ou le fuseau voulu dans .env.local.
+// Utilise le timezone stocké en DB pour chaque boulangerie (défaut: Europe/Paris)
 
-const BAKERY_TIMEZONE = process.env.BAKERY_TIMEZONE ?? 'Europe/Paris';
+async function getBoulangerieTimezone(boulangerieId: string): Promise<string> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from('boulangeries')
+    .select('timezone')
+    .eq('id', boulangerieId)
+    .single();
+  return (data?.timezone as string) ?? 'Europe/Paris';
+}
 
-function todayInBakeryTimezone(): string {
-  // 'sv' (suédois) produit le format YYYY-MM-DD nativement
-  return new Date().toLocaleDateString('sv', { timeZone: BAKERY_TIMEZONE });
+function todayForTimezone(tz: string): string {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: tz });
 }
 
 // ── Schémas Zod ───────────────────────────────────────────────
@@ -81,7 +85,8 @@ export async function GET(req: NextRequest) {
 
   const admin = getSupabaseAdmin();
   const { boulangerieId } = session;
-  const dateAujourd = todayInBakeryTimezone();
+  const tz = await getBoulangerieTimezone(boulangerieId);
+  const dateAujourd = todayForTimezone(tz);
 
   try {
     const [flashData, config] = await Promise.all([
@@ -139,7 +144,8 @@ export async function POST(req: NextRequest) {
   }
 
   const { paniers } = parsed.data;
-  const dateAujourd = todayInBakeryTimezone();
+  const tz = await getBoulangerieTimezone(boulangerieId);
+  const dateAujourd = todayForTimezone(tz);
 
   try {
     if (paniers.length === 0) {
@@ -174,28 +180,29 @@ export async function POST(req: NextRequest) {
           prodMap[s.produit_id] = (s.production ?? 0) + (s.report_veille ?? 0);
         }
 
-        // Quantités réservées par commandes C&C actives
-        const dateStart = new Date(`${dateAujourd}T00:00:00`).toISOString();
-        const dateEnd   = new Date(`${dateAujourd}T23:59:59`).toISOString();
+        // Quantités réservées par commandes C&C actives (bornes timezone-aware)
+        const nowForOffset = new Date();
+        const localStr = nowForOffset.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+        const localAsUtc = new Date(localStr + 'Z');
+        const tzOffsetMs = localAsUtc.getTime() - nowForOffset.getTime();
+        const dayStartMs = new Date(`${dateAujourd}T00:00:00Z`).getTime() - tzOffsetMs;
+        const dayStartUtcIso = new Date(dayStartMs).toISOString();
+        const dayEndUtcIso = new Date(dayStartMs + 86400000).toISOString();
         const { data: activeOrders } = await admin
           .from('commandes')
           .select('lignes')
           .eq('boulangerie_id', boulangerieId)
-          .gte('created_at', dateStart)
-          .lte('created_at', dateEnd)
-          .in('statut', ['en_attente', 'confirmee', 'prete']);
+          .gte('created_at', dayStartUtcIso)
+          .lt('created_at', dayEndUtcIso)
+          .in('statut', ['en_attente', 'confirmee', 'prete', 'recuperee']);
 
-        // Réservé par C&C indexé par produit_id (via produit_nom → produit_id)
-        const nomToId: Record<string, string> = {};
-        for (const s of stocks) {
-          nomToId[s.produit_nom] = s.produit_id;
-        }
+        // Réservé par C&C indexé par produit_id
         const reservedById: Record<string, number> = {};
         if (activeOrders) {
           for (const order of activeOrders) {
-            const lignes = (order.lignes ?? []) as Array<{ produit_nom: string; quantite: number }>;
+            const lignes = (order.lignes ?? []) as Array<{ produit_id?: string; produit_nom: string; quantite: number }>;
             for (const l of lignes) {
-              const pid = nomToId[l.produit_nom];
+              const pid = l.produit_id;
               if (pid) reservedById[pid] = (reservedById[pid] ?? 0) + l.quantite;
             }
           }
@@ -292,7 +299,8 @@ export async function PATCH(req: NextRequest) {
 
   const { produit_id, quantite_restante, actif } = parsed.data;
   const updates: Record<string, unknown> = {};
-  const dateAujourd = todayInBakeryTimezone();
+  const tz = await getBoulangerieTimezone(session.boulangerieId);
+  const dateAujourd = todayForTimezone(tz);
 
   if (quantite_restante !== undefined) {
     updates.quantite_restante = Math.max(0, Math.floor(quantite_restante));
@@ -338,7 +346,8 @@ export async function DELETE(req: NextRequest) {
 
   const admin = getSupabaseAdmin();
   const { boulangerieId } = session;
-  const dateAujourd = todayInBakeryTimezone();
+  const tz = await getBoulangerieTimezone(boulangerieId);
+  const dateAujourd = todayForTimezone(tz);
 
   try {
     const { error } = await admin

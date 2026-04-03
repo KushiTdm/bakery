@@ -25,7 +25,8 @@ export async function middleware(req: NextRequest) {
     path.startsWith('/boulanger/rejoindre') || // Acceptation invitation
     path.startsWith('/boulanger/commandes') ||  // Auth gérée client-side par useBoulanger
     path.startsWith('/api/') ||
-    path === '/auth/callback'
+    path === '/auth/callback' ||
+    path.startsWith('/activer')       // Activation compte post-inscription landing
   ) {
     return res;
   }

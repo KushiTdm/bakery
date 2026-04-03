@@ -34,6 +34,7 @@ import { isOwner as checkIsOwner } from '@/lib/auth-boulanger';
 import Parametres    from '@/components/boulanger/parametres';
 import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
+import OnboardingWizard from '@/components/boulanger/onboarding-wizard';
 import WorkflowGuard from '@/components/boulanger/workflow-guard';
 import DayCountdown  from '@/components/boulanger/day-countdown';
 import { useWorkflowJournee } from '@/hooks/use-workflow-journee';
@@ -545,7 +546,7 @@ function AppShell() {
     isAuthenticated, authLoading,
     activeView, setActiveView,
     logout, boulangerie, userRole, canRead,
-    todayStocks,
+    todayStocks, session,
   } = useBoulanger();
 
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
@@ -697,6 +698,17 @@ function AppShell() {
           </button>
         </div>
       </div>
+    );
+  }
+
+  // ── Onboarding wizard (nouveaux inscrits) ───────────────────
+  if (boulangerie && userRole === 'owner' && !boulangerie.onboarding_completed_at) {
+    return (
+      <OnboardingWizard
+        boulangerie={boulangerie}
+        token={session?.access_token || ''}
+        onComplete={() => window.location.reload()}
+      />
     );
   }
 

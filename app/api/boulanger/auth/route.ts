@@ -233,10 +233,10 @@ export async function POST(req: NextRequest) {
       });
 
       // Email de bienvenue (non bloquant)
-      const fromDomain = process.env.RESEND_FROM_DOMAIN ?? 'bakeryos.fr';
+      const fromDomain = process.env.RESEND_FROM_DOMAIN;
       const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://bakeryos.fr';
       resend.emails.send({
-        from:    `BakeryOS <noreply@${fromDomain}>`,
+        from:    fromDomain ? `BakeryOS <noreply@${fromDomain}>` : 'onboarding@resend.dev',
         to:      body.email,
         subject: `🥖 Bienvenue sur BakeryOS — ${body.nom} est prête !`,
         html: `

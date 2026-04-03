@@ -213,107 +213,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Vérification disponibilité stock ─────────────────────
-    // Si le boulanger a saisi la production du jour, on vérifie
-    // que les quantités commandées sont disponibles.
-    // Fallback : si aucune journée/production → pas de blocage.
+    // ── Vérification disponibilité stock (atomique via RPC) ────
     const tz = (boulangerie as Record<string, unknown>).timezone as string || 'Europe/Paris';
     const todayLocal = new Date().toLocaleDateString('sv-SE', { timeZone: tz }); // YYYY-MM-DD
-
-    const { data: journee } = await supabase
-      .from('journees')
-      .select('id')
-      .eq('boulangerie_id', boulangerie.id)
-      .eq('date', todayLocal)
-      .single();
-
-    if (journee) {
-      // Récupérer les productions du jour
-      const { data: stocks } = await supabase
-        .from('stocks_journaliers')
-        .select('produit_id, produit_nom, production, report_veille')
-        .eq('journee_id', journee.id);
-
-      if (stocks && stocks.length > 0) {
-        // Map produit_nom → total disponible (production + report)
-        // + Map produit_id → produit_nom pour lier flash ↔ stocks
-        const prodMap: Record<string, number> = {};
-        const idToNom: Record<string, string> = {};
-        for (const s of stocks) {
-          prodMap[s.produit_nom] = (s.production ?? 0) + (s.report_veille ?? 0);
-          if (s.produit_id) idToNom[s.produit_id] = s.produit_nom;
-        }
-
-        // Récupérer les quantités déjà réservées par commandes actives du jour
-        // Bornes en heure Paris (DST-aware) pour ne pas rater les commandes
-        // passées après minuit Paris mais avant minuit UTC (ex: 23:35 UTC = 01:35 CEST)
-        const noonUTC = new Date(`${todayLocal}T12:00:00.000Z`);
-        const parisHourAtNoon = +noonUTC.toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false });
-        const offsetMs = (parisHourAtNoon - 12) * 3_600_000;
-        const dateStart = new Date(+new Date(`${todayLocal}T00:00:00.000Z`) - offsetMs).toISOString();
-        const dateEnd   = new Date(+new Date(`${todayLocal}T23:59:59.999Z`) - offsetMs).toISOString();
-
-        const { data: activeOrders } = await supabase
-          .from('commandes')
-          .select('lignes')
-          .eq('boulangerie_id', boulangerie.id)
-          .gte('created_at', dateStart)
-          .lte('created_at', dateEnd)
-          .in('statut', ['en_attente', 'confirmee', 'prete']);
-
-        const reserved: Record<string, number> = {};
-        if (activeOrders) {
-          for (const order of activeOrders) {
-            const lignes = (order.lignes ?? []) as Array<{ produit_nom: string; quantite: number }>;
-            for (const l of lignes) {
-              reserved[l.produit_nom] = (reserved[l.produit_nom] ?? 0) + l.quantite;
-            }
-          }
-        }
-
-        // Ajouter les quantités réservées par paniers flash actifs du jour
-        const { data: flashPaniers } = await supabase
-          .from('paniers_flash')
-          .select('produit_id, quantite_initiale, quantite_restante')
-          .eq('boulangerie_id', boulangerie.id)
-          .eq('date', todayLocal)
-          .eq('actif', true);
-
-        if (flashPaniers) {
-          for (const fp of flashPaniers) {
-            const nom = idToNom[fp.produit_id];
-            if (nom) {
-              // Quantités déjà vendues en flash = initiale - restante
-              const flashVendu = (fp.quantite_initiale ?? 0) - (fp.quantite_restante ?? 0);
-              // Quantités encore réservées en flash (pas encore vendues)
-              const flashReserve = fp.quantite_restante ?? 0;
-              reserved[nom] = (reserved[nom] ?? 0) + flashVendu + flashReserve;
-            }
-          }
-        }
-
-        // Vérifier la disponibilité de chaque ligne
-        const indisponibles: string[] = [];
-        for (const ligne of sanitizedData.lignes) {
-          const totalProduit = prodMap[ligne.produit_nom];
-          if (totalProduit === undefined || totalProduit === 0) continue; // Pas de production saisie → skip
-          const dejaReserve = reserved[ligne.produit_nom] ?? 0;
-          const disponible  = totalProduit - dejaReserve;
-          if (ligne.quantite > disponible) {
-            indisponibles.push(
-              `${ligne.produit_nom} : ${disponible > 0 ? disponible : 0} disponible(s), ${ligne.quantite} demandé(s)`
-            );
-          }
-        }
-
-        if (indisponibles.length > 0) {
-          return NextResponse.json(
-            { error: 'Stock insuffisant', details: indisponibles },
-            { status: 409 }
-          );
-        }
-      }
-    }
 
     const emailLimited = await isSupabaseRateLimited(
       supabase,
@@ -335,26 +237,43 @@ export async function POST(req: NextRequest) {
     );
     const montant_final = Math.round(Math.min(montant_total, 99999.99) * 100) / 100;
 
-    const { data: commande, error: cErr } = await supabase
-      .from('commandes')
-      .insert({
-        boulangerie_id:   boulangerie.id,
-        client_prenom:    sanitizedData.client_prenom,
-        client_email:     sanitizedData.client_email,
-        client_telephone: sanitizedData.client_telephone ?? null,
-        heure_retrait:    sanitizedData.heure_retrait,
-        notes:            sanitizedData.notes ?? null,
-        montant_total:    montant_final,
-        statut:           'en_attente',
-        lignes:           sanitizedData.lignes,
-      })
-      .select('id, created_at')
-      .single();
+    // Appel RPC atomique : vérifie le stock ET insère la commande en une seule transaction
+    const { data: commandeId, error: stockErr } = await supabase.rpc('verifier_stock_commande', {
+      p_boulangerie_id:   boulangerie.id,
+      p_date:             todayLocal,
+      p_lignes:           sanitizedData.lignes,
+      p_timezone:         tz,
+      p_client_prenom:    sanitizedData.client_prenom,
+      p_client_email:     sanitizedData.client_email,
+      p_client_telephone: sanitizedData.client_telephone ?? null,
+      p_heure_retrait:    sanitizedData.heure_retrait,
+      p_notes:            sanitizedData.notes ?? null,
+      p_montant_total:    montant_final,
+    });
 
-    if (cErr) {
-      console.error('[POST /api/orders] insert error:', cErr);
-      return NextResponse.json({ error: 'Erreur lors de la création' }, { status: 500 });
+    if (stockErr) {
+      // P0002 = stock insuffisant (RAISE EXCEPTION dans la RPC)
+      if (stockErr.code === 'P0002' || stockErr.message?.includes('Stock insuffisant')) {
+        const details = stockErr.message?.includes('|')
+          ? stockErr.message.split('|').filter(Boolean)
+          : [stockErr.message ?? 'Stock insuffisant'];
+        return NextResponse.json(
+          { error: 'Stock insuffisant', details },
+          { status: 409 }
+        );
+      }
+      // P0001 = journée non saisie
+      if (stockErr.code === 'P0001' || stockErr.message?.includes('production du jour')) {
+        return NextResponse.json(
+          { error: 'La production du jour n\'a pas encore été saisie. Impossible de commander.' },
+          { status: 409 }
+        );
+      }
+      console.error('[POST /api/orders] stock check RPC error:', stockErr);
+      return NextResponse.json({ error: 'Erreur vérification stock' }, { status: 500 });
     }
+
+    const commande = { id: commandeId as string };
 
     // Email de confirmation (non bloquant)
     try {
