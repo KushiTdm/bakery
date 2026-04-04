@@ -1,5 +1,5 @@
 'use client';
-// components/boulanger/dashboard.tsx — BakeryOS · Dashboard amélioré
+// components/boulanger/dashboard.tsx — Sauve Mie · Dashboard amélioré
 // ───────────────────────────────────────────────────────────────────
 // Améliorations vs version précédente :
 //   ✦ KPI cards avec sparklines inline (SVG)

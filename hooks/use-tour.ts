@@ -63,7 +63,7 @@ export const TOUR_STEPS: TourStep[] = [
     view: 'soir',
     targetSelector: '[data-tour="soir-header"]',
     title: '🌙 Clôture du soir',
-    description: 'En fin de journée, enregistrez vos invendus. BakeryOS calcule automatiquement votre taux de gaspillage et votre CA journalier.',
+    description: 'En fin de journée, enregistrez vos invendus. Sauve Mie calcule automatiquement votre taux de gaspillage et votre CA journalier.',
     placement: 'bottom',
   },
   {

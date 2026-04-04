@@ -1,6 +1,6 @@
 // tests/auth/tenant-isolation.spec.ts
 // ─────────────────────────────────────────────────────────────
-// Tests d'isolation multi-tenant — BakeryOS
+// Tests d'isolation multi-tenant — Sauve Mie
 // ─────────────────────────────────────────────────────────────
 
 import { test, expect } from '@playwright/test';

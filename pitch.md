@@ -1,8 +1,8 @@
-# 🥖 BakeryOS — Pitch Produit
+# 🥖 Sauve Mie — Pitch Produit
 
 ## Une solution SaaS complète pour la boulangerie artisanale
 
-**BakeryOS** est une plateforme tout-en-un qui digitalise la gestion quotidienne des boulangeries artisanales. Elle connecte le boulanger, la vendeuse et les clients autour d'un objectif commun : **réduire les invendus, optimiser la production et faciliter les ventes**.
+**Sauve Mie** est une plateforme tout-en-un qui digitalise la gestion quotidienne des boulangeries artisanales. Elle connecte le boulanger, la vendeuse et les clients autour d'un objectif commun : **réduire les invendus, optimiser la production et faciliter les ventes**.
 
 ---
 
@@ -17,9 +17,9 @@ Dans une boulangerie artisanale française moyenne :
 
 ---
 
-## ✨ La solution BakeryOS
+## ✨ La solution Sauve Mie
 
-BakeryOS propose une **boucle quotidienne optimisée** en 4 temps :
+Sauve Mie propose une **boucle quotidienne optimisée** en 4 temps :
 
 ```
 🌅 MATIN → 📸 MIDI → 🌙 SOIR → 📊 STATS
@@ -172,7 +172,7 @@ Levain est l'assistant IA intégré qui :
 
 ## 🎯 ROI démontrable en 30 jours
 
-| Scénario | Avant BakeryOS | Après BakeryOS | Économie |
+| Scénario | Avant Sauve Mie | Après Sauve Mie | Économie |
 |----------|----------------|----------------|----------|
 | Taux d'invendu moyen | 10-12% | 4-6% | **-50%** |
 | Ventes anti-gaspi | 0€ | 200-400€/mois | **+3 000€/an** |
@@ -183,7 +183,7 @@ Levain est l'assistant IA intégré qui :
 
 ---
 
-## 🚀 Pourquoi BakeryOS ?
+## 🚀 Pourquoi Sauve Mie ?
 
 1. **Problème réel** : L'invendu coûte cher aux boulangers
 2. **Solution complète** : Une seule plateforme pour tout gérer
@@ -196,8 +196,8 @@ Levain est l'assistant IA intégré qui :
 
 ## 📝 Résumé en une phrase
 
-**BakeryOS aide les boulangers à produire la bonne quantité, les vendeuses à signaler les invendus à temps, et les clients à profiter des bonnes affaires — tout en réduisant le gaspillage alimentaire.**
+**Sauve Mie aide les boulangers à produire la bonne quantité, les vendeuses à signaler les invendus à temps, et les clients à profiter des bonnes affaires — tout en réduisant le gaspillage alimentaire.**
 
 ---
 
-*Fait avec passion · BakeryOS © 2026*
+*Fait avec passion · Sauve Mie © 2026*

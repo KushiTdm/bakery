@@ -7,7 +7,7 @@ Voici l'intégralité du contenu structuré au format Markdown (`.md`), en conse
 ## Introduction
 Le secteur de la boulangerie-pâtisserie artisanale française, avec ses **35 000 points de vente** et son chiffre d’affaires global de **15 milliards d’euros**, représente le premier commerce de détail alimentaire de proximité en France. Cependant, la gestion d’une boulangerie moderne exige désormais une maîtrise analytique de variables exogènes et endogènes complexes. 
 
-La rentabilité (entre 8 % et 12 %) est menacée par un taux d’invendus de **8 % à 15 %** du CA annuel. L’intelligence artificielle **« Levain »** intégrée au SaaS **BakeryOS** a pour mission de transformer ces données brutes en recommandations actionnables pour optimiser la production quotidienne.
+La rentabilité (entre 8 % et 12 %) est menacée par un taux d’invendus de **8 % à 15 %** du CA annuel. L’intelligence artificielle **« Levain »** intégrée au SaaS **Sauve Mie** a pour mission de transformer ces données brutes en recommandations actionnables pour optimiser la production quotidienne.
 
 ---
 
@@ -109,7 +109,7 @@ L'IA croise :
 5.  Événements locaux (marchés, grèves).
 6.  Profil de zone (bureaux vs résidentiel).
 
-### Récapitulatif des flux optimisés par BakeryOS
+### Récapitulatif des flux optimisés par Sauve Mie
 | Moment de la journée | Action Boulanger / Vendeuse | Influence IA Levain |
 | :--- | :--- | :--- |
 | **Matin (02h - 07h)** | Saisie de la production prévue | Ajustement selon météo et historique |
@@ -120,4 +120,4 @@ L'IA croise :
 | **Clôture** | Saisie des invendus finaux | Analyse de l'écart pour J+1 |
 
 ---
-*Document généré pour l'optimisation des performances en boulangerie artisanale via BakeryOS.*
+*Document généré pour l'optimisation des performances en boulangerie artisanale via Sauve Mie.*

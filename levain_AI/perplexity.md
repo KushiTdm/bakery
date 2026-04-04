@@ -1,6 +1,6 @@
 ### Facteurs Influençant la Production, Consommation et Humeur en Boulangerie Artisanale Française
 
-Pour adapter ton IA "Levain" dans BakeryOS, j'ai analysé le contexte des boulangeries artisanales françaises (gestion quotidienne, pics matinaux/vendredis, invendus sensibles aux habitudes clients). Les facteurs ci-dessous impactent **production** (quantités à pétrir/prévoir), **consommation** (ventes réelles) et **humeur** (du boulanger/vendeuse, influençant feedback et adoption outil). 
+Pour adapter ton IA "Levain" dans Sauve Mie, j'ai analysé le contexte des boulangeries artisanales françaises (gestion quotidienne, pics matinaux/vendredis, invendus sensibles aux habitudes clients). Les facteurs ci-dessous impactent **production** (quantités à pétrir/prévoir), **consommation** (ventes réelles) et **humeur** (du boulanger/vendeuse, influençant feedback et adoption outil). 
 
 Ils se divisent en catégories clés, avec exemples concrets par **jour de la semaine + conditions**. Levain pourrait ingérer ces données via API météo (ex. OpenWeather), calendrier (fêtes), historique ventes, et feedback vendeuse pour prédire : "Lundi pluvieux : +20% baguette, -15% viennoiseries ; produire 120% nominal."
 
@@ -51,7 +51,7 @@ La pluie/neige booste pains réconfortants ; soleil favorise snacking léger.
 - **Feedback loop** : Intègre météo + humeur pour affiner (ex. "Pluie + fatigue = +10% pains").
 
 ### Implémentation pour Levain
-- **Sources données** : Historique BakeryOS + API météo (7j prévision) + Google Calendar fêtes FR.
+- **Sources données** : Historique Sauve Mie + API météo (7j prévision) + Google Calendar fêtes FR.
 - **Prédiction** : Modèle ML simple (régression linéaire sur ventes passées x facteurs) → "Lundi pluvieux : produire 150 baguettes (vs 120 nominal), risque humeur basse."
 - **Exemple sortie IA** : "🌧️ Lundi pluvieux prévu : +25% baguette (120→150), surveille feedback vendeuse à 10h."
 

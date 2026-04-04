@@ -1,4 +1,4 @@
-# 🥖 BakeryOS — Roadmap & Plan de Mise en Production
+# 🥖 Sauve Mie — Roadmap & Plan de Mise en Production
 *Version 5.1 — Mise à jour 2 avril 2026*
 
 ---
@@ -294,11 +294,11 @@ SUPABASE_SERVICE_KEY=eyJ...
 
 # Email
 RESEND_API_KEY=re_...
-RESEND_FROM_EMAIL=BakeryOS <bonjour@bakeryos.fr>
+RESEND_FROM_EMAIL=Sauve Mie <bonjour@sauve-mie.fr>
 
 # URLs
-NEXT_PUBLIC_APP_URL=https://bakeryos.fr
-NEXT_PUBLIC_BAKERY_APP_URL=https://app.bakeryos.fr
+NEXT_PUBLIC_APP_URL=https://sauve-mie.fr
+NEXT_PUBLIC_BAKERY_APP_URL=https://app.sauve-mie.fr
 ```
 
 ### 2.1b Stripe — Reste à faire
@@ -513,7 +513,7 @@ npm run test:report   # Rapport HTML
 | Tâche | Durée | Priorité |
 |---|---|---|
 | Migrations SQL prod (v4 → v5 → ia → meteo) | 2h | 🔴 P0 |
-| DNS wildcard `*.bakeryos.fr` → Netlify | 2h | 🔴 P0 |
+| DNS wildcard `*.sauve-mie.fr` → Netlify | 2h | 🔴 P0 |
 | SMTP Resend dans Supabase Dashboard | 1h | 🔴 P0 |
 | ~~Notifications push commandes temps réel~~ | ~~2h~~ | ✅ Effectué (v4.6) |
 | ~~Email bienvenue post-inscription~~ | ~~2h~~ | ✅ Effectué (v4.6) |

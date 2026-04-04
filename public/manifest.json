@@ -1,6 +1,6 @@
 {
-  "name": "L'Artisan Doré — BakeryOS",
-  "short_name": "BakeryOS",
+  "name": "L'Artisan Doré — Sauve Mie",
+  "short_name": "Sauve Mie",
   "description": "Espace boulanger — gestion des stocks, invendus et commandes",
   "start_url": "/boulanger",
   "display": "standalone",

@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
     });
 
     // 6. Réponse JSON téléchargeable
-    const filename = `bakeryos-export-${boulangerieId.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.json`;
+    const filename = `sauve-mie-export-${boulangerieId.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.json`;
 
     return new NextResponse(JSON.stringify(exportData, null, 2), {
       status: 200,

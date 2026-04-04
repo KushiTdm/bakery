@@ -1,4 +1,4 @@
-**Analyse objective : l’IA dans BakeryOS pour le boulanger et la vendeuse (2026)**
+**Analyse objective : l’IA dans Sauve Mie pour le boulanger et la vendeuse (2026)**
 
 Ton core loop (Matin → Snapshot → Soir + Flash + Stats) est déjà très fort avec les suggestions ML historiques. L’IA générative (LLM) peut le rendre **révolutionnaire** sans exploser tes coûts d’abonnement, car tu peux tout héberger en **self-hosted Ollama** (Llama 3.1 8B ou 13B quantizé sur un seul serveur GPU partagé, ~350-650 €/mois total pour 100+ boulangeries). Pas d’API OpenAI/Groq coûteuse, pas de dépendance externe, données privées (RAG sur ta base Supabase).  
 
@@ -58,7 +58,7 @@ La vendeuse est souvent la clé du click & collect et du flash.
 2. Assistant chat/vocal contextuel 24/7 (le « waouh » différenciant).  
 3. Alertes prédictives + suggestions flash intelligentes (renforce ton ROI anti-gaspi).  
 
-Ces 3-là suffisent à positionner BakeryOS comme **le seul SaaS boulangerie 2026 avec un vrai assistant IA intégré** (rien d’équivalent chez la concurrence). Les boulangers conservateurs signent pour ça : « Enfin un outil qui comprend mon métier sans me compliquer la vie ».
+Ces 3-là suffisent à positionner Sauve Mie comme **le seul SaaS boulangerie 2026 avec un vrai assistant IA intégré** (rien d’équivalent chez la concurrence). Les boulangers conservateurs signent pour ça : « Enfin un outil qui comprend mon métier sans me compliquer la vie ».
 
 Les features 4-5 sont bonus moyen terme (vendeuse + stats).
 

@@ -1,11 +1,11 @@
-# RBAC — Multi-Utilisateurs BakeryOS
+# RBAC — Multi-Utilisateurs Sauve Mie
 > Dernière mise à jour : Migration Multi-User v1.0
 
 ---
 
 ## Vue d'ensemble
 
-BakeryOS supporte 3 rôles. Les accès sont contrôlés à **3 niveaux** :
+Sauve Mie supporte 3 rôles. Les accès sont contrôlés à **3 niveaux** :
 1. **Middleware SSR** (`middleware.ts`) — vérifie l'accès avant tout rendu
 2. **Fonctions SQL SECURITY DEFINER** — bypass RLS, source de vérité
 3. **RLS Supabase** — filet de sécurité sur chaque table

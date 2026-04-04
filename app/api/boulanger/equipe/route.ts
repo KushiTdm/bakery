@@ -224,9 +224,9 @@ export async function POST(req: NextRequest) {
             'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
           },
           body: JSON.stringify({
-            from:    process.env.RESEND_FROM_DOMAIN ? `BakeryOS <noreply@${process.env.RESEND_FROM_DOMAIN}>` : 'onboarding@resend.dev',
+            from:    process.env.RESEND_FROM_DOMAIN ? `Sauve Mie <noreply@${process.env.RESEND_FROM_DOMAIN}>` : 'Sauve Mie <onboarding@resend.dev>',
             to:      [email],
-            subject: `Invitation à rejoindre l'équipe BakeryOS`,
+            subject: `Invitation à rejoindre l'équipe Sauve Mie`,
             html:    buildInviteEmail(inviteUrl, role, appUrl),
           }),
         });
@@ -254,7 +254,7 @@ function buildInviteEmail(inviteUrl: string, role: string, appUrl: string): stri
   const roleLabel = role === 'gerant' ? 'Gérant' : 'Vendeur';
   return `
     <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px">
-      <h2 style="color:#2C1810">🥖 Invitation BakeryOS</h2>
+      <h2 style="color:#2C1810">🥖 Invitation Sauve Mie</h2>
       <p>Vous avez été invité(e) à rejoindre une boulangerie en tant que <strong>${roleLabel}</strong>.</p>
       <a href="${inviteUrl}" style="display:inline-block;background:#C19A6B;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin:16px 0">
         Accepter l'invitation

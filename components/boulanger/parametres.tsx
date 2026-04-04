@@ -167,7 +167,7 @@ function ExportRgpd({ token }: { token: string | null }) {
       const blob       = await res.blob();
       const disposition = res.headers.get('Content-Disposition') ?? '';
       const filenameMatch = disposition.match(/filename="([^"]+)"/);
-      const filename      = filenameMatch?.[1] ?? 'bakeryos-export.json';
+      const filename      = filenameMatch?.[1] ?? 'sauve-mie-export.json';
 
       const url  = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -190,7 +190,7 @@ function ExportRgpd({ token }: { token: string | null }) {
   return (
     <div className="space-y-4">
       <p className="text-white/35 text-xs leading-relaxed">
-        Téléchargez l'intégralité de vos données BakeryOS au format JSON (Art. 20 RGPD — droit à la portabilité).
+        Téléchargez l'intégralité de vos données Sauve Mie au format JSON (Art. 20 RGPD — droit à la portabilité).
         L'export inclut votre boulangerie, produits, journées, stocks, commandes et rapports IA des 90 derniers jours.
       </p>
 

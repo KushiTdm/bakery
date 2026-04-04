@@ -1,4 +1,4 @@
-// lib/ai-anonymize.ts — Levain, l'assistant IA du boulanger BakeryOS
+// lib/ai-anonymize.ts — Levain, l'assistant IA du boulanger Sauve Mie
 // ─────────────────────────────────────────────────────────────────────
 // ✅ DONNÉES RÉELLES — Noms de produits transmis en clair à l'IA
 // ✅ L'IA reçoit les quantités de base réelles pour calculer des prévisions précises
@@ -754,7 +754,7 @@ export function deanonymiserRapport(rapport: Record<string, unknown>): Record<st
 // ── Prompts ───────────────────────────────────────────────────
 
 export function buildSystemPrompt(): string {
-  return `Tu es Levain, l'assistant IA du boulanger artisanal de BakeryOS.
+  return `Tu es Levain, l'assistant IA du boulanger artisanal de Sauve Mie.
 
 TON IDENTITÉ :
 Tu es comme un levain naturel qui s'améliore chaque jour. Tu deviens plus précis et pertinent au fil des analyses. Tu connais intimement le rythme, les habitudes et les spécificités de cette boulangerie.

@@ -164,7 +164,7 @@ function RejoindreContent() {
         <div className="text-center mb-8">
           <span className="text-5xl block mb-3">🥖</span>
           <h1 className="text-white text-xl font-bold" style={{ fontFamily: 'Playfair Display, serif' }}>
-            BakeryOS
+            Sauve Mie
           </h1>
           <p className="text-white/40 text-xs mt-1 tracking-widest uppercase">
             Invitation équipe

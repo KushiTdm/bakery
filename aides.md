@@ -1,4 +1,4 @@
-# BakeryOS — Aides financières à obtenir
+# Sauve Mie — Aides financières à obtenir
 
 > Dernière mise à jour : mars 2026
 > Statut juridique cible : **SASU** (à créer en avril 2026)
@@ -23,7 +23,7 @@
 - Dirigeant impliqué à temps plein ✅
 - Pas de dépôt antérieur de la Bourse French Tech ✅
 
-### Arguments forts pour BakeryOS
+### Arguments forts pour Sauve Mie
 
 - SaaS B2B sur marché documenté (boulangerie artisanale, 35 000 établissements en France)
 - Problème chiffrable : 60 à 260 €/jour d'invendus par boulangerie
@@ -68,7 +68,7 @@ Appel pré-qualification : direction régionale BPIFrance de ta région
 - Cofinancement démontré (apport en capital + prêt d'honneur)
 - Pas d'aide d'État incompatible en cours sur le même projet
 
-### Thématiques à cibler pour BakeryOS
+### Thématiques à cibler pour Sauve Mie
 
 **Thématique principale — IA Embarquée / Retail**
 Le retail artisanal est cité explicitement dans les priorités régionales. L'angle à mettre en avant : système de prédiction de production basé sur l'apprentissage automatique pour l'artisanat alimentaire. Ne pas présenter comme "un SaaS" mais comme "un système IA appliqué au commerce de proximité".
@@ -117,7 +117,7 @@ Réduction des déchets alimentaires, nouveaux modèles économiques de valorisa
 
 - [ ] Obtenir un prêt d'honneur (voir Priorité 3) — transforme le plan de financement de fragile à crédible
 - [ ] Avoir 3 à 5 boulangeries pilotes avec données chiffrées (même 4 semaines suffisent)
-- [ ] Déposer la marque BakeryOS à l'INPI (35 € en ligne)
+- [ ] Déposer la marque Sauve Mie à l'INPI (35 € en ligne)
 - [ ] Contacter un pôle de compétitivité régional (IAR pour l'agroalimentaire)
 - [ ] Domicilier la SASU en Hauts-de-France
 
@@ -228,7 +228,7 @@ Exonération totale des cotisations sociales patronales et salariales pendant 12
 
 **Timesheet** : tenir un journal de travail mensuel dès le premier jour de la SASU — indispensable pour justifier le temps fondateur auprès de BPIFrance.
 
-**Dépôt de marque** : déposer "BakeryOS" à l'INPI avant le dépôt des dossiers (35 € en ligne sur inpi.fr). Renforce le critère propriété intellectuelle.
+**Dépôt de marque** : déposer "Sauve Mie" à l'INPI avant le dépôt des dossiers (35 € en ligne sur inpi.fr). Renforce le critère propriété intellectuelle.
 
 **Pilotes avant dossiers** : même 4 à 6 semaines de données réelles avec des boulangeries transforment les deux dossiers. C'est le meilleur investissement de temps avant le dépôt.
 

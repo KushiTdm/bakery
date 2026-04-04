@@ -1,4 +1,4 @@
-# 📖 User Stories — BakeryOS
+# 📖 User Stories — Sauve Mie
 *(Header et contenu principal inchangés — mise à jour de la section État d'implémentation)*
 
 > Documentation des User Stories pour la plateforme SaaS Boulangerie Artisanale
@@ -105,10 +105,10 @@
 
 ### 🔵 Infrastructure
 8. Exécuter `migrations/migration-final-v3.sql` en production
-9. Wildcard DNS `*.bakeryos.fr` → Netlify
+9. Wildcard DNS `*.sauve-mie.fr` → Netlify
 10. Monitoring Sentry
 
 ---
 
-*BakeryOS — Documentation User Stories © 2026*
+*Sauve Mie — Documentation User Stories © 2026*
 *Mis à jour le 17/03/2026 — Fix S0 (US-11.2), Fix E2 (US-8.4), avancement 80% → 84%*

@@ -19,7 +19,7 @@ const subscription = {
 };
 
 const payload = JSON.stringify({
-  title: "Test BakeryOS",
+  title: "Test Sauve Mie",
   body: "Notification de test",
   url: "/boulanger"
 });

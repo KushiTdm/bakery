@@ -1,4 +1,4 @@
-# 📊 BakeryOS — Facteurs d’Influence Production & Consommation
+# 📊 Sauve Mie — Facteurs d’Influence Production & Consommation
 ## Objectif : Alimenter l’IA "Levain"
 
 ---

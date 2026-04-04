@@ -119,7 +119,7 @@ export function UpgradeModal({
             ))}
           </ul>
           <div className="mt-4 flex items-baseline gap-1">
-            <span className="text-2xl font-bold">29€</span>
+            <span className="text-2xl font-bold">69€</span>
             <span className="text-muted-foreground text-sm">/mois</span>
           </div>
 

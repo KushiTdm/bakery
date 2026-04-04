@@ -1,4 +1,4 @@
-# 🎬 BakeryOS — Stratégie Publicité Vidéo
+# 🎬 Sauve Mie — Stratégie Publicité Vidéo
 
 > Format : Publicité sociale 60 secondes + version courte 15 secondes  
 > Plateforme cible : TikTok, Instagram Reels, YouTube Shorts  
@@ -10,7 +10,7 @@
 
 ## 🎯 Objectif de la publicité
 
-**Message central :** "Tu sais faire le pain. BakeryOS s'occupe du reste."  
+**Message central :** "Tu sais faire le pain. Sauve Mie s'occupe du reste."  
 **Cible :** Boulanger artisanal 30-55 ans, France, fatigué du gaspillage et du tâtonnement quotidien  
 **Émotion recherchée :** Soulagement → Curiosité → Confiance  
 **CTA final :** "Essai gratuit — artisandore.fr"
@@ -156,19 +156,19 @@ Vingt minutes plus tard... vendus.
 ### Fichier S6 — `voix_s6.txt`
 
 ```
-BakeryOS.
+Sauve Mie.
 Gratuit pour commencer.
 Résultats dès la première semaine.
 ```
 
 > **Notes d'interprétation ElevenLabs :**
-> "BakeryOS." dit comme un nom propre — net, confiant, pas de montée.
+> "Sauve Mie." dit comme un nom propre — net, confiant, pas de montée.
 > "Résultats dès la première semaine." dit avec chaleur, pas avec arrogance.
 
 **Paramètres API ElevenLabs S6 :**
 ```json
 {
-  "text": "BakeryOS.\nGratuit pour commencer.\nRésultats dès la première semaine.",
+  "text": "Sauve Mie.\nGratuit pour commencer.\nRésultats dès la première semaine.",
   "model_id": "eleven_multilingual_v2",
   "voice_settings": {
     "stability": 0.62,
@@ -185,14 +185,14 @@ Résultats dès la première semaine.
 
 ```
 Chaque soir, six mille euros de pain... à la poubelle.
-BakeryOS prédit, optimise, et vend tes restes.
+Sauve Mie prédit, optimise, et vend tes restes.
 Essaie gratuitement.
 ```
 
 **Paramètres API ElevenLabs version 15s :**
 ```json
 {
-  "text": "Chaque soir, six mille euros de pain... à la poubelle.\nBakeryOS prédit, optimise, et vend tes restes.\nEssaie gratuitement.",
+  "text": "Chaque soir, six mille euros de pain... à la poubelle.\nSauve Mie prédit, optimise, et vend tes restes.\nEssaie gratuitement.",
   "model_id": "eleven_multilingual_v2",
   "voice_settings": {
     "stability": 0.52,
@@ -385,13 +385,13 @@ Sync: voice starts at 0.5s into shot. Duration: 10 seconds.
 ### SÉQUENCE 3 — Révélation produit (18–30 secondes)
 
 **Description visuelle :**
-Les mains du boulanger sortent un smartphone de sa poche. L'écran s'allume sur l'interface sombre BakeryOS (#1A0F0A, accents or). Logo et titre "Levain" apparaissent doucement.
+Les mains du boulanger sortent un smartphone de sa poche. L'écran s'allume sur l'interface sombre Sauve Mie (#1A0F0A, accents or). Logo et titre "Levain" apparaissent doucement.
 
 **Voix off ElevenLabs :** `voix_s3.wav`
 > *"Et si ton téléphone connaissait ta boulangerie... mieux que n'importe quel tableur ?"*
 
 **Effet sonore ElevenLabs :** `notif_s3.wav` (au moment où l'écran s'allume)
-**Texte à l'écran :** Logo BakeryOS + `Levain — votre assistant IA`
+**Texte à l'écran :** Logo Sauve Mie + `Levain — votre assistant IA`
 
 ---
 
@@ -420,7 +420,7 @@ held in baker hands with white apron visible at edges, cinematic product shot,
 ```
 Close-up of baker's hands in white apron reaching into pocket and pulling out a smartphone.
 Phone screen activates showing a dark elegant app interface with warm golden typography.
-Deep brown background with gold accents. Screen reads "BakeryOS — Levain" with a subtle glow.
+Deep brown background with gold accents. Screen reads "Sauve Mie — Levain" with a subtle glow.
 Camera slowly reveals the full screen. Smooth motion, cinematic.
 Transition from warm bakery tones to elegant dark tech mood. Film grain, 24fps.
 Audio input: voix_s3.wav — French male voiceover, intrigued tone, slight irony on "tableur":
@@ -446,7 +446,7 @@ Voice starts at 1s into shot. Duration: 12 seconds.
 #### 🖼️ Prompt Nano Banana — Image DÉPART S4
 
 ```
-smartphone screen mockup showing BakeryOS dark interface,
+smartphone screen mockup showing Sauve Mie dark interface,
 loading animation state, circular progress indicator in gold,
 "Levain analyse votre journée..." text in warm serif font,
 dark brown background, pulsing subtle glow effect,
@@ -456,7 +456,7 @@ clean UI design with warm artisan aesthetic, flat lay on wooden surface, cinemat
 #### 🖼️ Prompt Nano Banana — Image FIN S4
 
 ```
-smartphone screen showing BakeryOS Levain AI report completed,
+smartphone screen showing Sauve Mie Levain AI report completed,
 score "87/100" displayed prominently in golden serif font,
 production forecast list: baguettes, croissants, pains au chocolat with quantities,
 small weather icon showing rain tomorrow, dark warm UI, elegant minimal design,
@@ -466,7 +466,7 @@ baker's face slightly visible and smiling in background bokeh, cinematic product
 #### 🎬 Prompt Vertex AI (Veo 3) — S4
 
 ```
-Close-up screen animation of BakeryOS mobile app.
+Close-up screen animation of Sauve Mie mobile app.
 Dark UI (#1A0F0A) with gold accents. Score counter animates from 0 to 87:
 "87/100 — Excellente journée". Production forecast list appears with item names and quantities.
 Rain cloud icon next to "Météo demain". Smooth spring UI animations.
@@ -515,7 +515,7 @@ cinematic 16:9, photorealistic, shallow depth of field
 
 ```
 Dynamic split-screen sequence.
-Left panel: baker's hands activating flash sale on BakeryOS app — orange glow button,
+Left panel: baker's hands activating flash sale on Sauve Mie app — orange glow button,
 products listed with -40% badges.
 Right panel: time-lapse of push notifications arriving on multiple phones,
 progress bar emptying from "12 disponibles" to "0 disponible" in under 20 seconds.
@@ -532,10 +532,10 @@ Duration: 10 seconds.
 ### SÉQUENCE 6 — Résultat + CTA (50–60 secondes)
 
 **Description visuelle :**
-Le boulanger est dehors, tablier enlevé, souriant. Vitrine éclairée derrière lui. Overlays chiffrés apparaissent un par un. Logo BakeryOS plein écran. CTA.
+Le boulanger est dehors, tablier enlevé, souriant. Vitrine éclairée derrière lui. Overlays chiffrés apparaissent un par un. Logo Sauve Mie plein écran. CTA.
 
 **Voix off ElevenLabs :** `voix_s6.wav`
-> *"BakeryOS. Gratuit pour commencer. Résultats dès la première semaine."*
+> *"Sauve Mie. Gratuit pour commencer. Résultats dès la première semaine."*
 
 **Texte à l'écran final :**
 ```
@@ -561,7 +561,7 @@ warm street lighting, natural joy expression, photorealistic, 16:9
 
 ```
 elegant product branding shot, dark background #1A0F0A,
-centered golden bread loaf icon logo, "BakeryOS" in Playfair Display serif gold font,
+centered golden bread loaf icon logo, "Sauve Mie" in Playfair Display serif gold font,
 subtle tagline below, three golden checkmarks with short benefit lines,
 URL "artisandore.fr" at bottom, premium minimal design,
 soft inner glow, cinematic 16:9, no gradients, flat luxury aesthetic
@@ -574,10 +574,10 @@ Medium shot of the same baker from sequence 2, now outside his bakery.
 Jacket on, no apron, genuine smile, holding his phone.
 Evening light, warm and golden. Bakery window glowing behind him.
 Animated text overlays appear one by one: "-18% d'invendus", "+85€ /semaine", "5 min/jour".
-Cut to full dark screen with BakeryOS logo in gold, elegant serif typography.
+Cut to full dark screen with Sauve Mie logo in gold, elegant serif typography.
 Three checkmarks animate in. URL fades up at bottom.
 Audio input: voix_s6.wav — French male voiceover, grounded and warm:
-"BakeryOS. Gratuit pour commencer. Résultats dès la première semaine."
+"Sauve Mie. Gratuit pour commencer. Résultats dès la première semaine."
 Each sentence is its own breath. Confident. Final. Duration: 10 seconds.
 ```
 
@@ -593,20 +593,20 @@ Each sentence is its own breath. Confident. Final. Duration: 10 seconds.
 | 12-15s | Baker souriant dehors + logo + URL |
 
 **Voix off ElevenLabs :** `voix_15s.wav`
-> *"Chaque soir, six mille euros de pain... à la poubelle. BakeryOS prédit, optimise, et vend tes restes. Essaie gratuitement."*
+> *"Chaque soir, six mille euros de pain... à la poubelle. Sauve Mie prédit, optimise, et vend tes restes. Essaie gratuitement."*
 
 #### 🎬 Prompt Vertex AI (Veo 3) — Version 15s
 
 ```
 Fast-cut 15-second social media ad.
 Shot 1 (3s): unsold bread on bakery counter, warm moody light, text overlay "6 000€ de pain jeté par an".
-Shot 2 (5s): BakeryOS Levain AI report on smartphone, score "87/100" animating up.
+Shot 2 (5s): Sauve Mie Levain AI report on smartphone, score "87/100" animating up.
 Shot 3 (4s): split-screen flash sale, inventory bar dropping to zero.
-Shot 4 (3s): happy baker outside shop, BakeryOS logo fade in over black, URL appears.
+Shot 4 (3s): happy baker outside shop, Sauve Mie logo fade in over black, URL appears.
 Energetic editing. Warm cinematic grade.
 Audio input: voix_15s.wav — French male voiceover throughout:
 "Chaque soir, six mille euros de pain... à la poubelle.
-BakeryOS prédit, optimise, et vend tes restes. Essaie gratuitement."
+Sauve Mie prédit, optimise, et vend tes restes. Essaie gratuitement."
 ```
 
 ---

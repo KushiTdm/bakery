@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- BakeryOS — Seed (données de démonstration)
+-- Sauve Mie — Seed (données de démonstration)
 -- À exécuter APRÈS migration-complete-v1.sql
 -- Exécuter dans : Supabase Dashboard → SQL Editor
 --

@@ -1,6 +1,6 @@
 24/03
 
-## 📊 Analyse Complète de BakeryOS
+## 📊 Analyse Complète de Sauve Mie
 
 ### 🏆 Score de Maturité : 93/100
 
@@ -54,7 +54,7 @@
 | Notifications push commandes temps réel | P2 | 2h |
 | Email confirmation commande client | P2 | 2h |
 | Page légale (CGV, mentions) | P2 | 2h |
-| DNS wildcard *.bakeryos.fr | P0 infra | 2h |
+| DNS wildcard *.sauve-mie.fr | P0 infra | 2h |
 
 ---
 

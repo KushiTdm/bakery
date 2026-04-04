@@ -1,8 +1,8 @@
 // public/sw.js
-// Service Worker — BakeryOS
+// Service Worker — Sauve Mie
 // Gère : notifications push + cache offline basique
 
-const CACHE_NAME = 'bakery-os-v1';
+const CACHE_NAME = 'sauve-mie-v1';
 const OFFLINE_URLS = [
   '/',
   '/boulanger',
@@ -76,7 +76,7 @@ self.addEventListener('push', (event) => {
     payload = event.data.json();
   } catch {
     payload = {
-      title: 'BakeryOS',
+      title: 'Sauve Mie',
       body: event.data.text(),
     };
   }
@@ -97,7 +97,7 @@ self.addEventListener('push', (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? 'BakeryOS', options)
+    self.registration.showNotification(payload.title ?? 'Sauve Mie', options)
   );
 });
 

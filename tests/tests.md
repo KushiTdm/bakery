@@ -1,4 +1,4 @@
-# 🧪 BakeryOS — Documentation des Tests
+# 🧪 Sauve Mie — Documentation des Tests
 
 > Générée le 27 mars 2026  
 > Framework : Playwright  

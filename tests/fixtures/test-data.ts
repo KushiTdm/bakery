@@ -1,5 +1,5 @@
 // tests/fixtures/test-data.ts
-// Données de test pour BakeryOS
+// Données de test pour Sauve Mie
 // ─────────────────────────────────────────────────────────────
 
 // ── Générateurs de données ────────────────────────────────────

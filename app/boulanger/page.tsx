@@ -1,5 +1,5 @@
 'use client';
-// app/boulanger/page.tsx — BakeryOS · Workflow Journée v2
+// app/boulanger/page.tsx — Sauve Mie · Workflow Journée v2
 // ─────────────────────────────────────────────────────────────
 // Modifications vs v1 :
 //   ✦ Workflow chronologique strict : Matin → Stock → Flash → Soir
@@ -686,7 +686,7 @@ function AppShell() {
             Accès non autorisé
           </p>
           <p className="text-white/40 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
-            Cet espace est réservé aux boulangers inscrits sur BakeryOS.
+            Cet espace est réservé aux boulangers inscrits sur Sauve Mie.
           </p>
           <button onClick={() => router.push('/')}
             className="mt-6 px-6 py-3 rounded-xl font-semibold text-sm"

@@ -1,6 +1,6 @@
 # Référentiel des facteurs d'influence — Boulangerie artisanale française
 
-> Base de connaissance pour l'IA Levain — BakeryOS  
+> Base de connaissance pour l'IA Levain — Sauve Mie  
 > À injecter dans le contexte situationnel du prompt système
 
 ---

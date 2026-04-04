@@ -1,4 +1,4 @@
-# 🥖 BakeryOS — SaaS Boulangerie Artisanale
+# 🥖 Sauve Mie — SaaS Boulangerie Artisanale
 
 > Vitrine, click & collect, gestion anti-gaspillage en temps réel et espace boulanger.
 > Architecture multi-tenant : chaque boulangerie sur son propre sous-domaine.
@@ -23,20 +23,20 @@
 
 ## Aperçu
 
-BakeryOS est une solution SaaS pour boulangeries artisanales. Elle regroupe deux interfaces :
+Sauve Mie est une solution SaaS pour boulangeries artisanales. Elle regroupe deux interfaces :
 
 - **Le site client** (`/`) — vitrine, catalogue click & collect, flash invendus du soir en temps réel
 - **L'espace boulanger** (`/boulanger`) — gestion production, stocks, invendus, commandes et statistiques
 
 En production, chaque boulangerie dispose de son propre sous-domaine :
 ```
-monpain.bakeryos.fr           → boulangerie "monpain"
-boulangerie-dupont.bakeryos.fr → boulangerie "boulangerie-dupont"
+monpain.sauve-mie.fr           → boulangerie "monpain"
+boulangerie-dupont.sauve-mie.fr → boulangerie "boulangerie-dupont"
 ```
 
 ### Objectif produit
 
-Le taux d'invendu moyen en boulangerie artisanale est de **8-15% du chiffre d'affaires**. Sur 300k€ de CA, cela représente 24-45k€ de pertes annuelles. BakeryOS propose un **ROI démontrable en moins de 30 jours** via :
+Le taux d'invendu moyen en boulangerie artisanale est de **8-15% du chiffre d'affaires**. Sur 300k€ de CA, cela représente 24-45k€ de pertes annuelles. Sauve Mie propose un **ROI démontrable en moins de 30 jours** via :
 
 - 📊 **Suggestions ML de production** — basées sur l'historique réel
 - 🌙 **Flash anti-gaspi** — vente des invendus à prix réduit le soir
@@ -86,7 +86,7 @@ Le taux d'invendu moyen en boulangerie artisanale est de **8-15% du chiffre d'af
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  monpain.bakeryos.fr (Browser)                       │
+│  monpain.sauve-mie.fr (Browser)                       │
 │                                                      │
 │  ┌─────────────────┐    ┌──────────────────────┐    │
 │  │  Site Client    │    │  Espace Boulanger    │    │
@@ -246,7 +246,7 @@ Application installable :
 ## Structure du projet
 
 ```
-bakeryos/
+sauve-mie/
 ├── app/
 │   ├── api/
 │   │   ├── catalogue/[slug]/route.ts      # Catalogue public (RPC)
@@ -363,7 +363,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
 
 # ── Multi-tenant (requis en production) ───────────────────────
-NEXT_PUBLIC_ROOT_DOMAIN=bakeryos.fr
+NEXT_PUBLIC_ROOT_DOMAIN=sauve-mie.fr
 # En dev, utiliser ?slug=artisan-dore dans l'URL
 
 # ── Sécurité ──────────────────────────────────────────────────
@@ -378,7 +378,7 @@ RESEND_FROM_EMAIL=commandes@votredomaine.fr
 # ── Push notifications (optionnel) ────────────────────────────
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
-VAPID_CONTACT_EMAIL=mailto:contact@bakeryos.fr
+VAPID_CONTACT_EMAIL=mailto:contact@sauve-mie.fr
 
 # ── Rate limiting (recommandé en production) ──────────────────
 UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
@@ -434,7 +434,7 @@ npm run build
 
 | Environnement | Source du slug |
 |---|---|
-| Production | Sous-domaine (`monpain.bakeryos.fr` → `monpain`) |
+| Production | Sous-domaine (`monpain.sauve-mie.fr` → `monpain`) |
 | Développement | Query param (`?slug=monpain`) |
 | Fallback | `NEXT_PUBLIC_BAKERY_SLUG` dans `.env.local` |
 
@@ -453,8 +453,8 @@ package = "@netlify/plugin-nextjs"
 ```
 
 Activer les **wildcard subdomains** dans Netlify :
-- Site settings → Domain management → ajouter `*.bakeryos.fr`
-- DNS : enregistrement `CNAME *.bakeryos.fr → [votre-site].netlify.app`
+- Site settings → Domain management → ajouter `*.sauve-mie.fr`
+- DNS : enregistrement `CNAME *.sauve-mie.fr → [votre-site].netlify.app`
 
 ### Ajouter une boulangerie
 
@@ -542,7 +542,7 @@ POST /api/boulanger/auth
 ### Moyen terme (30-90 jours)
 - [ ] Export PDF rapport hebdomadaire
 - [ ] Rapport CO₂ mensuel
-- [ ] Landing page BakeryOS.fr
+- [ ] Landing page Sauve Mie.fr
 - [ ] Tests E2E Playwright
 
 ### Long terme (90+ jours)
@@ -568,6 +568,6 @@ POST /api/boulanger/auth
 
 ---
 
-*Fait avec passion · BakeryOS © 2026*
+*Fait avec passion · Sauve Mie © 2026*
 
 *Repository : https://github.com/KushiTdm/bakery*

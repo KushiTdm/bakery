@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- BakeryOS — Migration MASTER CONSOLIDÉE v5.0
+-- Sauve Mie — Migration MASTER CONSOLIDÉE v5.0
 -- 30 mars 2026
 --
 -- Synthèse complète de toutes les migrations précédentes :
@@ -1754,7 +1754,7 @@ BEGIN
      );
 
   RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-  RAISE NOTICE '✅ BakeryOS — Migration Master v5.0 (30 mars 2026)';
+  RAISE NOTICE '✅ Sauve Mie — Migration Master v5.0 (30 mars 2026)';
   RAISE NOTICE '';
   RAISE NOTICE '   Tables        : % / 16', n_tables;
   RAISE NOTICE '   Fonctions     : % / 17', n_fonctions;

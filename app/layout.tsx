@@ -78,7 +78,7 @@ export const metadata: Metadata = {
   },
 
   manifest: '/manifest.json',
-  applicationName: 'BakeryOS',
+  applicationName: 'Sauve Mie',
 
   appleWebApp: {
     capable:        true,

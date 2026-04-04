@@ -1,4 +1,4 @@
-# 🏆 Proposition de Système de Fidélité — BakeryOS
+# 🏆 Proposition de Système de Fidélité — Sauve Mie
 
 ## 📋 Résumé Exécutif
 
@@ -553,4 +553,4 @@ if (statut === 'annulee' && new Date() < finCreneau) {
 
 ---
 
-*Document généré par analyse du codebase BakeryOS le 18/03/2026*
+*Document généré par analyse du codebase Sauve Mie le 18/03/2026*

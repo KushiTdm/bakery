@@ -1,5 +1,5 @@
 // lib/workflow.ts
-// Flux journalier BakeryOS — ordre strict + déblocage horaire
+// Flux journalier Sauve Mie — ordre strict + déblocage horaire
 //
 // Étapes dans l'ordre :
 //   1. production_matin  (Boulanger, dès ouverture)
