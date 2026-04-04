@@ -9,14 +9,14 @@
 //   ✦ WorkflowGuard sur chaque vue protégée
 //   ✦ Vue 'ia' accessible depuis le Drawer "Plus"
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sun, Camera, Moon, Zap, LogOut, CloudOff,
   Check, Loader2, HelpCircle, MoreHorizontal, BookOpen,
   BarChart2, Settings, X, ChevronRight, ShoppingBag,
   Shield, Users, TrendingUp, TrendingDown, AlertTriangle,
-  Package, Home, Lock, Sparkles,
+  Package, Home, Lock, Sparkles, CalendarDays, Menu,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
@@ -36,9 +36,9 @@ import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import OnboardingWizard from '@/components/boulanger/onboarding-wizard';
 import WorkflowGuard from '@/components/boulanger/workflow-guard';
-import DayCountdown  from '@/components/boulanger/day-countdown';
+import VueJournee, { STEP_CONFIG } from '@/components/boulanger/vue-journee';
 import { useWorkflowJournee } from '@/hooks/use-workflow-journee';
-import type { ViewType } from '@/lib/types';
+import type { ViewType, PermissionKey } from '@/lib/types';
 import { ROLE_LABELS } from '@/lib/types';
 
 // ─────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ function VueAccueil({
   onNavigate,
   workflow,
 }: {
-  onNavigate: (v: ViewType | 'commandes') => void;
+  onNavigate: (v: ViewType | 'commandes' | 'journee') => void;
   workflow: ReturnType<typeof useWorkflowJournee>;
 }) {
   const {
@@ -120,14 +120,13 @@ function VueAccueil({
   const [alertesStock, setAlertesStock]   = useState<string[]>([]);
 
   const {
+    productionSaisie, snapshot10hFait, snapshot14hFait,
+    journeeCloturee, flashConfigured,
     canAccessSnapshot, canAccessFlash, canAccessSoir,
     currentSuggestedStep, currentStepLabel,
   } = workflow;
 
   const phase = currentSuggestedStep;
-  const phaseView: Record<string, ViewType> = {
-    matin: 'matin', snapshot: 'snapshot', soir: 'soir', flash: 'flash',
-  };
 
   useEffect(() => {
     async function loadOrders() {
@@ -161,98 +160,147 @@ function VueAccueil({
   const hasProduction = totalProducedToday > 0;
   const kpiColor = unsoldRateToday < 5 ? 'text-green-400' : unsoldRateToday < 10 ? 'text-amber-400' : 'text-red-400';
 
+  // Config des étapes du workflow pour les dots
+  const workflowDots: { id: string; icon: React.ElementType; label: string; done: boolean; active: boolean; locked: boolean; color: string }[] = [
+    { id: 'matin',    icon: Sun,    label: 'Matin', done: productionSaisie, active: phase === 'matin' && !productionSaisie, locked: false,                color: '#C19A6B' },
+    { id: 'snapshot', icon: Camera, label: 'Stock', done: snapshot14hFait,  active: phase === 'snapshot',                   locked: !canAccessSnapshot,   color: '#5CC994' },
+    { id: 'flash',    icon: Zap,    label: 'Flash', done: flashConfigured,  active: phase === 'flash',                      locked: !canAccessFlash,       color: '#EAC43A' },
+    { id: 'soir',     icon: Moon,   label: 'Soir',  done: journeeCloturee,  active: phase === 'soir',                       locked: !canAccessSoir,        color: '#6FA8EA' },
+  ];
+
+  // Couleur et icône de l'étape active pour le hero
+  const stepConfig = STEP_CONFIG.find(s => s.id === phase);
+
   return (
     <div className="space-y-4 pb-4">
+      {/* En-tête date */}
       <div className="pt-2">
-        <p className="text-white/40 text-[11px] uppercase tracking-widest font-medium">Vue d'ensemble</p>
-        <h1 className="text-white text-2xl font-bold mt-1 leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <h1 className="text-white text-2xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
           {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </h1>
       </div>
 
-      <DayCountdown workflow={workflow} onNavigate={(step) => onNavigate(phaseView[step] as ViewType)} />
-
-      {/* CTA phase du jour */}
+      {/* Carte hero — "À faire maintenant" */}
       <motion.button whileTap={{ scale: 0.97 }}
-        onClick={() => onNavigate(phaseView[phase] as ViewType)}
+        onClick={() => onNavigate('journee')}
         className="w-full relative overflow-hidden rounded-2xl text-left"
-        style={{ background: 'linear-gradient(135deg, rgba(193,154,107,0.18) 0%, rgba(193,154,107,0.06) 100%)', border: '1px solid rgba(193,154,107,0.28)' }}>
-        <div className="flex items-center gap-4 px-4 py-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(193,154,107,0.15)' }}>
-            {phase === 'matin'    && <Sun    size={22} className="text-[#C19A6B]" />}
-            {phase === 'snapshot' && <Camera size={22} className="text-[#C19A6B]" />}
-            {phase === 'soir'     && <Moon   size={22} className="text-[#C19A6B]" />}
-            {phase === 'flash'    && <Zap    size={22} className="text-[#C19A6B] fill-[#C19A6B]" />}
+        style={{
+          background: `linear-gradient(135deg, ${stepConfig?.color ?? '#C19A6B'}22 0%, ${stepConfig?.color ?? '#C19A6B'}08 100%)`,
+          border: `1px solid ${stepConfig?.color ?? '#C19A6B'}40`,
+        }}>
+        <div className="flex items-center gap-4 px-5 py-5">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+            style={{ background: `${stepConfig?.color ?? '#C19A6B'}20` }}>
+            {phase === 'matin'    && <Sun    size={26} style={{ color: stepConfig?.color }} />}
+            {phase === 'snapshot' && <Camera size={26} style={{ color: stepConfig?.color }} />}
+            {phase === 'soir'     && <Moon   size={26} style={{ color: stepConfig?.color }} />}
+            {phase === 'flash'    && <Zap    size={26} style={{ color: stepConfig?.color }} />}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white/45 text-[10px] uppercase tracking-wider font-medium">En ce moment</p>
-            <p className="text-[#C19A6B] font-bold text-base mt-0.5">{currentStepLabel}</p>
-            <p className="text-white/35 text-xs mt-0.5">Appuyez pour accéder →</p>
+            <p className="text-white/50 text-[11px] uppercase tracking-wider font-medium">
+              {journeeCloturee ? 'Journée terminée' : 'À faire maintenant'}
+            </p>
+            <p className="font-bold text-lg mt-0.5" style={{ color: stepConfig?.color ?? '#C19A6B' }}>
+              {currentStepLabel}
+            </p>
           </div>
-          <ChevronRight size={16} className="text-[#C19A6B]/50 flex-shrink-0" />
+          <ChevronRight size={18} style={{ color: `${stepConfig?.color ?? '#C19A6B'}80` }} className="flex-shrink-0" />
         </div>
       </motion.button>
+
+      {/* Workflow dots — progression compacte */}
+      <div className="flex items-center gap-1.5 px-1">
+        {workflowDots.map((dot, i) => {
+          const Icon = dot.icon;
+          return (
+            <React.Fragment key={dot.id}>
+              {i > 0 && (
+                <div className="flex-shrink-0 w-4 h-px" style={{
+                  background: workflowDots[i - 1].done ? 'rgba(92,201,148,0.4)' : 'rgba(255,255,255,0.08)',
+                }} />
+              )}
+              <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
+                dot.locked ? 'opacity-30' : ''
+              }`} style={{
+                background: dot.done ? 'rgba(92,201,148,0.08)' : dot.active ? `${dot.color}12` : 'transparent',
+              }}>
+                <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{
+                  background: dot.done ? 'rgba(92,201,148,0.2)' : dot.active ? `${dot.color}25` : 'rgba(255,255,255,0.06)',
+                }}>
+                  {dot.done ? (
+                    <Check size={11} className="text-green-400" />
+                  ) : dot.locked ? (
+                    <Lock size={9} className="text-white/20" />
+                  ) : (
+                    <Icon size={11} style={{ color: dot.active ? dot.color : 'rgba(255,255,255,0.35)' }} />
+                  )}
+                </div>
+                <span className={`text-[10px] font-semibold ${
+                  dot.done ? 'text-green-400/70' : dot.active ? '' : dot.locked ? 'text-white/15' : 'text-white/30'
+                }`} style={dot.active && !dot.done ? { color: dot.color } : undefined}>
+                  {dot.label}
+                </span>
+                {dot.active && !dot.done && (
+                  <motion.div
+                    animate={{ scale: [1, 1.4, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: dot.color }}
+                  />
+                )}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      {/* KPI inline — une seule ligne compacte */}
+      {hasProduction && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="flex items-center justify-between rounded-xl px-4 py-3 border"
+          style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}>
+          <div className="flex items-center gap-1.5">
+            <TrendingUp size={14} className="text-[#C19A6B] opacity-70" />
+            <span className="text-[#C19A6B] font-bold text-base font-mono">{Math.round(revenueToday)}€</span>
+            <span className="text-white/25 text-[10px] ml-0.5">CA</span>
+          </div>
+          <div className="w-px h-4 bg-white/10" />
+          <div className="flex items-center gap-1.5">
+            <Package size={13} className="text-white/40" />
+            <span className="text-white/70 font-bold text-sm font-mono">{totalProducedToday}</span>
+            <span className="text-white/25 text-[10px]">pcs</span>
+          </div>
+          <div className="w-px h-4 bg-white/10" />
+          <div className="flex items-center gap-1.5">
+            {unsoldRateToday < 5
+              ? <TrendingDown size={13} className="text-green-400 opacity-70" />
+              : <AlertTriangle size={13} className={kpiColor + ' opacity-70'} />
+            }
+            <span className={`font-bold text-sm font-mono ${kpiColor}`}>{unsoldRateToday.toFixed(0)}%</span>
+            <span className="text-white/25 text-[10px]">inv.</span>
+          </div>
+        </motion.div>
+      )}
 
       {/* Commandes en attente */}
       {!loadingOrders && pendingCount > 0 && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <button onClick={() => onNavigate('commandes')} className="w-full text-left">
             <div className="rounded-2xl overflow-hidden border" style={{ background: 'rgba(58,123,213,0.07)', borderColor: 'rgba(58,123,213,0.2)' }}>
-              <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'rgba(58,123,213,0.12)' }}>
+              <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(58,123,213,0.15)' }}>
                     <ShoppingBag size={15} className="text-blue-400" />
                   </div>
                   <div>
                     <p className="text-blue-300 font-semibold text-sm">{pendingCount} commande{pendingCount > 1 ? 's' : ''} en attente</p>
-                    <p className="text-blue-400/50 text-[10px]">Appuyez pour gérer</p>
                   </div>
                 </div>
-                <span className="text-blue-300 font-black text-lg w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(58,123,213,0.2)' }}>
-                  {pendingCount}
-                </span>
-              </div>
-              <div className="px-4 py-2 space-y-1.5">
-                {pendingOrders.map(o => (
-                  <div key={o.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-blue-400/20 flex items-center justify-center">
-                        <span className="text-blue-300 text-[9px] font-bold">{(o.client_prenom ?? 'C')[0]}</span>
-                      </div>
-                      <span className="text-white/60 text-xs">{o.client_prenom}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/30 text-[10px] font-mono">{String(o.heure_retrait ?? '').slice(0, 5)}</span>
-                      <span className="text-blue-300 text-xs font-mono font-bold">{Number(o.montant_total).toFixed(2)}€</span>
-                    </div>
-                  </div>
-                ))}
+                <ChevronRight size={14} className="text-blue-400/40" />
               </div>
             </div>
           </button>
         </motion.div>
-      )}
-
-      {/* KPIs */}
-      {hasProduction && (
-        <div className="grid grid-cols-3 gap-2.5">
-          {[
-            { label: 'CA estimé', value: `${Math.round(revenueToday)}€`,       sub: 'aujourd\'hui', color: 'text-[#C19A6B]', bg: 'rgba(193,154,107,0.08)',  border: 'rgba(193,154,107,0.18)', icon: TrendingUp },
-            { label: 'Produit',   value: String(totalProducedToday),             sub: 'pièces',       color: 'text-white',      bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.08)', icon: Package },
-            { label: 'Invendu',   value: `${unsoldRateToday.toFixed(0)}%`,       sub: `${unsoldToday} pcs`, color: kpiColor,   bg: unsoldRateToday < 5 ? 'rgba(61,158,106,0.08)' : unsoldRateToday < 10 ? 'rgba(212,137,26,0.08)' : 'rgba(196,75,75,0.08)', border: unsoldRateToday < 5 ? 'rgba(61,158,106,0.2)' : unsoldRateToday < 10 ? 'rgba(212,137,26,0.2)' : 'rgba(196,75,75,0.2)', icon: unsoldRateToday < 5 ? TrendingDown : AlertTriangle },
-          ].map((kpi, i) => {
-            const Icon = kpi.icon;
-            return (
-              <motion.div key={kpi.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                className="rounded-2xl p-3 border" style={{ background: kpi.bg, borderColor: kpi.border }}>
-                <Icon size={13} className={`${kpi.color} mb-2 opacity-70`} />
-                <p className={`font-bold text-xl font-mono leading-none ${kpi.color}`}>{kpi.value}</p>
-                <p className="text-white/30 text-[10px] mt-1 uppercase tracking-wide">{kpi.label}</p>
-                <p className="text-white/20 text-[9px]">{kpi.sub}</p>
-              </motion.div>
-            );
-          })}
-        </div>
       )}
 
       {/* Alerte stock */}
@@ -270,55 +318,20 @@ function VueAccueil({
         </motion.div>
       )}
 
-      {/* Sans production */}
+      {/* Sans production — CTA vers Ma Journée */}
       {!hasProduction && (
-        <div className="flex flex-col items-center justify-center py-10 text-center">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <Sun size={28} className="text-white/20" />
-          </div>
-          <p className="text-white/50 font-medium text-sm">Production non saisie</p>
-          <p className="text-white/25 text-xs mt-1 leading-relaxed max-w-xs">
-            Commencez par saisir la production du matin pour voir vos métriques ici.
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <p className="text-white/25 text-xs leading-relaxed max-w-xs">
+            Saisissez la production du matin pour voir vos métriques.
           </p>
-          <motion.button whileTap={{ scale: 0.97 }} onClick={() => onNavigate('matin')}
+          <motion.button whileTap={{ scale: 0.97 }} onClick={() => onNavigate('journee')}
             className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold"
             style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.3)', color: '#C19A6B' }}>
             <Sun size={15} />
-            Saisir la production →
+            Commencer la journée
           </motion.button>
         </div>
       )}
-
-      {/* Accès rapides */}
-      <div>
-        <p className="text-white/30 text-[10px] uppercase tracking-widest mb-2.5 px-0.5 font-medium">Accès rapides</p>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: 'Commandes',    icon: ShoppingBag, view: 'commandes' as const, accent: 'rgba(58,123,213,0.12)', border: 'rgba(58,123,213,0.2)',   color: '#6FA8EA', badge: pendingCount > 0 ? pendingCount : undefined, locked: false },
-            { label: 'Flash du soir',icon: Zap,         view: 'flash' as const,     accent: 'rgba(193,154,107,0.1)', border: 'rgba(193,154,107,0.2)', color: '#C19A6B', locked: !canAccessFlash },
-            { label: 'Statistiques', icon: BarChart2,   view: 'dashboard' as const, accent: 'rgba(255,255,255,0.04)',border: 'rgba(255,255,255,0.08)',color: 'rgba(255,255,255,0.5)', locked: false },
-            { label: 'Catalogue',    icon: BookOpen,    view: 'catalogue' as const, accent: 'rgba(255,255,255,0.04)',border: 'rgba(255,255,255,0.08)',color: 'rgba(255,255,255,0.5)', locked: false },
-          ].map(item => {
-            const Icon = item.icon;
-            return (
-              <motion.button key={item.label} whileTap={{ scale: item.locked ? 1 : 0.97 }}
-                onClick={() => !item.locked && onNavigate(item.view)}
-                className={`relative flex items-center gap-2.5 px-3.5 py-3 rounded-xl border text-left transition-all ${item.locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
-                style={{ background: item.accent, borderColor: item.border }}>
-                <Icon size={16} style={{ color: item.color }} />
-                <span className="text-white/70 text-xs font-medium">{item.label}</span>
-                {item.locked && <Lock size={10} className="absolute top-2 right-2 text-white/20" />}
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className="absolute top-2 right-2 text-white font-bold text-[9px] min-w-[16px] h-4 flex items-center justify-center rounded-full px-1" style={{ background: '#3A7BD5' }}>
-                    {item.badge}
-                  </span>
-                )}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -522,23 +535,20 @@ function ViewBlocked() {
 // Nav items (bottom bar)
 // ─────────────────────────────────────────────────────────────
 
-type LocalView = 'accueil' | ViewType;
+type LocalView = 'accueil' | 'journee' | ViewType;
 
 const ALL_NAV_ITEMS: {
-  id: LocalView; label: string; icon: React.ElementType; flash?: boolean; permission?: string;
+  id: LocalView; label: string; icon: React.ElementType;
 }[] = [
-  { id: 'accueil',  label: 'Accueil', icon: Home },
-  { id: 'matin',    label: 'Matin',   icon: Sun,    permission: 'matin'    },
-  { id: 'snapshot', label: 'Stock',   icon: Camera, permission: 'snapshot' },
-  { id: 'soir',     label: 'Soir',    icon: Moon,   permission: 'soir'     },
-  { id: 'flash',    label: 'Flash',   icon: Zap, flash: true, permission: 'flash' },
+  { id: 'accueil',  label: 'Accueil',     icon: Home },
+  { id: 'journee',  label: 'Ma Journée',  icon: CalendarDays },
 ];
 
 // ─────────────────────────────────────────────────────────────
 // Shell principal
 // ─────────────────────────────────────────────────────────────
 
-// Vues secondaires — utilisées pour l'état du bouton "Plus"
+// Vues secondaires — accessible via le drawer Menu
 const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision'];
 
 function AppShell() {
@@ -651,12 +661,14 @@ function AppShell() {
 
   const handleNavClick = useCallback((v: LocalView) => {
     setLocalView(v);
-    if (v !== 'accueil') setActiveView(v as ViewType);
+    if (v !== 'accueil' && v !== 'journee') setActiveView(v as ViewType);
   }, [setActiveView]);
 
-  const handleDeepNavigate = useCallback((v: ViewType | 'commandes') => {
+  const handleDeepNavigate = useCallback((v: ViewType | 'commandes' | 'journee') => {
     if (v === 'commandes') {
       router.push('/boulanger/commandes');
+    } else if (v === 'journee') {
+      setLocalView('journee');
     } else {
       setLocalView(v);
       setActiveView(v);
@@ -712,9 +724,7 @@ function AppShell() {
     );
   }
 
-  const navItems = ALL_NAV_ITEMS.filter(n =>
-    n.id === 'accueil' || !n.permission || canRead(n.permission as Parameters<typeof canRead>[0])
-  ).slice(0, 5);
+  // Les permissions sont gérées à l'intérieur de chaque vue, plus dans la nav
 
   // ── Interface principale ───────────────────────────────────
   return (
@@ -771,6 +781,11 @@ function AppShell() {
               <VueAccueil onNavigate={handleDeepNavigate} workflow={workflow} />
             )}
 
+            {localView === 'journee' && (
+              <VueJournee workflow={workflow} canRead={canRead} onNavigateStep={(step) => handleNavClick(step as LocalView)} />
+            )}
+
+            {/* Accès direct aux vues workflow (via deep links ou legacy) */}
             {localView === 'matin' && (
               canRead('matin') ? <VueMatin /> : <ViewBlocked />
             )}
@@ -819,39 +834,29 @@ function AppShell() {
         </AnimatePresence>
       </main>
 
-      {/* Bottom Nav */}
+      {/* Bottom Nav — 3 onglets : Accueil, Ma Journée, Menu */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{ background: 'rgba(18,10,6,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="grid w-full max-w-lg mx-auto"
-          style={{ gridTemplateColumns: `repeat(${navItems.length + 1}, 1fr)`, height: '72px' }}>
-          {navItems.map(item => {
+          style={{ gridTemplateColumns: 'repeat(3, 1fr)', height: '72px' }}>
+          {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;
-            const isActive  = localView === item.id;
-            const isAccueil = item.id === 'accueil';
-            const isLocked  =
-              (item.id === 'snapshot' && !workflow.canAccessSnapshot) ||
-              (item.id === 'flash'    && !workflow.canAccessFlash)    ||
-              (item.id === 'soir'     && !workflow.canAccessSoir);
+            const isActive = localView === item.id;
 
             return (
               <motion.button key={item.id} onClick={() => handleNavClick(item.id as LocalView)}
                 whileTap={{ scale: 0.86 }}
                 className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none relative">
-                <motion.div className="relative flex flex-col items-center gap-1 px-2.5 py-2 rounded-2xl"
+                <motion.div className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-2xl"
                   animate={{
                     background: isActive
-                      ? item.flash ? 'rgba(234,196,58,0.15)' : isAccueil ? 'rgba(255,255,255,0.07)' : 'rgba(193,154,107,0.15)'
+                      ? item.id === 'accueil' ? 'rgba(255,255,255,0.07)' : 'rgba(193,154,107,0.15)'
                       : 'transparent',
                   }}>
-                  {isLocked && !isActive && (
-                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#1A0F0A] flex items-center justify-center">
-                      <Lock size={8} className="text-white/30" />
-                    </div>
-                  )}
-                  <Icon size={21} strokeWidth={isActive ? 2.3 : 1.6}
-                    style={{ color: isActive ? (item.flash ? '#EAC43A' : isAccueil ? 'rgba(255,255,255,0.8)' : '#C19A6B') : isLocked ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.4)' }} />
-                  <span className="text-[9px] font-bold leading-none"
-                    style={{ color: isActive ? (item.flash ? '#EAC43A' : isAccueil ? 'rgba(255,255,255,0.8)' : '#C19A6B') : isLocked ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.4)' }}>
+                  <Icon size={22} strokeWidth={isActive ? 2.3 : 1.6}
+                    style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.85)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }} />
+                  <span className="text-[10px] font-bold leading-none"
+                    style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.85)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }}>
                     {item.label}
                   </span>
                 </motion.div>
@@ -859,35 +864,23 @@ function AppShell() {
             );
           })}
 
-          {/* Bouton "Plus" — reflète aussi la vue 'ia' */}
+          {/* Bouton Menu */}
           <motion.button onClick={() => setDrawerOpen(true)} whileTap={{ scale: 0.86 }}
             className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none">
-            <div className="relative flex flex-col items-center gap-1 px-2.5 py-2 rounded-2xl"
+            <div className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-2xl"
               style={{ background: isSecondaryActive ? 'rgba(193,154,107,0.15)' : 'transparent' }}>
-              {isSecondaryActive ? (
-                <>
-                  {activeView === 'catalogue'  && <BookOpen  size={21} strokeWidth={2.3} style={{ color: '#C19A6B' }} />}
-                  {activeView === 'dashboard'  && <BarChart2 size={21} strokeWidth={2.3} style={{ color: '#C19A6B' }} />}
-                  {activeView === 'parametres' && <Settings  size={21} strokeWidth={2.3} style={{ color: '#C19A6B' }} />}
-                  {activeView === 'equipe'     && <Users     size={21} strokeWidth={2.3} style={{ color: '#C19A6B' }} />}
-                  {activeView === 'ia'         && <Sparkles  size={21} strokeWidth={2.3} style={{ color: '#A855F7' }} />}
-                  <span className="text-[9px] font-bold leading-none"
-                    style={{ color: activeView === 'ia' ? '#A855F7' : '#C19A6B' }}>
-                    {activeView === 'catalogue' ? 'Produits' : activeView === 'dashboard' ? 'Stats' : activeView === 'equipe' ? 'Équipe' : activeView === 'ia' ? 'Levain' : 'Config'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  {pendingCount > 0 && (
-                    <span className="absolute top-1 right-1 text-white font-black text-[9px] min-w-[15px] h-[15px] flex items-center justify-center rounded-full"
-                      style={{ background: '#3A7BD5' }}>
-                      {pendingCount > 9 ? '9+' : pendingCount}
-                    </span>
-                  )}
-                  <MoreHorizontal size={21} strokeWidth={1.6} style={{ color: 'rgba(255,255,255,0.4)' }} />
-                  <span className="text-[9px] font-bold leading-none" style={{ color: 'rgba(255,255,255,0.4)' }}>Plus</span>
-                </>
+              {pendingCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 text-white font-black text-[9px] min-w-[16px] h-[16px] flex items-center justify-center rounded-full"
+                  style={{ background: '#3A7BD5' }}>
+                  {pendingCount > 9 ? '9+' : pendingCount}
+                </span>
               )}
+              <Menu size={22} strokeWidth={isSecondaryActive ? 2.3 : 1.6}
+                style={{ color: isSecondaryActive ? '#C19A6B' : 'rgba(255,255,255,0.4)' }} />
+              <span className="text-[10px] font-bold leading-none"
+                style={{ color: isSecondaryActive ? '#C19A6B' : 'rgba(255,255,255,0.4)' }}>
+                Menu
+              </span>
             </div>
           </motion.button>
         </div>
