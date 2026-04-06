@@ -542,7 +542,7 @@ export default function VueMatin() {
           </div>
           <div className="text-right">
             <p className="text-[#C19A6B] text-lg font-bold tabular-nums">{caEstime.toFixed(0)} €</p>
-            <p className="text-white/30 text-[10px]">CA estimé</p>
+            <p className="text-white/30 text-xs">CA estimé</p>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-3 flex-wrap">

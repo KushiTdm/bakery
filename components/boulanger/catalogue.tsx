@@ -451,6 +451,7 @@ export default function Catalogue() {
             onSave={handleSave}
             onClose={handleClose}
             onUploadPhoto={uploaderPhoto}
+            existingNames={produits.map(p => p.nom)}
           />
         )}
       </AnimatePresence>

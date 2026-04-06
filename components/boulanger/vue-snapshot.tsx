@@ -286,8 +286,8 @@ export default function VueSnapshot() {
               <div className="flex-1 flex items-center gap-2.5 min-w-0">
                 <span className="text-xl leading-none flex-shrink-0">{stock.emoji}</span>
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{stock.name}</p>
-                  <p className="text-white/35 text-[10px] tabular-nums">
+                  <p className="text-white text-sm font-medium line-clamp-2">{stock.name}</p>
+                  <p className="text-white/35 text-xs tabular-nums">
                     {refLabel}
                     {vendus > 0 && (
                       <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>

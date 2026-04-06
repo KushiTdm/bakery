@@ -372,6 +372,37 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
           if (!isClosed) entry.stockFinal = 0;
           return entry;
         });
+
+        // ── Merge : synchroniser avec le catalogue actif ─────────────
+        // 1. Ajouter les produits du catalogue absents de la journée
+        //    (ex: roll-over a créé la journée avec seulement les reportés)
+        // 2. Retirer les produits supprimés du catalogue (soft-delete)
+        const existingIds = new Set(stocks.map(s => s.id));
+        try {
+          const prodRes = await fetch('/api/boulanger/produits', {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+          });
+          if (prodRes.ok) {
+            const { produits } = await prodRes.json() as { produits: ProduitDb[] };
+            if (produits?.length) {
+              const activeIds = new Set(produits.map(p => p.id));
+              // Ajouter les produits manquants
+              for (const p of produits) {
+                if (!existingIds.has(p.id)) {
+                  stocks.push(produitToStockEntry(p));
+                }
+              }
+              // Retirer les produits supprimés du catalogue
+              const filtered = stocks.filter(s => activeIds.has(s.id));
+              stocks.length = 0;
+              stocks.push(...filtered);
+            }
+          }
+        } catch (mergeErr) {
+          console.warn('[BoulangerContext] merge produits:', mergeErr);
+        }
+
         setTodayStocks(stocks);
         _setCommandesOnline(journee.commandes_online ?? 0);
       } else {

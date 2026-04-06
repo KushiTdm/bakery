@@ -8,12 +8,15 @@
 //   ✦ DayCountdown intégré dans la vue Accueil
 //   ✦ WorkflowGuard sur chaque vue protégée
 //   ✦ Vue 'ia' accessible depuis le Drawer "Plus"
+// Phase 4 (04/04) :
+//   ✦ PlusDrawer restructuré : QUOTIDIEN / GESTION / ADMINISTRATION
+//   ✦ Items du drawer compactés (py-3, icônes w-9 h-9)
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sun, Camera, Moon, Zap, LogOut, CloudOff,
-  Check, Loader2, HelpCircle, MoreHorizontal, BookOpen,
+  Check, Loader2, HelpCircle, BookOpen,
   BarChart2, Settings, X, ChevronRight, ShoppingBag,
   Shield, Users, TrendingUp, TrendingDown, AlertTriangle,
   Package, Home, Lock, Sparkles, CalendarDays, Menu,
@@ -30,7 +33,7 @@ import VueRapportIA  from '@/components/boulanger/vue-rapport-ia';
 import Dashboard     from '@/components/boulanger/dashboard';
 import DashboardSupervision from '@/components/boulanger/dashboard-supervision';
 import Catalogue     from '@/components/boulanger/catalogue';
-import { isOwner as checkIsOwner } from '@/lib/auth-boulanger';
+// isOwner supprimé — le rôle est désormais géré via BoulangerContext.userRole
 import Parametres    from '@/components/boulanger/parametres';
 import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
@@ -120,7 +123,7 @@ function VueAccueil({
   const [alertesStock, setAlertesStock]   = useState<string[]>([]);
 
   const {
-    productionSaisie, snapshot10hFait, snapshot14hFait,
+    productionSaisie, snapshot14hFait,
     journeeCloturee, flashConfigured,
     canAccessSnapshot, canAccessFlash, canAccessSoir,
     currentSuggestedStep, currentStepLabel,
@@ -160,15 +163,13 @@ function VueAccueil({
   const hasProduction = totalProducedToday > 0;
   const kpiColor = unsoldRateToday < 5 ? 'text-green-400' : unsoldRateToday < 10 ? 'text-amber-400' : 'text-red-400';
 
-  // Config des étapes du workflow pour les dots
   const workflowDots: { id: string; icon: React.ElementType; label: string; done: boolean; active: boolean; locked: boolean; color: string }[] = [
-    { id: 'matin',    icon: Sun,    label: 'Matin', done: productionSaisie, active: phase === 'matin' && !productionSaisie, locked: false,                color: '#C19A6B' },
-    { id: 'snapshot', icon: Camera, label: 'Stock', done: snapshot14hFait,  active: phase === 'snapshot',                   locked: !canAccessSnapshot,   color: '#5CC994' },
-    { id: 'flash',    icon: Zap,    label: 'Flash', done: flashConfigured,  active: phase === 'flash',                      locked: !canAccessFlash,       color: '#EAC43A' },
-    { id: 'soir',     icon: Moon,   label: 'Soir',  done: journeeCloturee,  active: phase === 'soir',                       locked: !canAccessSoir,        color: '#6FA8EA' },
+    { id: 'matin',    icon: Sun,    label: 'Matin', done: productionSaisie, active: phase === 'matin' && !productionSaisie, locked: false,              color: '#C19A6B' },
+    { id: 'snapshot', icon: Camera, label: 'Stock', done: snapshot14hFait,  active: phase === 'snapshot',                   locked: !canAccessSnapshot, color: '#5CC994' },
+    { id: 'flash',    icon: Zap,    label: 'Flash', done: flashConfigured,  active: phase === 'flash',                      locked: !canAccessFlash,    color: '#EAC43A' },
+    { id: 'soir',     icon: Moon,   label: 'Soir',  done: journeeCloturee,  active: phase === 'soir',                       locked: !canAccessSoir,     color: '#6FA8EA' },
   ];
 
-  // Couleur et icône de l'étape active pour le hero
   const stepConfig = STEP_CONFIG.find(s => s.id === phase);
 
   return (
@@ -180,7 +181,7 @@ function VueAccueil({
         </h1>
       </div>
 
-      {/* Carte hero — "À faire maintenant" */}
+      {/* Carte hero */}
       <motion.button whileTap={{ scale: 0.97 }}
         onClick={() => onNavigate('journee')}
         className="w-full relative overflow-hidden rounded-2xl text-left"
@@ -208,7 +209,7 @@ function VueAccueil({
         </div>
       </motion.button>
 
-      {/* Workflow dots — progression compacte */}
+      {/* Workflow dots */}
       <div className="flex items-center gap-1.5 px-1">
         {workflowDots.map((dot, i) => {
           const Icon = dot.icon;
@@ -219,21 +220,14 @@ function VueAccueil({
                   background: workflowDots[i - 1].done ? 'rgba(92,201,148,0.4)' : 'rgba(255,255,255,0.08)',
                 }} />
               )}
-              <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
-                dot.locked ? 'opacity-30' : ''
-              }`} style={{
-                background: dot.done ? 'rgba(92,201,148,0.08)' : dot.active ? `${dot.color}12` : 'transparent',
-              }}>
+              <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${dot.locked ? 'opacity-30' : ''}`}
+                style={{ background: dot.done ? 'rgba(92,201,148,0.08)' : dot.active ? `${dot.color}12` : 'transparent' }}>
                 <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{
                   background: dot.done ? 'rgba(92,201,148,0.2)' : dot.active ? `${dot.color}25` : 'rgba(255,255,255,0.06)',
                 }}>
-                  {dot.done ? (
-                    <Check size={11} className="text-green-400" />
-                  ) : dot.locked ? (
-                    <Lock size={9} className="text-white/20" />
-                  ) : (
-                    <Icon size={11} style={{ color: dot.active ? dot.color : 'rgba(255,255,255,0.35)' }} />
-                  )}
+                  {dot.done   ? <Check size={11} className="text-green-400" />
+                  : dot.locked ? <Lock  size={9}  className="text-white/20"  />
+                  : <Icon size={11} style={{ color: dot.active ? dot.color : 'rgba(255,255,255,0.35)' }} />}
                 </div>
                 <span className={`text-[10px] font-semibold ${
                   dot.done ? 'text-green-400/70' : dot.active ? '' : dot.locked ? 'text-white/15' : 'text-white/30'
@@ -241,12 +235,8 @@ function VueAccueil({
                   {dot.label}
                 </span>
                 {dot.active && !dot.done && (
-                  <motion.div
-                    animate={{ scale: [1, 1.4, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                    className="w-1.5 h-1.5 rounded-full"
-                    style={{ background: dot.color }}
-                  />
+                  <motion.div animate={{ scale: [1, 1.4, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
+                    className="w-1.5 h-1.5 rounded-full" style={{ background: dot.color }} />
                 )}
               </div>
             </React.Fragment>
@@ -254,7 +244,7 @@ function VueAccueil({
         })}
       </div>
 
-      {/* KPI inline — une seule ligne compacte */}
+      {/* KPI inline */}
       {hasProduction && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           className="flex items-center justify-between rounded-xl px-4 py-3 border"
@@ -274,8 +264,7 @@ function VueAccueil({
           <div className="flex items-center gap-1.5">
             {unsoldRateToday < 5
               ? <TrendingDown size={13} className="text-green-400 opacity-70" />
-              : <AlertTriangle size={13} className={kpiColor + ' opacity-70'} />
-            }
+              : <AlertTriangle size={13} className={kpiColor + ' opacity-70'} />}
             <span className={`font-bold text-sm font-mono ${kpiColor}`}>{unsoldRateToday.toFixed(0)}%</span>
             <span className="text-white/25 text-[10px]">inv.</span>
           </div>
@@ -286,15 +275,17 @@ function VueAccueil({
       {!loadingOrders && pendingCount > 0 && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <button onClick={() => onNavigate('commandes')} className="w-full text-left">
-            <div className="rounded-2xl overflow-hidden border" style={{ background: 'rgba(58,123,213,0.07)', borderColor: 'rgba(58,123,213,0.2)' }}>
+            <div className="rounded-2xl overflow-hidden border"
+              style={{ background: 'rgba(58,123,213,0.07)', borderColor: 'rgba(58,123,213,0.2)' }}>
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(58,123,213,0.15)' }}>
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                    style={{ background: 'rgba(58,123,213,0.15)' }}>
                     <ShoppingBag size={15} className="text-blue-400" />
                   </div>
-                  <div>
-                    <p className="text-blue-300 font-semibold text-sm">{pendingCount} commande{pendingCount > 1 ? 's' : ''} en attente</p>
-                  </div>
+                  <p className="text-blue-300 font-semibold text-sm">
+                    {pendingCount} commande{pendingCount > 1 ? 's' : ''} en attente
+                  </p>
                 </div>
                 <ChevronRight size={14} className="text-blue-400/40" />
               </div>
@@ -318,7 +309,7 @@ function VueAccueil({
         </motion.div>
       )}
 
-      {/* Sans production — CTA vers Ma Journée */}
+      {/* Sans production */}
       {!hasProduction && (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <p className="text-white/25 text-xs leading-relaxed max-w-xs">
@@ -337,10 +328,9 @@ function VueAccueil({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Drawer "Plus"
+// Drawer "Plus" — Phase 4 : groupement QUOTIDIEN / GESTION / ADMINISTRATION
 // ─────────────────────────────────────────────────────────────
 
-// Type étendu pour inclure 'ia' et 'supervision' qui ne sont pas des ViewTypes classiques
 type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision';
 
 interface DrawerItem {
@@ -356,35 +346,74 @@ interface DrawerItem {
 }
 
 const DRAWER_AI_ITEM: DrawerItem = {
-  id:         'ia',
-  label:      'Rapport IA',
-  icon:       Sparkles,
-  desc:       'Analyse complète par Levain, votre assistant IA',
-  view:       'ia',
-  accent:     'rgba(168,85,247,0.12)',
-  color:      '#A855F7',
-  permission: null,
+  id: 'ia', label: 'Rapport IA', icon: Sparkles,
+  desc: 'Analyse complète par Levain, votre assistant IA',
+  view: 'ia', accent: 'rgba(168,85,247,0.12)', color: '#A855F7', permission: null,
 };
 
 const DRAWER_ITEMS: DrawerItem[] = [
-  { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect et anti-gaspi du jour',  href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',   color: '#6FA8EA',               permission: 'commandes'  },
-  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Gérer votre catalogue & photos',         view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',    color: '#5CC994',               permission: 'catalogue'  },
-  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',   color: '#C19A6B',               permission: 'dashboard'  },
-  { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',   color: '#B882D6',               permission: 'equipe'     },
+  { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect et anti-gaspi du jour',  href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',  color: '#6FA8EA',               permission: 'commandes'  },
+  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Gérer votre catalogue & photos',         view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',   color: '#5CC994',               permission: 'catalogue'  },
+  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
+  { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',  color: '#B882D6',               permission: 'equipe'     },
   { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse, plan',         view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
 ];
 
-// Item spécial pour le dashboard supervision (gérant/owner uniquement)
 const DRAWER_SUPERVISION_ITEM: DrawerItem = {
-  id:         'supervision',
-  label:      'Supervision',
-  icon:       Shield,
-  desc:       'Suivi équipe, alertes, activité',
-  view:       'supervision',
-  accent:     'rgba(168,85,247,0.1)',
-  color:      '#A855F7',
-  permission: 'equipe',  // Nécessite accès équipe
+  id: 'supervision', label: 'Supervision', icon: Shield,
+  desc: 'Suivi équipe, alertes, activité',
+  view: 'supervision', accent: 'rgba(168,85,247,0.1)', color: '#A855F7', permission: 'equipe',
 };
+
+// Helper pour rendre un item du drawer
+function DrawerItemButton({
+  item, isActive, isCmds, pendingOrders, onClick, activeColor,
+}: {
+  item: DrawerItem;
+  isActive: boolean;
+  isCmds?: boolean;
+  pendingOrders?: number;
+  onClick: () => void;
+  activeColor?: string; // couleur custom quand actif (ex: violet pour IA/Supervision)
+}) {
+  const Icon = item.icon;
+  const accentColor = activeColor ?? '#C19A6B';
+  return (
+    <motion.button whileTap={{ scale: 0.97 }} onClick={onClick}
+      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border text-left transition-all select-none"
+      style={{
+        background:  isActive ? `${accentColor}20` : item.accent,
+        borderColor: isActive ? `${accentColor}40` : isCmds ? 'rgba(58,123,213,0.25)' : `${item.color}20`,
+      }}>
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 relative"
+        style={{ background: item.accent, border: `1px solid ${item.color}22` }}>
+        <Icon size={16} style={{ color: item.color }} strokeWidth={1.8} />
+        {isCmds && pendingOrders && pendingOrders > 0 && (
+          <span className="absolute -top-1 -right-1 text-white font-black text-[9px] min-w-[15px] h-[15px] flex items-center justify-center rounded-full px-0.5"
+            style={{ background: '#3A7BD5' }}>
+            {pendingOrders}
+          </span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm" style={{ color: isActive ? accentColor : isCmds ? '#6FA8EA' : 'white' }}>
+          {item.label}
+        </p>
+        <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{item.desc}</p>
+      </div>
+      <ChevronRight size={13} style={{ color: isActive ? accentColor : 'rgba(255,255,255,0.18)' }} />
+    </motion.button>
+  );
+}
+
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <p className="px-1 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest"
+      style={{ color: 'rgba(255,255,255,0.22)' }}>
+      {label}
+    </p>
+  );
+}
 
 function PlusDrawer({
   open, onClose, onNavigate, activeView, pendingOrders,
@@ -398,6 +427,12 @@ function PlusDrawer({
   const router = useRouter();
   const { canRead } = useBoulanger();
 
+  const navigate = (item: DrawerItem) => {
+    if (item.href)      router.push(item.href);
+    else if (item.view) onNavigate(item.view);
+    onClose();
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -409,105 +444,92 @@ function PlusDrawer({
             className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto">
             <div className="border rounded-t-3xl overflow-hidden shadow-2xl"
               style={{ background: '#130B06', borderColor: 'rgba(193,154,107,0.12)' }}>
+
+              {/* Handle + titre */}
               <div className="flex justify-center pt-3 pb-1">
                 <div className="w-10 h-1 bg-white/15 rounded-full" />
               </div>
-              <div className="flex items-center justify-between px-5 py-2.5">
+              <div className="flex items-center justify-between px-5 py-2">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest font-semibold">Navigation</p>
-                <button onClick={onClose} className="w-7 h-7 rounded-xl flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
+                <button onClick={onClose}
+                  className="w-7 h-7 rounded-xl flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
                   style={{ background: 'rgba(255,255,255,0.05)' }}>
                   <X size={13} />
                 </button>
               </div>
 
-              <div className="px-4 pb-8 space-y-2">
-                {/* Rapport IA — mis en avant */}
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
+              <div className="px-4 pb-8">
+
+                {/* ── QUOTIDIEN ────────────────────────────────── */}
+                <SectionLabel label="Quotidien" />
+
+                {/* Rapport IA */}
+                <DrawerItemButton
+                  item={DRAWER_AI_ITEM}
+                  isActive={activeView === 'ia'}
+                  activeColor="#A855F7"
                   onClick={() => { onNavigate('ia'); onClose(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all select-none"
-                  style={{
-                    background:   activeView === 'ia' ? 'rgba(168,85,247,0.2)' : DRAWER_AI_ITEM.accent,
-                    borderColor:  activeView === 'ia' ? 'rgba(168,85,247,0.4)' : 'rgba(168,85,247,0.2)',
-                  }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: DRAWER_AI_ITEM.accent, border: '1px solid rgba(168,85,247,0.2)' }}>
-                    <Sparkles size={18} style={{ color: DRAWER_AI_ITEM.color }} strokeWidth={1.8} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm" style={{ color: activeView === 'ia' ? '#A855F7' : 'white' }}>
-                      {DRAWER_AI_ITEM.label}
-                    </p>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{DRAWER_AI_ITEM.desc}</p>
-                  </div>
-                  <ChevronRight size={14} style={{ color: activeView === 'ia' ? '#A855F7' : 'rgba(255,255,255,0.18)' }} />
-                </motion.button>
+                />
 
-                <div className="h-px bg-white/5 my-2" />
-
-                {/* Supervision — owner et gérant uniquement */}
-                {canRead('equipe') && (
-                  <motion.button
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => { onNavigate('supervision'); onClose(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all select-none mb-2"
-                    style={{
-                      background:   activeView === 'supervision' ? 'rgba(168,85,247,0.2)' : DRAWER_SUPERVISION_ITEM.accent,
-                      borderColor:  activeView === 'supervision' ? 'rgba(168,85,247,0.4)' : 'rgba(168,85,247,0.2)',
-                    }}>
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: DRAWER_SUPERVISION_ITEM.accent, border: '1px solid rgba(168,85,247,0.2)' }}>
-                      <Shield size={18} style={{ color: DRAWER_SUPERVISION_ITEM.color }} strokeWidth={1.8} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm" style={{ color: activeView === 'supervision' ? '#A855F7' : 'white' }}>
-                        {DRAWER_SUPERVISION_ITEM.label}
-                      </p>
-                      <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{DRAWER_SUPERVISION_ITEM.desc}</p>
-                    </div>
-                    <ChevronRight size={14} style={{ color: activeView === 'supervision' ? '#A855F7' : 'rgba(255,255,255,0.18)' }} />
-                  </motion.button>
-                )}
-
-                {/* Autres items */}
-                {DRAWER_ITEMS.map(item => {
-                  if (item.permission && !canRead(item.permission as Parameters<typeof canRead>[0])) return null;
-                  const Icon = item.icon;
-                  const isActive = item.view ? activeView === item.view : false;
-                  const isCmds   = item.id === 'commandes';
+                {/* Commandes */}
+                {canRead('commandes') && (() => {
+                  const item = DRAWER_ITEMS.find(d => d.id === 'commandes')!;
                   return (
-                    <motion.button key={item.id} whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        if (item.href)      router.push(item.href);
-                        else if (item.view) onNavigate(item.view);
-                        onClose();
-                      }}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all select-none"
-                      style={{
-                        background:  isActive ? 'rgba(193,154,107,0.12)' : item.accent,
-                        borderColor: isActive ? 'rgba(193,154,107,0.3)' : isCmds ? 'rgba(58,123,213,0.25)' : 'rgba(255,255,255,0.06)',
-                      }}>
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative"
-                        style={{ background: item.accent, border: `1px solid ${item.color}22` }}>
-                        <Icon size={18} style={{ color: item.color }} strokeWidth={1.8} />
-                        {isCmds && pendingOrders > 0 && (
-                          <span className="absolute -top-1 -right-1 text-white font-black text-[9px] min-w-[16px] h-4 flex items-center justify-center rounded-full px-1"
-                            style={{ background: '#3A7BD5' }}>
-                            {pendingOrders}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm"
-                          style={{ color: isActive ? '#C19A6B' : isCmds ? '#6FA8EA' : 'white' }}>
-                          {item.label}
-                        </p>
-                        <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{item.desc}</p>
-                      </div>
-                      <ChevronRight size={14} style={{ color: isActive ? '#C19A6B' : 'rgba(255,255,255,0.18)' }} />
-                    </motion.button>
+                    <DrawerItemButton key="commandes" item={item}
+                      isActive={false} isCmds pendingOrders={pendingOrders}
+                      onClick={() => navigate(item)} />
+                  );
+                })()}
+
+                {/* ── GESTION ──────────────────────────────────── */}
+                <SectionLabel label="Gestion" />
+
+                {(['catalogue', 'dashboard'] as DrawerItemId[]).map(id => {
+                  const item = DRAWER_ITEMS.find(d => d.id === id);
+                  if (!item) return null;
+                  if (item.permission && !canRead(item.permission as Parameters<typeof canRead>[0])) return null;
+                  return (
+                    <DrawerItemButton key={id} item={item}
+                      isActive={item.view ? activeView === item.view : false}
+                      onClick={() => navigate(item)} />
                   );
                 })}
+
+                {/* ── ADMINISTRATION ───────────────────────────── */}
+                {(canRead('equipe') || canRead('parametres')) && (
+                  <SectionLabel label="Administration" />
+                )}
+
+                {/* Équipe */}
+                {canRead('equipe') && (() => {
+                  const item = DRAWER_ITEMS.find(d => d.id === 'equipe')!;
+                  return (
+                    <DrawerItemButton key="equipe" item={item}
+                      isActive={activeView === item.view}
+                      onClick={() => navigate(item)} />
+                  );
+                })()}
+
+                {/* Supervision */}
+                {canRead('equipe') && (
+                  <DrawerItemButton
+                    item={DRAWER_SUPERVISION_ITEM}
+                    isActive={activeView === 'supervision'}
+                    activeColor="#A855F7"
+                    onClick={() => { onNavigate('supervision'); onClose(); }}
+                  />
+                )}
+
+                {/* Paramètres */}
+                {canRead('parametres') && (() => {
+                  const item = DRAWER_ITEMS.find(d => d.id === 'parametres')!;
+                  return (
+                    <DrawerItemButton key="parametres" item={item}
+                      isActive={activeView === item.view}
+                      onClick={() => navigate(item)} />
+                  );
+                })()}
+
               </div>
             </div>
           </motion.div>
@@ -537,19 +559,17 @@ function ViewBlocked() {
 
 type LocalView = 'accueil' | 'journee' | ViewType;
 
-const ALL_NAV_ITEMS: {
-  id: LocalView; label: string; icon: React.ElementType;
-}[] = [
-  { id: 'accueil',  label: 'Accueil',     icon: Home },
-  { id: 'journee',  label: 'Ma Journée',  icon: CalendarDays },
+const ALL_NAV_ITEMS: { id: LocalView; label: string; icon: React.ElementType }[] = [
+  { id: 'accueil', label: 'Accueil',    icon: Home },
+  { id: 'journee', label: 'Ma Journée', icon: CalendarDays },
 ];
+
+// Vues secondaires — accessible via le drawer Menu
+const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision'];
 
 // ─────────────────────────────────────────────────────────────
 // Shell principal
 // ─────────────────────────────────────────────────────────────
-
-// Vues secondaires — accessible via le drawer Menu
-const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision'];
 
 function AppShell() {
   const {
@@ -582,7 +602,9 @@ function AppShell() {
         const todayRes = await fetch('/api/boulanger/ai/today', {
           headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
         });
-        const todayData = todayRes.ok ? await todayRes.json() as { today: string } : { today: new Date().toISOString().split('T')[0] };
+        const todayData = todayRes.ok
+          ? await todayRes.json() as { today: string }
+          : { today: new Date().toISOString().split('T')[0] };
         const res = await fetch('/api/boulanger/journee', {
           headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
         });
@@ -633,7 +655,6 @@ function AppShell() {
   // ── Workflow journée ──────────────────────────────────────
   const workflow = useWorkflowJournee({ productionSaisie, snapshot10hFait, snapshot14hFait, journeeCloturee, timezone });
 
-  // Le bouton "Plus" est actif si on est sur une vue secondaire (y compris 'ia')
   const isSecondaryActive = SECONDARY_VIEWS.includes(activeView);
 
   // ── Compteur commandes en attente ─────────────────────────
@@ -713,7 +734,6 @@ function AppShell() {
     );
   }
 
-  // ── Onboarding wizard (nouveaux inscrits) ───────────────────
   if (boulangerie && userRole === 'owner' && !boulangerie.onboarding_completed_at) {
     return (
       <OnboardingWizard
@@ -723,8 +743,6 @@ function AppShell() {
       />
     );
   }
-
-  // Les permissions sont gérées à l'intérieur de chaque vue, plus dans la nav
 
   // ── Interface principale ───────────────────────────────────
   return (
@@ -746,8 +764,11 @@ function AppShell() {
               <p className="text-white text-sm font-bold leading-none truncate" style={{ fontFamily: 'Playfair Display, serif' }}>
                 {boulangerie.nom}
               </p>
-              <p className="text-[10px] tracking-widest uppercase leading-none mt-0.5"
-                style={{ color: userRole === 'owner' ? 'rgba(193,154,107,0.6)' : userRole === 'gerant' ? 'rgba(106,168,234,0.7)' : 'rgba(255,255,255,0.3)' }}>
+              <p className="text-[10px] tracking-widest uppercase leading-none mt-0.5" style={{
+                color: userRole === 'owner'  ? 'rgba(193,154,107,0.6)'
+                     : userRole === 'gerant' ? 'rgba(106,168,234,0.7)'
+                     : 'rgba(255,255,255,0.3)',
+              }}>
                 {userRole === 'owner' ? 'Espace boulanger' : ROLE_LABELS[userRole]}
               </p>
             </div>
@@ -774,7 +795,8 @@ function AppShell() {
       {/* Contenu principal */}
       <main className="relative z-10 max-w-lg mx-auto px-4 pt-20 pb-32">
         <AnimatePresence mode="wait">
-          <motion.div key={localView} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+          <motion.div key={localView}
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}>
 
             {localView === 'accueil' && (
@@ -782,17 +804,17 @@ function AppShell() {
             )}
 
             {localView === 'journee' && (
-              <VueJournee workflow={workflow} canRead={canRead} onNavigateStep={(step) => handleNavClick(step as LocalView)} />
+              <VueJournee workflow={workflow} canRead={canRead}
+                onNavigateStep={(step) => handleNavClick(step as LocalView)} />
             )}
 
-            {/* Accès direct aux vues workflow (via deep links ou legacy) */}
-            {localView === 'matin' && (
-              canRead('matin') ? <VueMatin /> : <ViewBlocked />
-            )}
+            {/* Accès direct legacy (deep links) */}
+            {localView === 'matin' && (canRead('matin') ? <VueMatin /> : <ViewBlocked />)}
 
             {localView === 'snapshot' && (
               !canRead('snapshot') ? <ViewBlocked /> :
-              <WorkflowGuard step="snapshot" canAccess={workflow.canAccessSnapshot} blockReason={workflow.snapshotBlockReason}
+              <WorkflowGuard step="snapshot" canAccess={workflow.canAccessSnapshot}
+                blockReason={workflow.snapshotBlockReason}
                 onNavigate={(step) => handleNavClick(step as LocalView)}>
                 <VueSnapshot />
               </WorkflowGuard>
@@ -800,7 +822,8 @@ function AppShell() {
 
             {localView === 'soir' && (
               !canRead('soir') ? <ViewBlocked /> :
-              <WorkflowGuard step="soir" canAccess={workflow.canAccessSoir} blockReason={workflow.soirBlockReason}
+              <WorkflowGuard step="soir" canAccess={workflow.canAccessSoir}
+                blockReason={workflow.soirBlockReason}
                 onNavigate={(step) => handleNavClick(step as LocalView)}>
                 <VueSoir />
               </WorkflowGuard>
@@ -808,7 +831,8 @@ function AppShell() {
 
             {localView === 'flash' && (
               !canRead('flash') ? <ViewBlocked /> :
-              <WorkflowGuard step="flash" canAccess={workflow.canAccessFlash} blockReason={workflow.flashBlockReason}
+              <WorkflowGuard step="flash" canAccess={workflow.canAccessFlash}
+                blockReason={workflow.flashBlockReason}
                 onNavigate={(step) => handleNavClick(step as LocalView)}>
                 <VueFlash />
               </WorkflowGuard>
@@ -818,23 +842,17 @@ function AppShell() {
             {localView === 'dashboard'  && (canRead('dashboard')  ? <Dashboard />     : <ViewBlocked />)}
             {localView === 'parametres' && (canRead('parametres') ? <Parametres />    : <ViewBlocked />)}
             {localView === 'equipe'     && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
-
-            {/* Vue Rapport IA — accessible à tous les rôles ayant accès au dashboard */}
-            {localView === 'ia' && <VueRapportIA />}
-
-            {/* Vue Supervision — owner et gérant uniquement */}
+            {localView === 'ia'         && <VueRapportIA />}
             {localView === 'supervision' && (
-              canRead('equipe') ? (
-                <DashboardSupervision isOwner={userRole === 'owner'} />
-              ) : (
-                <ViewBlocked />
-              )
+              canRead('equipe')
+                ? <DashboardSupervision isOwner={userRole === 'owner'} />
+                : <ViewBlocked />
             )}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Bottom Nav — 3 onglets : Accueil, Ma Journée, Menu */}
+      {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{ background: 'rgba(18,10,6,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="grid w-full max-w-lg mx-auto"
@@ -842,12 +860,11 @@ function AppShell() {
           {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;
             const isActive = localView === item.id;
-
             return (
               <motion.button key={item.id} onClick={() => handleNavClick(item.id as LocalView)}
                 whileTap={{ scale: 0.86 }}
-                className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none relative">
-                <motion.div className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-2xl"
+                className="flex flex-col items-center justify-center gap-1.5 touch-manipulation select-none">
+                <motion.div className="flex flex-col items-center gap-1 px-3 py-2 rounded-2xl"
                   animate={{
                     background: isActive
                       ? item.id === 'accueil' ? 'rgba(255,255,255,0.07)' : 'rgba(193,154,107,0.15)'
@@ -886,7 +903,7 @@ function AppShell() {
         </div>
       </nav>
 
-      {/* Drawer Plus */}
+      {/* Drawer */}
       <PlusDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}

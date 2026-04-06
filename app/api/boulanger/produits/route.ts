@@ -176,6 +176,21 @@ export async function POST(req: NextRequest) {
 
     const sanitized = sanitizeProduitData(parsed.data);
 
+    // ── Vérification doublon (nom case-insensitive) ──────────
+    const { data: existing } = await admin
+      .from('produits')
+      .select('id, nom')
+      .eq('boulangerie_id', boulangerieId)
+      .is('deleted_at', null)
+      .ilike('nom', sanitized.nom);
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: `Un produit "${existing[0].nom}" existe déjà dans votre catalogue` },
+        { status: 409 }
+      );
+    }
+
     const { count } = await admin
       .from('produits')
       .select('*', { count: 'exact', head: true })
@@ -245,6 +260,25 @@ export async function PATCH(req: NextRequest) {
 
     if (!isValidUUID(id)) {
       return NextResponse.json({ error: 'ID produit invalide' }, { status: 400 });
+    }
+
+    // ── Vérification doublon si le nom change ─────────────────
+    if (rest.nom !== undefined) {
+      const sanitizedNom = sanitizeProductName(rest.nom);
+      const { data: existing } = await admin
+        .from('produits')
+        .select('id, nom')
+        .eq('boulangerie_id', boulangerieId)
+        .is('deleted_at', null)
+        .ilike('nom', sanitizedNom)
+        .neq('id', id);
+
+      if (existing && existing.length > 0) {
+        return NextResponse.json(
+          { error: `Un produit "${existing[0].nom}" existe déjà dans votre catalogue` },
+          { status: 409 }
+        );
+      }
     }
 
     const updates: Record<string, unknown> = {};

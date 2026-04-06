@@ -37,9 +37,11 @@ interface Props {
   onSave:          (draft: ProduitDraft) => Promise<void>;
   onClose:         () => void;
   onUploadPhoto:   (produitId: string, file: File) => Promise<string | null>;
+  /** Noms des produits existants (pour éviter les doublons) */
+  existingNames?:  string[];
 }
 
-export default function ProduitFormModal({ produit, onSave, onClose, onUploadPhoto }: Props) {
+export default function ProduitFormModal({ produit, onSave, onClose, onUploadPhoto, existingNames = [] }: Props) {
   const isEdit = !!produit;
 
   // ── État du formulaire ────────────────────────────────────
@@ -115,6 +117,12 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
   const validate = () => {
     const e: Record<string, string> = {};
     if (!nom.trim())            e.nom = 'Nom requis';
+    // Vérification doublon (case-insensitive) — uniquement en création
+    if (!isEdit && nom.trim() && existingNames.some(
+      n => n.toLowerCase() === nom.trim().toLowerCase()
+    )) {
+      e.nom = 'Ce produit existe déjà dans votre catalogue';
+    }
     if (!prixVente || isNaN(parseFloat(prixVente)) || parseFloat(prixVente) <= 0)
       e.prixVente = 'Prix requis (> 0)';
     if (prixFlashOverride && (isNaN(parseFloat(prixFlashOverride)) || parseFloat(prixFlashOverride) <= 0))

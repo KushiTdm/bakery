@@ -39,7 +39,7 @@ function KpiCard({ label, value, sub, color = 'default' }: {
     <div className={`flex-1 rounded-2xl ${c.bg} border ${c.border} p-3`}>
       <p className="text-white/30 text-[10px] uppercase tracking-widest">{label}</p>
       <p className={`${c.text} text-xl font-bold mt-1 tabular-nums leading-none`}>{value}</p>
-      {sub && <p className="text-white/25 text-[10px] mt-1">{sub}</p>}
+      {sub && <p className="text-white/25 text-xs mt-1">{sub}</p>}
     </div>
   );
 }
@@ -238,8 +238,8 @@ export default function VueSoir() {
                 <div className="flex-1 flex items-center gap-2.5 min-w-0">
                   <span className="text-xl flex-shrink-0">{s.emoji}</span>
                   <div className="min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{s.name}</p>
-                    <p className="text-white/35 text-[10px]">{ref}</p>
+                    <p className="text-white text-sm font-medium line-clamp-2">{s.name}</p>
+                    <p className="text-white/35 text-xs">{ref}</p>
                   </div>
                 </div>
                 <StockFinalCell value={s.stockFinal} max={max} onChange={val => updateStockFinal(s.id, val)} />
