@@ -4,25 +4,66 @@
 // URL reçue : /activer#access_token=xxx&type=recovery
 // Le token Supabase dans le hash établit une session,
 // puis l'utilisateur choisit son mot de passe.
+// Après activation, redirection vers le sous-domaine de la boulangerie.
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
+import { useState, useEffect, useRef } from 'react'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
+
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'sauvemie.fr'
+
+function getSupabase(): SupabaseClient {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
 
 export default function ActiverPage() {
-  const router = useRouter()
+  const supabaseRef = useRef<SupabaseClient>(getSupabase())
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
+  const [bakerySlug, setBakerySlug] = useState<string | null>(null)
 
   useEffect(() => {
-    const hash = window.location.hash
-    if (hash.includes('type=recovery') && hash.includes('access_token')) {
-      setStatus('ready')
-    } else {
-      setStatus('error')
-      setMessage('Lien invalide ou expiré. Utilisez "Mot de passe oublié" depuis la page de connexion pour en recevoir un nouveau.')
+    const supabase = supabaseRef.current
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY' && session?.user) {
+        setStatus('ready')
+
+        // Récupérer le slug depuis la table boulangeries
+        try {
+          const { data: bakery } = await supabase
+            .from('boulangeries')
+            .select('slug')
+            .eq('user_id', session.user.id)
+            .single()
+
+          if (bakery?.slug) {
+            setBakerySlug(bakery.slug)
+          }
+        } catch (err) {
+          console.warn('[activer] Impossible de récupérer le slug:', err)
+        }
+      }
+    })
+
+    // Si après 5s aucun événement PASSWORD_RECOVERY n'a été reçu → lien invalide
+    const timeout = setTimeout(() => {
+      setStatus(prev => {
+        if (prev === 'loading') {
+          setMessage('Lien invalide ou expiré. Utilisez "Mot de passe oublié" depuis la page de connexion pour en recevoir un nouveau.')
+          return 'error'
+        }
+        return prev
+      })
+    }, 5000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
     }
   }, [])
 
@@ -46,27 +87,27 @@ export default function ActiverPage() {
     }
 
     try {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-
-      // Supabase lit automatiquement le token dans le hash
-      const { error } = await supabase.auth.updateUser({ password })
+      const { error } = await supabaseRef.current.auth.updateUser({ password })
 
       if (error) {
         setStatus('error')
         setMessage(error.message)
       } else {
         setStatus('success')
-        // Redirige automatiquement vers le dashboard après 2s
-        setTimeout(() => router.push('/boulanger'), 2000)
+        const redirectUrl = bakerySlug
+          ? `https://${bakerySlug}.${ROOT_DOMAIN}/boulanger`
+          : '/boulanger'
+        setTimeout(() => window.location.href = redirectUrl, 2000)
       }
     } catch {
       setStatus('error')
       setMessage('Une erreur est survenue.')
     }
   }
+
+  const dashboardUrl = bakerySlug
+    ? `https://${bakerySlug}.${ROOT_DOMAIN}/boulanger`
+    : '/boulanger'
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#1A0F0A' }}>
@@ -154,7 +195,7 @@ export default function ActiverPage() {
                 </p>
               </div>
               <a
-                href="/boulanger"
+                href={dashboardUrl}
                 className="inline-block px-6 py-3 rounded-xl font-semibold text-sm transition-all"
                 style={{ background: '#C19A6B', color: '#1A0F0A' }}
               >

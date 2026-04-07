@@ -41,7 +41,7 @@ export default function VueSandwichs({ onValidate }: VueSandwichsProps) {
   const [entries, setEntries]       = useState<Record<string, number>>({});
 
   // Produits sandwichs du catalogue
-  const sandwichStocks = todayStocks.filter(s => s.category === 'sandwichs');
+  const sandwichStocks = todayStocks.filter(s => s.category === 'sandwich');
 
   // Stock pain disponible (boulangerie seulement)
   const breadStocks = todayStocks.filter(s => s.category === 'boulangerie');

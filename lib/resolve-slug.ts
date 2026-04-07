@@ -4,14 +4,14 @@
 //
 // ARCHITECTURE MULTI-TENANT :
 //   Production  → sous-domaine
-//                 monpain.sauve-mie.fr            → "monpain"
-//                 boulangerie-dupont.sauve-mie.fr → "boulangerie-dupont"
+//                 monpain.sauvemie.fr            → "monpain"
+//                 boulangerie-dupont.sauvemie.fr → "boulangerie-dupont"
 //
 //   Dev local   → ?slug=xxx  OU  NEXT_PUBLIC_BAKERY_SLUG
 //                 localhost:3000?slug=artisan-dore
 //
 // DOMAINE RACINE configuré via NEXT_PUBLIC_ROOT_DOMAIN (.env.local)
-//   Ex: NEXT_PUBLIC_ROOT_DOMAIN=sauve-mie.fr
+//   Ex: NEXT_PUBLIC_ROOT_DOMAIN=sauvemie.fr
 //
 // SÉCURITÉ :
 //   - Slug validé regex avant toute utilisation
@@ -19,7 +19,7 @@
 //   - Jamais de fallback silencieux en production
 // ─────────────────────────────────────────────────────────────
 
-const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'sauve-mie.fr';
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'sauvemie.fr';
 
 // Slug valide : alphanumérique + tirets internes, 2–60 chars
 const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,58}[a-z0-9]$|^[a-z0-9]{2}$/;
@@ -55,7 +55,7 @@ export function resolveSlugClient(): SlugResolution | null {
   }
 
   // 2. Sous-domaine — chemin principal en production
-  //    monpain.sauve-mie.fr → slug = "monpain"
+  //    monpain.sauvemie.fr → slug = "monpain"
   if (!isDev) {
     const suffix = `.${ROOT_DOMAIN}`;
     if (hostname.endsWith(suffix)) {
@@ -83,7 +83,7 @@ export function resolveSlugClient(): SlugResolution | null {
  * Résout le slug côté SERVEUR (API Routes, middleware Next.js).
  * Utilise le header Host de la requête.
  *
- * @param hostHeader  req.headers.get('host')  →  "monpain.sauve-mie.fr" ou "localhost:3000"
+ * @param hostHeader  req.headers.get('host')  →  "monpain.sauvemie.fr" ou "localhost:3000"
  */
 export function resolveSlugServer(hostHeader: string | null): SlugResolution | null {
   if (!hostHeader) return null;

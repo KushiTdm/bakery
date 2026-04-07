@@ -15,7 +15,7 @@ const DebloquerSchema = z.object({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { email: string } }
+  { params }: { params: Promise<{ email: string }> }
 ) {
   const session = await getBoulangerSession(req);
   if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -25,7 +25,8 @@ export async function POST(
     return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
 
-  const email = decodeURIComponent(params.email ?? '').toLowerCase().trim();
+  const { email: rawEmail } = await params;
+  const email = decodeURIComponent(rawEmail ?? '').toLowerCase().trim();
   if (!email || !email.includes('@')) {
     return NextResponse.json({ error: 'Email invalide' }, { status: 400 });
   }

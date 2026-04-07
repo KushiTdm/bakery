@@ -17,10 +17,11 @@ type Status = typeof VALID_STATUSES[number];
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!params.id || !isValidUUID(params.id)) {
+    const { id } = await params;
+    if (!id || !isValidUUID(id)) {
       return NextResponse.json({ error: 'ID de commande invalide' }, { status: 400 });
     }
 
@@ -50,7 +51,7 @@ export async function PATCH(
     const { data, error } = await admin
       .from('commandes')
       .update({ statut: status, updated_at: new Date().toISOString() })
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId)
       .select()
       .single();
@@ -164,10 +165,11 @@ export async function PATCH(
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!params.id || !isValidUUID(params.id)) {
+    const { id } = await params;
+    if (!id || !isValidUUID(id)) {
       return NextResponse.json({ error: 'ID de commande invalide' }, { status: 400 });
     }
 
@@ -183,7 +185,7 @@ export async function GET(
     const { data, error } = await admin
       .from('commandes')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId)
       .single();
 

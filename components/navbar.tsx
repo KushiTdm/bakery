@@ -10,9 +10,11 @@ import ClientSpace from '@/components/client-space';
 interface NavbarProps {
   activeTab:    ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+  nom?:         string | null;
 }
 
-export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
+export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
+  const bakName = nom ?? 'Boulangerie Artisanale';
   const [isScrolled, setIsScrolled]             = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [clientSpaceOpen, setClientSpaceOpen]   = useState(false);
@@ -49,7 +51,7 @@ export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
               className={`text-xl font-bold tracking-tight transition-colors duration-300 ${isTransparent ? 'text-white' : 'text-[#2C1810]'}`}
               style={{ fontFamily: 'Playfair Display, serif' }}
             >
-              L'Artisan Doré
+              {bakName}
             </button>
 
             {/* Tabs centraux — desktop */}

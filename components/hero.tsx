@@ -1,48 +1,57 @@
 // components/hero.tsx
 
+import Image from 'next/image';
 import HeroCTA from './hero-cta';
 
-export default function Hero() {
+interface HeroProps {
+  heroImage?: string | null;
+  nom?:       string | null;
+}
+
+const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=1920&q=80';
+
+export default function Hero({ heroImage, nom }: HeroProps) {
+  const image   = heroImage ?? DEFAULT_IMAGE;
+  const bakName = nom ?? 'Boulangerie Artisanale';
+
   return (
     <section
       id="accueil"
       className="relative h-screen flex items-center justify-center overflow-hidden"
-      aria-label="Boulangerie artisanale L'Artisan Doré — Paris"
+      aria-label={`${bakName} — boulangerie artisanale`}
     >
       {/* Image de fond LCP — priorité maximale */}
       <div className="absolute inset-0 z-0">
-        <img
-          src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=1920&q=80"
-          alt="L'Artisan Doré — boulangerie artisanale parisienne depuis 1952, pains au levain naturel"
+        <Image
+          src={image}
+          alt={`${bakName} — boulangerie artisanale, pains au levain naturel`}
           className="w-full h-full object-cover brightness-[0.45]"
-          fetchPriority="high"
-          decoding="async"
-          width={1920}
-          height={1080}
+          priority
+          fill
+          sizes="100vw"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#2C1810]/80 via-transparent to-transparent" />
       </div>
 
       <div className="relative z-10 text-center px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
-        {/* Badge — contenu indexable */}
+        {/* Badge statique */}
         <p className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white/80 text-xs font-medium px-4 py-1.5 rounded-full mb-6 tracking-wider uppercase">
           <span className="w-1.5 h-1.5 bg-[#C19A6B] rounded-full" aria-hidden="true" />
-          Artisan Boulanger depuis 1952
+          Boulangerie Artisanale
         </p>
 
-        {/* H1 — mot-clé principal "boulangerie artisanale" en tête */}
+        {/* H1 — nom de la boulangerie */}
         <h1
           className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-4 leading-tight"
           style={{ fontFamily: 'Playfair Display, serif' }}
         >
-          Boulangerie artisanale <br />
-          <span className="text-[#C19A6B] italic">à la française</span>
+          {bakName}
         </h1>
 
-        {/* Description — renforce les mots-clés longue traîne */}
+        {/* Description statique */}
         <p className="text-lg text-white/75 mb-10 max-w-xl mx-auto leading-relaxed">
-          Farines locales Label Rouge, levain naturel de 15 ans, fermentation lente 24h.
-          Chaque pain façonné à la main dans la tradition artisanale.
+          Pains au levain naturel, viennoiseries pur beurre, pâtisseries artisanales.
+          Commandez en ligne, retirez en boutique.
         </p>
 
         {/* CTA — client island isolé */}

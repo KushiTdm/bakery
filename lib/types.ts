@@ -6,7 +6,7 @@
 
 // ── Vues & sync ───────────────────────────────────────────────
 
-export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres' | 'equipe' | 'ia' | 'supervision';
+export type ViewType   = 'matin' | 'snapshot' | 'soir' | 'flash' | 'catalogue' | 'dashboard' | 'parametres' | 'equipe' | 'ia' | 'supervision' | 'vitrine';
 export type SyncStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 // ── Durée de conservation ──────────────────────────────────────

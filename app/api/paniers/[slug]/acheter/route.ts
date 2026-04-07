@@ -38,9 +38,10 @@ function getClientIp(req: NextRequest): string {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
-  const slug = params.slug?.trim().toLowerCase();
+  const { slug: rawSlug } = await params;
+  const slug = rawSlug?.trim().toLowerCase();
   if (!slug || slug.length > 60) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });
   }

@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 
 interface LoadingScreenProps {
   onFinish?: () => void;
+  nom?:      string | null;
 }
 
-export default function LoadingScreen({ onFinish }: LoadingScreenProps) {
+export default function LoadingScreen({ onFinish, nom }: LoadingScreenProps) {
+  const bakName = nom ?? 'Boulangerie Artisanale';
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<'enter' | 'visible' | 'exit'>('enter');
 
@@ -313,11 +315,10 @@ export default function LoadingScreen({ onFinish }: LoadingScreenProps) {
           {/* Title text */}
           <div className="text-wrapper">
             <h1 className="loader-title">
-              <span className="title-line1">L'Artisan</span>
-              <span className="title-line2">Doré</span>
+              <span className="title-line1">{bakName}</span>
             </h1>
             <div className="shimmer-bar" />
-            <p className="loader-subtitle">Boulangerie Artisanale · depuis 1952</p>
+            <p className="loader-subtitle">Boulangerie Artisanale</p>
             <div className="progress-dots">
               <div className="dot" />
               <div className="dot" />

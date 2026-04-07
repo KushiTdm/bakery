@@ -19,7 +19,7 @@ import {
   Check, Loader2, HelpCircle, BookOpen,
   BarChart2, Settings, X, ChevronRight, ShoppingBag,
   Shield, Users, TrendingUp, TrendingDown, AlertTriangle,
-  Package, Home, Lock, Sparkles, CalendarDays, Menu,
+  Package, Home, Lock, Sparkles, CalendarDays, Menu, Palette,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BoulangerProvider, useBoulanger } from '@/context/boulanger-context';
@@ -35,6 +35,7 @@ import DashboardSupervision from '@/components/boulanger/dashboard-supervision';
 import Catalogue     from '@/components/boulanger/catalogue';
 // isOwner supprimé — le rôle est désormais géré via BoulangerContext.userRole
 import Parametres    from '@/components/boulanger/parametres';
+import VitrinEditor  from '@/components/boulanger/vitrine-editor';
 import EquipeManager from '@/components/boulanger/equipe-manager';
 import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import OnboardingWizard from '@/components/boulanger/onboarding-wizard';
@@ -331,7 +332,7 @@ function VueAccueil({
 // Drawer "Plus" — Phase 4 : groupement QUOTIDIEN / GESTION / ADMINISTRATION
 // ─────────────────────────────────────────────────────────────
 
-type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision';
+type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision' | 'vitrine';
 
 interface DrawerItem {
   id: DrawerItemId;
@@ -355,6 +356,7 @@ const DRAWER_ITEMS: DrawerItem[] = [
   { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect et anti-gaspi du jour',  href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',  color: '#6FA8EA',               permission: 'commandes'  },
   { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Gérer votre catalogue & photos',         view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',   color: '#5CC994',               permission: 'catalogue'  },
   { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
+  { id: 'vitrine',    label: 'Vitrine',      icon: Palette,     desc: 'Personnaliser votre page d\'accueil',    view: 'vitrine',              accent: 'rgba(236,149,81,0.1)',   color: '#EC9551',               permission: null         },
   { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',  color: '#B882D6',               permission: 'equipe'     },
   { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse, plan',         view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
 ];
@@ -425,7 +427,7 @@ function PlusDrawer({
   pendingOrders: number;
 }) {
   const router = useRouter();
-  const { canRead } = useBoulanger();
+  const { canRead, userRole } = useBoulanger();
 
   const navigate = (item: DrawerItem) => {
     if (item.href)      router.push(item.href);
@@ -484,10 +486,12 @@ function PlusDrawer({
                 {/* ── GESTION ──────────────────────────────────── */}
                 <SectionLabel label="Gestion" />
 
-                {(['catalogue', 'dashboard'] as DrawerItemId[]).map(id => {
+                {(['catalogue', 'dashboard', 'vitrine'] as DrawerItemId[]).map(id => {
                   const item = DRAWER_ITEMS.find(d => d.id === id);
                   if (!item) return null;
                   if (item.permission && !canRead(item.permission as Parameters<typeof canRead>[0])) return null;
+                  // Vitrine : owner uniquement
+                  if (id === 'vitrine' && userRole !== 'owner') return null;
                   return (
                     <DrawerItemButton key={id} item={item}
                       isActive={item.view ? activeView === item.view : false}
@@ -565,7 +569,7 @@ const ALL_NAV_ITEMS: { id: LocalView; label: string; icon: React.ElementType }[]
 ];
 
 // Vues secondaires — accessible via le drawer Menu
-const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision'];
+const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision', 'vitrine'];
 
 // ─────────────────────────────────────────────────────────────
 // Shell principal
@@ -842,6 +846,7 @@ function AppShell() {
             {localView === 'dashboard'  && (canRead('dashboard')  ? <Dashboard />     : <ViewBlocked />)}
             {localView === 'parametres' && (canRead('parametres') ? <Parametres />    : <ViewBlocked />)}
             {localView === 'equipe'     && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
+            {localView === 'vitrine'    && (userRole === 'owner' ? <VitrinEditor /> : <ViewBlocked />)}
             {localView === 'ia'         && <VueRapportIA />}
             {localView === 'supervision' && (
               canRead('equipe')

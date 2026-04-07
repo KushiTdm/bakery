@@ -51,12 +51,13 @@ const NO_CACHE_HEADERS = {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   // Opt-out du Data Cache Next.js (intercepte fetch() en interne)
   noStore();
 
-  const slug = params.slug?.trim().toLowerCase();
+  const { slug: rawSlug } = await params;
+  const slug = rawSlug?.trim().toLowerCase();
 
   if (!slug || !SLUG_REGEX.test(slug)) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });

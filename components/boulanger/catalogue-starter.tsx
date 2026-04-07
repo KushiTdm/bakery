@@ -89,8 +89,9 @@ export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
         disponible_au:        null,
         stock_alerte:         null,
         note_interne:         null,
-        image_url:            null,
-        image_storage_path:   null,
+        image_url:                null,
+        image_storage_path:       null,
+        duree_conservation_jours: 1,
       }));
 
       await onValider(drafts);

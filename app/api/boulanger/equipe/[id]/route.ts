@@ -37,9 +37,10 @@ const PatchSchema = z.object({
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!params.id || !isValidUUID(params.id)) {
+  const { id } = await params;
+  if (!id || !isValidUUID(id)) {
     return NextResponse.json({ error: 'ID membre invalide' }, { status: 400 });
   }
 
@@ -66,7 +67,7 @@ export async function PATCH(
     const { data: membre, error: fetchError } = await admin
       .from('employes')
       .select('id, role, statut, permissions, user_id, invite_email')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId)
       .single();
 
@@ -128,7 +129,7 @@ export async function PATCH(
     const { data: updated, error: updateError } = await admin
       .from('employes')
       .update(updates)
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId)
       .select()
       .single();
@@ -147,7 +148,7 @@ export async function PATCH(
     await admin.from('audit_equipe').insert({
       boulangerie_id: session.boulangerieId,
       acteur_id:      session.userId,
-      cible_id:       params.id,
+      cible_id:       id,
       action,
       details:        auditDetails,
     });
@@ -164,9 +165,10 @@ export async function PATCH(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!params.id || !isValidUUID(params.id)) {
+  const { id } = await params;
+  if (!id || !isValidUUID(id)) {
     return NextResponse.json({ error: 'ID membre invalide' }, { status: 400 });
   }
 
@@ -180,7 +182,7 @@ export async function DELETE(
     const { data: membre, error: fetchError } = await admin
       .from('employes')
       .select('id, role, statut, invite_email, user_id')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId)
       .single();
 
@@ -192,7 +194,7 @@ export async function DELETE(
     await admin.from('audit_equipe').insert({
       boulangerie_id: session.boulangerieId,
       acteur_id:      session.userId,
-      cible_id:       params.id,
+      cible_id:       id,
       action:         'revoke',
       details: {
         email:  membre.invite_email,
@@ -204,7 +206,7 @@ export async function DELETE(
     const { error: deleteError } = await admin
       .from('employes')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('boulangerie_id', session.boulangerieId);
 
     if (deleteError) {

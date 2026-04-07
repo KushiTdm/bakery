@@ -255,11 +255,12 @@ export default function Parametres() {
   const [profil, setProfil]   = useState<ProfilComplet | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Section Adresse
-  const [adresse,    setAdresse]    = useState('');
-  const [ville,      setVille]      = useState('');
-  const [codePostal, setCodePostal] = useState('');
-  const [telephone,  setTelephone]  = useState('');
+  // Section Adresse & Contact
+  const [adresse,      setAdresse]      = useState('');
+  const [ville,        setVille]        = useState('');
+  const [codePostal,   setCodePostal]   = useState('');
+  const [telephone,    setTelephone]    = useState('');
+  const [emailContact, setEmailContact] = useState('');
 
   // Section Timezone
   const [timezone, setTimezone] = useState('Europe/Paris');
@@ -302,6 +303,7 @@ export default function Parametres() {
       setVille(data.ville ?? '');
       setCodePostal(data.code_postal ?? '');
       setTelephone(data.telephone ?? '');
+      setEmailContact(data.email_contact ?? '');
       setFlashDebut(data.flash_heure_debut ?? 18);
       setFlashFin(data.flash_heure_fin ?? 20);
       setFlashRemise(data.flash_remise_pct ?? 40);
@@ -434,8 +436,16 @@ export default function Parametres() {
             placeholder="+33 1 42 86 95 22"
             type="tel"
           />
+          <Field
+            label="Email de contact"
+            value={emailContact}
+            onChange={setEmailContact}
+            placeholder="contact@maboulangerie.fr"
+            type="email"
+            hint="Affiché sur la vitrine publique. Peut être différent de votre email de connexion."
+          />
           <SaveButton
-            onClick={() => saveSection('adresse', { adresse, ville, code_postal: codePostal || null, telephone: telephone || null })}
+            onClick={() => saveSection('adresse', { adresse, ville, code_postal: codePostal || null, telephone: telephone || null, email_contact: emailContact || null })}
             saving={saving}
             saved={saved === 'adresse'}
           />

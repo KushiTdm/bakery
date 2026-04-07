@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
 
       // Email de bienvenue (non bloquant)
       const fromDomain = process.env.RESEND_FROM_DOMAIN;
-      const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://sauve-mie.fr';
+      const appUrl     = process.env.NEXT_PUBLIC_APP_URL ?? 'https://sauvemie.fr';
       resend.emails.send({
         from:    fromDomain ? `Sauve Mie <noreply@${fromDomain}>` : 'Sauve Mie <onboarding@resend.dev>',
         to:      body.email,

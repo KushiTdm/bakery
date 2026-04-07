@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
 
     const { data: boulangerie, error: bErr } = await supabase
       .from('boulangeries')
-      .select('id, actif, creneaux_retrait, timezone, seuil_penalite, penalite_active')
+      .select('id, nom, adresse, ville, code_postal, telephone, actif, creneaux_retrait, timezone, seuil_penalite, penalite_active')
       .eq('slug', sanitizedData.boulangerie_slug)
       .single();
 
@@ -275,35 +275,20 @@ export async function POST(req: NextRequest) {
 
     const commande = { id: commandeId as string };
 
-    // Email de confirmation (non bloquant)
+    // Email de confirmation (appel direct, non bloquant)
     try {
-      const appUrl         = process.env.NEXT_PUBLIC_APP_URL ?? '';
-      const internalSecret = process.env.INTERNAL_API_SECRET ?? '';
-
-      if (!appUrl) {
-        console.warn('[POST /api/orders] NEXT_PUBLIC_APP_URL non défini — email de confirmation non envoyé');
-      } else if (!internalSecret) {
-        console.warn('[POST /api/orders] INTERNAL_API_SECRET non défini — email de confirmation non envoyé');
-      } else {
-        const emailRes = await fetch(`${appUrl}/api/orders/confirm-email`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':      'application/json',
-            'x-internal-secret': internalSecret,
-          },
-          body: JSON.stringify({
-            commande_id:   commande.id,
-            client_prenom: sanitizedData.client_prenom,
-            client_email:  sanitizedData.client_email,
-            heure_retrait: sanitizedData.heure_retrait,
-            lignes:        sanitizedData.lignes,
-            montant_total: montant_final,
-          }),
-        });
-        if (!emailRes.ok) {
-          const body = await emailRes.text().catch(() => '');
-          console.error(`[POST /api/orders] confirm-email HTTP ${emailRes.status}:`, body.slice(0, 300));
-        }
+      const { sendOrderConfirmationEmail } = await import('@/lib/send-order-email');
+      const emailResult = await sendOrderConfirmationEmail({
+        commande_id:   commande.id,
+        client_prenom: sanitizedData.client_prenom,
+        client_email:  sanitizedData.client_email,
+        heure_retrait: sanitizedData.heure_retrait,
+        lignes:        sanitizedData.lignes,
+        montant_total: montant_final,
+        boulangerie:   { nom: boulangerie.nom ?? 'Boulangerie', adresse: boulangerie.adresse ?? null, ville: boulangerie.ville ?? null, code_postal: boulangerie.code_postal ?? null, telephone: boulangerie.telephone ?? null },
+      });
+      if (!emailResult.success) {
+        console.error('[POST /api/orders] Email non envoyé:', emailResult.error);
       }
     } catch (emailErr) {
       console.error('[POST /api/orders] email error (non-bloquant):', emailErr);

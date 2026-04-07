@@ -1,4 +1,4 @@
-// middleware.ts
+// proxy.ts
 // ─────────────────────────────────────────────────────────────
 // Protection SSR des routes /boulanger/:path+
 //
@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const res  = NextResponse.next();
   const path = req.nextUrl.pathname;
 

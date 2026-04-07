@@ -194,7 +194,7 @@ export default function VueSoir() {
   }
 
   if (showRapport || etape === 'rapport') {
-    return <VueRapportIA onClose={() => { setShowRapport(false); setEtape('stocks'); }} wizardData={wizardData} />;
+    return <VueRapportIA onClose={() => { setShowRapport(false); setEtape('stocks'); }} />;
   }
 
   if (todayStocks.length === 0) {

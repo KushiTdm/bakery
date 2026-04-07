@@ -16,9 +16,10 @@ function getSupabaseClient(token: string) {
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!params.id || !isValidUUID(params.id)) {
+  const { id } = await params;
+  if (!id || !isValidUUID(id)) {
     return NextResponse.json({ error: 'ID de commande invalide' }, { status: 400 });
   }
 
@@ -53,7 +54,7 @@ export async function PATCH(
     const { data: commande, error: fetchError } = await admin
       .from('commandes')
       .select('id, statut, client_email')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
 
     if (fetchError || !commande) {
@@ -76,7 +77,7 @@ export async function PATCH(
     const { data, error } = await admin
       .from('commandes')
       .update({ statut: 'annulee', updated_at: new Date().toISOString() })
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 

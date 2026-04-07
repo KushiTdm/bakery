@@ -29,6 +29,11 @@ const VALID_TIMEZONES = [
   'Australia/Sydney', 'Pacific/Auckland',
 ];
 
+const HoraireSchema = z.object({
+  day:   z.string().min(1).max(50),
+  hours: z.string().min(1).max(50),
+});
+
 const ProfilPatchSchema = z.object({
   nom:           z.string().min(1).max(100).optional(),
   email_contact: z.string().email().max(254).optional(),
@@ -45,6 +50,12 @@ const ProfilPatchSchema = z.object({
   creneaux_retrait: z.array(z.string().regex(/^\d{2}:\d{2}$/)).max(20).optional(),
   // Timezone
   timezone: z.string().refine(v => VALID_TIMEZONES.includes(v), { message: 'Timezone non supportée' }).optional(),
+  // Vitrine CMS
+  vitrine_accroche:    z.string().max(120).optional().nullable(),
+  vitrine_sous_titre:  z.string().max(200).optional().nullable(),
+  vitrine_histoire:    z.string().max(800).optional().nullable(),
+  vitrine_badge_label: z.string().max(60).optional().nullable(),
+  vitrine_horaires:    z.array(HoraireSchema).max(10).optional().nullable(),
 }).strict();
 
 // ── GET ──────────────────────────────────────────────────────
@@ -60,13 +71,18 @@ export async function GET(req: NextRequest) {
         id, nom, slug, email_contact, plan, actif, created_at,
         adresse, ville, code_postal, telephone,
         flash_heure_debut, flash_heure_fin, flash_remise_pct,
-        creneaux_retrait, timezone
+        creneaux_retrait, timezone,
+        vitrine_accroche, vitrine_sous_titre,
+        vitrine_hero_image_url, vitrine_hero_storage_path,
+        vitrine_about_image_url, vitrine_about_storage_path,
+        vitrine_histoire, vitrine_badge_label, vitrine_horaires
       `)
       .eq('user_id', user.id)
       .single();
 
     if (error || !data) return errorResponse('Boulangerie introuvable', 404);
 
+    const d = data as Record<string, unknown>;
     return NextResponse.json({
       id:            data.id,
       nom:           data.nom,
@@ -83,7 +99,17 @@ export async function GET(req: NextRequest) {
       flash_heure_fin:   data.flash_heure_fin ?? 20,
       flash_remise_pct:  data.flash_remise_pct ?? 40,
       creneaux_retrait:  data.creneaux_retrait ?? ['08:00', '09:00', '10:00'],
-      timezone:          (data as Record<string, unknown>).timezone ?? 'Europe/Paris',
+      timezone:          d.timezone ?? 'Europe/Paris',
+      // Vitrine CMS
+      vitrine_accroche:          d.vitrine_accroche ?? null,
+      vitrine_sous_titre:        d.vitrine_sous_titre ?? null,
+      vitrine_hero_image_url:    d.vitrine_hero_image_url ?? null,
+      vitrine_hero_storage_path: d.vitrine_hero_storage_path ?? null,
+      vitrine_about_image_url:   d.vitrine_about_image_url ?? null,
+      vitrine_about_storage_path: d.vitrine_about_storage_path ?? null,
+      vitrine_histoire:          d.vitrine_histoire ?? null,
+      vitrine_badge_label:       d.vitrine_badge_label ?? null,
+      vitrine_horaires:          d.vitrine_horaires ?? null,
     });
   } catch (e) {
     console.error('[GET /api/boulanger/profil]', e);
@@ -118,6 +144,8 @@ export async function PATCH(req: NextRequest) {
       adresse, ville, code_postal, telephone,
       flash_heure_debut, flash_heure_fin, flash_remise_pct,
       creneaux_retrait, timezone,
+      vitrine_accroche, vitrine_sous_titre, vitrine_histoire,
+      vitrine_badge_label, vitrine_horaires,
     } = parsed.data;
 
     const { data: boulangerie, error: findError } = await admin
@@ -153,6 +181,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (timezone !== undefined) updates.timezone = timezone;
+
+    // Vitrine CMS
+    if (vitrine_accroche    !== undefined) updates.vitrine_accroche    = vitrine_accroche ? sanitizeText(vitrine_accroche, 120) : null;
+    if (vitrine_sous_titre  !== undefined) updates.vitrine_sous_titre  = vitrine_sous_titre ? sanitizeText(vitrine_sous_titre, 200) : null;
+    if (vitrine_histoire    !== undefined) updates.vitrine_histoire    = vitrine_histoire ? sanitizeText(vitrine_histoire, 800) : null;
+    if (vitrine_badge_label !== undefined) updates.vitrine_badge_label = vitrine_badge_label ? sanitizeText(vitrine_badge_label, 60) : null;
+    if (vitrine_horaires    !== undefined) updates.vitrine_horaires    = vitrine_horaires ?? null;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: true, message: 'Aucun changement' });

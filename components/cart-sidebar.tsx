@@ -105,7 +105,7 @@ function formatAdresse(info: BoulangeriePublicInfo): string {
       ? `${info.code_postal} ${info.ville}`
       : info.ville,
   ].filter(Boolean);
-  return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
+  return parts.length > 0 ? parts.join(', ') : 'Adresse en boutique';
 }
 
 // ── Écran de confirmation ──────────────────────────────────────
@@ -188,6 +188,7 @@ export default function CartSidebar() {
 
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber]       = useState('');
+  const [confirmedTotal, setConfirmedTotal] = useState(0);
   const [heureRetrait, setHeureRetrait]     = useState('');
   const [selectedHeure, setSelectedHeure]   = useState('');
   const [isSubmitting, setIsSubmitting]     = useState(false);
@@ -246,7 +247,9 @@ export default function CartSidebar() {
       const json = await res.json() as { commande_id?: string; error?: string };
       if (!res.ok) { setSubmitError(json.error ?? 'Une erreur est survenue.'); return; }
 
-      setOrderNumber(json.commande_id ?? '');
+      const rawId = json.commande_id ?? '';
+      setOrderNumber(`CMD-${rawId.slice(0, 8).toUpperCase()}`);
+      setConfirmedTotal(totalPrice);
       setHeureRetrait(selectedHeure);
       setOrderConfirmed(true);
       clearCart();
@@ -262,6 +265,7 @@ export default function CartSidebar() {
     setIsCartOpen(false);
     setOrderConfirmed(false);
     setOrderNumber('');
+    setConfirmedTotal(0);
     setSubmitError(null);
   };
 
@@ -312,7 +316,7 @@ export default function CartSidebar() {
             <div className="flex-1 overflow-y-auto">
               {orderConfirmed ? (
                 <OrderConfirmation
-                  orderNumber={orderNumber} total={TOTAL_TTC}
+                  orderNumber={orderNumber} total={confirmedTotal}
                   heureRetrait={heureRetrait} adresse={adresseFormatted}
                   onClose={handleClose}
                 />

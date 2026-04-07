@@ -1,11 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: { ignoreDuringBuilds: false },
-  images: { unoptimized: true },
-
-  webpack: (config, { dev }) => {
-    if (dev) config.cache = false;
-    return config;
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: '*.supabase.co' },
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+    ],
+  },
+  turbopack: {
+    root: __dirname,
   },
 
   async headers() {
