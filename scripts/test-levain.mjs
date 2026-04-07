@@ -6,10 +6,19 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { writeFileSync } from 'fs';
+import { config } from 'dotenv';
 
-const SUPABASE_URL = 'https://rtmxpaluwoufgfkpbvwk.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ0bXhwYWx1d291Zmdma3BidndrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzI4MTU5MCwiZXhwIjoyMDg4ODU3NTkwfQ.xMR7xgIlWhQsf9LOnutbPPP02f5tm02PSzKUNSt7Trs';
-const ZHIPU_API_KEY = '12bb25a51ba440d3b55486d61f26038e.dSHFoltJ3U1cLYx8';
+// Charger les variables d'environnement depuis .env
+config();
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('❌ Variables NEXT_PUBLIC_SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY requises dans .env');
+  process.exit(1);
+}
 
 const admin = createClient(SUPABASE_URL, SUPABASE_KEY);
 
