@@ -78,7 +78,7 @@ export default async function Home() {
               nom={nom}
             />
           }
-          footer={<Footer boulangerie={boulangerieInfo} />}
+          footer={<Footer boulangerie={boulangerieInfo ?? undefined} />}
         />
       </ActiveTabProvider>
     </CartProvider>
