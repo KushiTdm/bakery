@@ -6,6 +6,7 @@ import {
 } from 'react';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { resolveSlugClient } from '@/lib/resolve-slug';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -45,17 +46,8 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | null>(null);
 
 function resolveBoulangerieSlug(): string {
-  const envSlug = process.env.NEXT_PUBLIC_BAKERY_SLUG;
-  if (envSlug) return envSlug;
-
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.replace(/\.(fr|com|net|io)$/, '');
-    if (host && host !== 'localhost' && !host.includes('127.0.0.1')) {
-      return host;
-    }
-  }
-
-  return 'artisan-dore';
+  const resolution = resolveSlugClient();
+  return resolution?.slug ?? 'artisan-dore';
 }
 
 export function CartProvider({ children }: { children: ReactNode }) {
