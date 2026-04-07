@@ -8,6 +8,8 @@ const MAX_PAYLOAD_BYTES = 50_000; // 50 KB — protection DoS
 
 // ── P2 : Origin validation pour CSRF ────────────────────────────────────────
 // Lazy-évalué à la première requête (env vars disponibles au runtime, pas au build)
+const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'sauvemie.fr';
+
 let _allowedOrigins: string[] | null = null;
 function getAllowedOrigins(): string[] {
   if (_allowedOrigins) return _allowedOrigins;
@@ -51,8 +53,17 @@ function validateOrigin(req: NextRequest): boolean {
 
   if (!sourceOrigin) return false;
 
+  // Vérifier les sous-domaines *.sauvemie.fr (architecture multi-tenant)
+  const subdomainSuffix = `.${ROOT_DOMAIN}`;
+  try {
+    const originHost = new URL(sourceOrigin).hostname;
+    if (originHost.endsWith(subdomainSuffix) || originHost === ROOT_DOMAIN) {
+      return true;
+    }
+  } catch { /* URL invalide → on continue avec la liste blanche */ }
+
   const allowed = getAllowedOrigins();
-  return allowed.some(a => sourceOrigin === a || sourceOrigin!.startsWith(a));
+  return allowed.some(a => sourceOrigin === a);
 }
 
 // ── Schémas Zod ──────────────────────────────────────────────

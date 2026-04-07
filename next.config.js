@@ -60,6 +60,8 @@ const nextConfig = {
                 "https://api.resend.com",
                 "https://images.unsplash.com",
                 "https://*.unsplash.com",
+                "https://fonts.googleapis.com",
+                "https://fonts.gstatic.com",
               ].join(' '),
               // Stripe Checkout est dans un iframe — DENY global mais on autorise Stripe
               "frame-src https://js.stripe.com https://hooks.stripe.com",
