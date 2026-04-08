@@ -161,7 +161,7 @@ UPDATE boulangeries
 WHERE levain_quota_week_start IS NULL;
 
 -- Index
-CREATE INDEX        IF NOT EXISTS idx_boulangeries_user_id       ON boulangeries(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_boulangeries_user_id       ON boulangeries(user_id);
 CREATE INDEX        IF NOT EXISTS idx_boulangeries_slug           ON boulangeries(slug);
 CREATE INDEX        IF NOT EXISTS idx_boulangeries_ville          ON boulangeries(ville) WHERE ville IS NOT NULL;
 CREATE INDEX        IF NOT EXISTS idx_boulangeries_tour           ON boulangeries(id) WHERE tour_completed_at IS NULL;

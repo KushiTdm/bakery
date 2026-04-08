@@ -56,6 +56,8 @@ const ProfilPatchSchema = z.object({
   vitrine_histoire:    z.string().max(800).optional().nullable(),
   vitrine_badge_label: z.string().max(60).optional().nullable(),
   vitrine_horaires:    z.array(HoraireSchema).max(10).optional().nullable(),
+  // Onboarding
+  onboarding_completed_at: z.string().datetime().optional().nullable(),
 }).strict();
 
 // ── GET ──────────────────────────────────────────────────────
@@ -146,6 +148,7 @@ export async function PATCH(req: NextRequest) {
       creneaux_retrait, timezone,
       vitrine_accroche, vitrine_sous_titre, vitrine_histoire,
       vitrine_badge_label, vitrine_horaires,
+      onboarding_completed_at,
     } = parsed.data;
 
     const { data: boulangerie, error: findError } = await admin
@@ -188,6 +191,7 @@ export async function PATCH(req: NextRequest) {
     if (vitrine_histoire    !== undefined) updates.vitrine_histoire    = vitrine_histoire ? sanitizeText(vitrine_histoire, 800) : null;
     if (vitrine_badge_label !== undefined) updates.vitrine_badge_label = vitrine_badge_label ? sanitizeText(vitrine_badge_label, 60) : null;
     if (vitrine_horaires    !== undefined) updates.vitrine_horaires    = vitrine_horaires ?? null;
+    if (onboarding_completed_at !== undefined) updates.onboarding_completed_at = onboarding_completed_at;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: true, message: 'Aucun changement' });

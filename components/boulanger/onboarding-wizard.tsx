@@ -168,7 +168,7 @@ export default function OnboardingWizard({ boulangerie, token, onComplete }: Pro
     try {
       const selected = produits.filter(p => p.selected);
       for (const p of selected) {
-        await fetch('/api/boulanger/produits', {
+        const res = await fetch('/api/boulanger/produits', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -184,14 +184,36 @@ export default function OnboardingWizard({ boulangerie, token, onComplete }: Pro
             actif_flash: true,
           }),
         });
+        // 409 = produit déjà existant → on ignore (re-run du wizard)
+        if (!res.ok && res.status !== 409) {
+          console.warn('[onboarding] Produit non créé:', p.nom, res.status);
+        }
       }
 
       // Marquer l'onboarding comme terminé
-      await supabase.rpc('complete_onboarding');
+      const { error: rpcError } = await supabase.rpc('complete_onboarding');
+      if (rpcError) {
+        console.error('[onboarding] complete_onboarding RPC failed:', rpcError.message);
+        // Fallback : mise à jour directe via API
+        await fetch('/api/boulanger/profil', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ onboarding_completed_at: new Date().toISOString() }),
+        });
+      }
 
       onComplete();
     } catch (e) {
       console.warn('[onboarding] saveProduits:', e);
+      // Même en cas d'erreur, tenter de marquer l'onboarding comme terminé
+      // pour éviter une boucle infinie du wizard
+      try {
+        await supabase.rpc('complete_onboarding');
+      } catch {}
+      onComplete();
     }
     setSaving(false);
   };
@@ -201,12 +223,12 @@ export default function OnboardingWizard({ boulangerie, token, onComplete }: Pro
   const progress = ((etape + 1) / ETAPES.length) * 100;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: '#1A0F0A' }}>
+    <div className="min-h-screen flex items-center justify-center px-3 py-6 sm:p-4" style={{ background: '#1A0F0A' }}>
       {/* Texture grain */}
       <div className="fixed inset-0 opacity-[0.022] pointer-events-none z-0"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")` }} />
 
-      <div className="w-full max-w-lg relative z-10">
+      <div className="w-full max-w-lg relative z-10 max-h-[100dvh] overflow-y-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl"
@@ -232,7 +254,7 @@ export default function OnboardingWizard({ boulangerie, token, onComplete }: Pro
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl p-6" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="rounded-2xl p-4 sm:p-6" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <AnimatePresence mode="wait">
             {/* ── Étape 1 : Infos boulangerie ─────────────────── */}
             {etape === 0 && (
@@ -389,7 +411,7 @@ export default function OnboardingWizard({ boulangerie, token, onComplete }: Pro
                   Sélectionnez les produits que vous proposez. Vous pourrez ajuster les prix et en ajouter d'autres depuis le catalogue.
                 </p>
 
-                <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
+                <div className="space-y-2 max-h-[40dvh] sm:max-h-[340px] overflow-y-auto pr-1 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
                   {produits.map((p, i) => (
                     <button
                       key={i}
