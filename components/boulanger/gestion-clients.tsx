@@ -173,7 +173,7 @@ export default function GestionClients({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Résumé */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="bg-white/4 border border-white/8 rounded-2xl p-3 text-center">
           <p className="text-white font-bold text-xl font-mono">{clients.length}</p>
           <p className="text-white/35 text-[10px] uppercase tracking-wider mt-0.5">Total pénalités</p>

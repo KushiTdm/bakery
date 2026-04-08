@@ -30,6 +30,9 @@ export const supabase = createClient(resolvedUrl, resolvedKey, {
     autoRefreshToken:   true,
     detectSessionInUrl: true,
   },
+  realtime: {
+    worker: typeof window !== 'undefined', // Web Worker pour heartbeat anti-throttle navigateur
+  },
 });
 
 // Timeout pour les requêtes Supabase admin (10 secondes)

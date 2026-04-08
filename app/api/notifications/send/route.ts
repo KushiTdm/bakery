@@ -70,9 +70,15 @@ export async function POST(req: NextRequest) {
       .select('endpoint, p256dh, auth_key')
       .eq('boulangerie_id', boulangerie_id);
 
-    if (error || !subs?.length) {
+    if (error) {
+      console.error('[notifications/send] Erreur DB push_subscriptions:', error);
+      return NextResponse.json({ sent: 0, message: 'Erreur DB', error: error.message });
+    }
+    if (!subs?.length) {
+      console.log(`[notifications/send] Aucun abonné pour boulangerie ${boulangerie_id}`);
       return NextResponse.json({ sent: 0, message: 'Aucun abonné' });
     }
+    console.log(`[notifications/send] ${subs.length} abonné(s) trouvé(s) pour boulangerie ${boulangerie_id}`);
 
     const notification = JSON.stringify({
       title:  payload.title,
@@ -96,7 +102,8 @@ export async function POST(req: NextRequest) {
     const expired: string[] = [];
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
-        const err = result.reason as { statusCode?: number };
+        const err = result.reason as { statusCode?: number; message?: string };
+        console.error(`[notifications/send] Échec envoi #${i}:`, err?.statusCode, err?.message);
         if (err?.statusCode === 410) expired.push(subs[i].endpoint);
       }
     });
@@ -108,6 +115,7 @@ export async function POST(req: NextRequest) {
     const sent   = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
 
+    console.log(`[notifications/send] Résultat: ${sent} envoyé(s), ${failed} échoué(s), ${expired.length} expiré(s)`);
     return NextResponse.json({ sent, failed, expired: expired.length });
 
   } catch (err) {

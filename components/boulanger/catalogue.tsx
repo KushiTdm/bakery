@@ -310,7 +310,7 @@ export default function Catalogue() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
         {([
           { label: 'Total',  value: nbTotal,  color: 'text-white',      icon: null },
           { label: 'Actifs', value: nbActifs, color: 'text-green-400',  icon: <Eye size={12} /> },

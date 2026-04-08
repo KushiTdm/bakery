@@ -185,7 +185,7 @@ function CommandesBar({ commandes }: { commandes: CommandesData }) {
       </div>
 
       {/* Légende */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {segments.map(s => (
           <div key={s.key} className="text-center">
             <p className="font-mono text-sm" style={{ color: s.color }}>{s.count}</p>

@@ -328,6 +328,10 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
   const [demainDate, setDemainDate] = useState<string>('');
   const [demainLabel, setDemainLabel] = useState<string>('');
 
+  // Timeout polling en_cours (2 min max)
+  const [pollingStart, setPollingStart] = useState<number | null>(null);
+  const pollingTimedOut = pollingStart !== null && Date.now() - pollingStart > 2 * 60 * 1000;
+
   // P0-4 — Feature gate
   const upgradeModal    = useUpgradeModal();
   const [starterPreview, setStarterPreview] = useState(false);
@@ -411,10 +415,14 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
   useEffect(() => { if (today) { loadRapport(); loadHisto(); } }, [today, loadRapport, loadHisto]);
 
   useEffect(() => {
-    if (currentRapport?.statut !== 'en_cours') return;
+    if (currentRapport?.statut !== 'en_cours') {
+      setPollingStart(null);
+      return;
+    }
+    if (!pollingStart) setPollingStart(Date.now());
     const t = setInterval(() => loadRapport(), 3000);
     return () => clearInterval(t);
-  }, [currentRapport?.statut, loadRapport]);
+  }, [currentRapport?.statut, loadRapport, pollingStart]);
 
   const handleGenerate = async () => {
     setGen(true); setError(null);
@@ -443,6 +451,12 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
           quota_used:      j.quota_info.quota_used,
           quota_remaining: j.quota_info.quota_remaining,
         } : undefined);
+        return;
+      }
+
+      // Rapport déjà en cours de génération (409)
+      if (res.status === 409) {
+        await loadRapport();
         return;
       }
 
@@ -608,7 +622,20 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
               <p className="text-white font-semibold" style={{ fontFamily: 'Playfair Display, serif' }}>
                 Levain analyse votre journée…
               </p>
-              <p className="text-white/40 text-xs mt-1">Bilan · Briefings · Plan de production · ~30 secondes</p>
+              <p className="text-white/40 text-xs mt-1">
+                {pollingTimedOut
+                  ? 'La génération semble bloquée.'
+                  : 'Bilan · Briefings · Plan de production · ~30 secondes'}
+              </p>
+              {pollingTimedOut && (
+                <button
+                  onClick={() => { setPollingStart(null); handleGenerate(); }}
+                  className="mt-3 px-4 py-2 rounded-xl text-sm font-semibold border transition-all"
+                  style={{ background: 'rgba(193,154,107,0.2)', borderColor: 'rgba(193,154,107,0.35)', color: '#C19A6B' }}
+                >
+                  Relancer la génération
+                </button>
+              )}
             </div>
           </div>
         </motion.div>

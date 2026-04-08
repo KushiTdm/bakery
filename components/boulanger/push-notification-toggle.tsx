@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { motion } from 'framer-motion';
-import { AlertCircle, Smartphone } from 'lucide-react';
+import { AlertCircle, Smartphone, Send } from 'lucide-react';
 
 interface Props {
   token: string | null;
@@ -19,6 +20,32 @@ export default function PushNotificationToggle({ token }: Props) {
     subscribe,
     unsubscribe,
   } = usePushNotifications(token);
+
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const handleTest = async () => {
+    if (!token) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/notifications/test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json() as { sent?: number; failed?: number; error?: string };
+      if (res.ok && j.sent && j.sent > 0) {
+        setTestResult('Notification envoyée !');
+      } else {
+        setTestResult(j.error ?? 'Aucune notification envoyée');
+      }
+    } catch {
+      setTestResult('Erreur réseau');
+    } finally {
+      setTesting(false);
+      setTimeout(() => setTestResult(null), 5000);
+    }
+  };
 
   // Navigateur ne supporte pas les push (très rare)
   if (!isSupported && error === 'sw_unsupported') return null;
@@ -133,6 +160,32 @@ export default function PushNotificationToggle({ token }: Props) {
           )}
         </div>
       </motion.button>
+
+      {/* Bouton tester — visible quand abonné */}
+      {isSubscribed && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/70 disabled:opacity-40"
+          >
+            {testing ? (
+              <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+            ) : (
+              <Send size={12} />
+            )}
+            Tester
+          </button>
+          {testResult && (
+            <span className="text-xs text-white/50">{testResult}</span>
+          )}
+        </div>
+      )}
+
+      {/* Info iOS */}
+      <p className="text-white/20 text-[10px] leading-relaxed px-1">
+        Sur iPhone, installez l&apos;app sur l&apos;écran d&apos;accueil (Partager → Ajouter à l&apos;écran d&apos;accueil) pour recevoir les notifications.
+      </p>
 
       {/* Erreurs autres que permission_denied */}
       {error && error !== 'permission_denied' && errorMessage && (

@@ -385,7 +385,7 @@ export default function Parametres() {
 
       {/* ── Infos boulangerie ─────────────────────────────────── */}
       <Section title="Votre boulangerie" icon={Building2}>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="bg-black/20 rounded-xl p-3">
             <p className="text-white/30 text-xs mb-1">Nom</p>
             <p className="text-white text-sm font-medium">{boulangerie?.nom ?? '—'}</p>

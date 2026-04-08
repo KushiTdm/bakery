@@ -392,8 +392,17 @@ function CommandesPage() {
     loadOrders();
   }, [isAuthenticated, loadOrders]);
 
+  // Synchronise l'auth Realtime puis s'abonne aux changements
   useEffect(() => {
     if (!boulangerieId) return;
+
+    // setAuth() est requis pour que Realtime fonctionne avec RLS
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) {
+        supabase.realtime.setAuth(session.access_token);
+      }
+    });
+
     const channel = supabase
       .channel(`commandes-page-${boulangerieId}`)
       .on('postgres_changes',
@@ -408,9 +417,38 @@ function CommandesPage() {
           setSelectedOrder(prev => prev?.id === updated.id ? { ...prev, status: updated.status } : prev);
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') console.log('[Realtime] Connecté aux commandes');
+        if (status === 'CHANNEL_ERROR') console.error('[Realtime] Erreur channel:', err);
+        if (status === 'TIMED_OUT') console.warn('[Realtime] Timeout subscription');
+      });
     return () => { supabase.removeChannel(channel); };
   }, [boulangerieId, loadOrders]);
+
+  // Fallback polling (30s) + rechargement au retour sur l'onglet
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const interval = setInterval(() => loadOrders(), 30_000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadOrders();
+        // Re-synchroniser l'auth Realtime après retour en premier plan
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.access_token) {
+            supabase.realtime.setAuth(session.access_token);
+          }
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [isAuthenticated, loadOrders]);
 
   const updateStatus = useCallback(async (orderId: string, newStatus: Order['status']) => {
     if (!UUID_REGEX.test(orderId) || submittingRef.current) return;
@@ -454,7 +492,7 @@ function CommandesPage() {
   return (
     <div className="min-h-screen bg-[#1A0F0A] pb-24">
       <div className="sticky top-0 z-10 bg-[#1A0F0A]/96 backdrop-blur border-b border-white/8 px-4 py-4">
-        <div className="max-w-2xl mx-auto flex items-center gap-3">
+        <div className="max-w-2xl lg:max-w-5xl mx-auto flex items-center gap-3">
           <button onClick={() => router.push('/boulanger')}
             className="w-9 h-9 rounded-xl bg-white/5 border border-white/8 flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/10 transition-all flex-shrink-0">
             <ArrowLeft size={16} />
@@ -478,7 +516,7 @@ function CommandesPage() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 pt-5 space-y-5">
+      <div className="max-w-2xl lg:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 pt-5 space-y-5">
         {showClients && (
           <GestionClients onClose={() => setShowClients(false)} />
         )}

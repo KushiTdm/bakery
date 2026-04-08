@@ -758,7 +758,7 @@ function AppShell() {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{ background: 'rgba(18,10,6,0.92)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <div className="max-w-lg mx-auto px-4 h-14 flex items-center gap-3">
+        <div className="max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 h-14 flex items-center gap-3">
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-base"
               style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.2)' }}>
@@ -797,7 +797,7 @@ function AppShell() {
       </header>
 
       {/* Contenu principal */}
-      <main className="relative z-10 max-w-lg mx-auto px-4 pt-20 pb-32">
+      <main className="relative z-10 max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto px-4 md:px-6 lg:px-8 pt-20 pb-32">
         <AnimatePresence mode="wait">
           <motion.div key={localView}
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -860,7 +860,7 @@ function AppShell() {
       {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{ background: 'rgba(18,10,6,0.97)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-        <div className="grid w-full max-w-lg mx-auto"
+        <div className="grid w-full max-w-lg md:max-w-3xl lg:max-w-5xl mx-auto"
           style={{ gridTemplateColumns: 'repeat(3, 1fr)', height: '72px' }}>
           {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;

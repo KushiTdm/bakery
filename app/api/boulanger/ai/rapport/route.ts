@@ -278,6 +278,52 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ── 1b. Vérifier que la journée est clôturée ───────────────
+    const { data: journeeCheck } = await admin
+      .from('journees')
+      .select('cloturee')
+      .eq('boulangerie_id', boulangerieId)
+      .eq('date', today)
+      .single();
+
+    if (!journeeCheck?.cloturee) {
+      // Rembourser le quota consommé en amont
+      await admin.from('boulangeries')
+        .update({ levain_quota_used: Math.max(0, quotaInfo.quota_used - 1) })
+        .eq('id', boulangerieId);
+      return NextResponse.json(
+        { error: 'La journée doit être clôturée avant de générer le rapport.' },
+        { status: 400 }
+      );
+    }
+
+    // ── 1c. Nettoyage rapport bloqué en "en_cours" ───────────
+    if (existingRapport?.statut === 'en_cours') {
+      const { data: rapportRow } = await admin
+        .from('ai_rapports')
+        .select('updated_at')
+        .eq('id', existingRapport.id)
+        .single();
+      const updatedAt = new Date(rapportRow?.updated_at ?? Date.now());
+      const ageMs = Date.now() - updatedAt.getTime();
+      if (ageMs > 3 * 60 * 1000) {
+        // Rapport bloqué depuis plus de 3 minutes → marquer en erreur
+        await admin.from('ai_rapports').update({
+          statut:     'erreur',
+          erreur_msg: 'Génération interrompue (timeout).',
+        }).eq('id', existingRapport.id);
+      } else {
+        // Rapport encore en cours de génération → ne pas en lancer un nouveau
+        await admin.from('boulangeries')
+          .update({ levain_quota_used: Math.max(0, quotaInfo.quota_used - 1) })
+          .eq('id', boulangerieId);
+        return NextResponse.json(
+          { error: 'Rapport en cours de génération. Veuillez patienter.', en_cours: true },
+          { status: 409 }
+        );
+      }
+    }
+
     // ── 2. Crée/met à jour le rapport en statut "en_cours" ────
     let rapportId: string;
     if (existingRapport) {

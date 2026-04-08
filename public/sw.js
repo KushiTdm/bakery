@@ -17,8 +17,8 @@ self.addEventListener('install', (event) => {
       });
     })
   );
-  // Active immédiatement sans attendre la fermeture des autres onglets
-  self.skipWaiting();
+  // N'active PAS immédiatement — attend que l'utilisateur accepte la MAJ
+  // via le message SKIP_WAITING envoyé par sw-register.tsx
 });
 
 // ── Activation ────────────────────────────────────────────────
@@ -32,8 +32,14 @@ self.addEventListener('activate', (event) => {
       )
     )
   );
-  // Prend le contrôle de toutes les pages ouvertes immédiatement
-  self.clients.claim();
+  // Ne force PAS clients.claim() pour éviter les rechargements intempestifs
+});
+
+// ── Message handler — activation manuelle par l'utilisateur ──
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // ── Fetch — stratégie Network First avec fallback cache ───────
