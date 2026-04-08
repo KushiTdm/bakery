@@ -387,27 +387,29 @@ export default function VitrinEditor() {
           ))}
         </div>
 
-        <div className="flex gap-2 mb-2">
-          <input
-            type="text"
-            value={newDay}
-            onChange={e => setNewDay(e.target.value)}
-            placeholder="Jour (ex: Lundi — Vendredi)"
-            className="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors"
-          />
-          <input
-            type="text"
-            value={newHours}
-            onChange={e => setNewHours(e.target.value)}
-            placeholder="Horaires (ex: 6h30 – 20h00)"
-            onKeyDown={e => e.key === 'Enter' && addHoraire()}
-            className="flex-1 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors"
-          />
+        <div className="flex flex-col gap-2 mb-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newDay}
+              onChange={e => setNewDay(e.target.value)}
+              placeholder="Jour (ex: Lundi — Vendredi)"
+              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors"
+            />
+            <input
+              type="text"
+              value={newHours}
+              onChange={e => setNewHours(e.target.value)}
+              placeholder="Horaires (ex: 6h30 – 20h00)"
+              onKeyDown={e => e.key === 'Enter' && addHoraire()}
+              className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/50 transition-colors"
+            />
+          </div>
           <button
             onClick={addHoraire}
-            className="flex items-center gap-1.5 bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] px-3 py-2 rounded-xl text-sm font-medium hover:bg-[#C19A6B]/25 transition-colors flex-shrink-0"
+            className="flex items-center justify-center gap-1.5 bg-[#C19A6B]/15 border border-[#C19A6B]/25 text-[#C19A6B] px-3 py-2 rounded-xl text-sm font-medium hover:bg-[#C19A6B]/25 transition-colors w-full"
           >
-            <Plus size={14} />
+            <Plus size={14} /> Ajouter
           </button>
         </div>
         {horaireError && <p className="text-red-400 text-xs mb-2">{horaireError}</p>}

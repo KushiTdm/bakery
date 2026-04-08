@@ -703,7 +703,7 @@ function AppShell() {
   // ── Loading ────────────────────────────────────────────────
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#1A0F0A' }}>
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <span className="text-4xl block mb-4">🥖</span>
           <Loader2 size={20} className="text-[#C19A6B]/50 animate-spin mx-auto" />
@@ -716,7 +716,7 @@ function AppShell() {
 
   if (!boulangerie || !userRole) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: '#1A0F0A' }}>
+      <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center">
           <Shield size={40} className="text-white/20 mx-auto mb-4" />
           <p className="text-white/70 text-lg font-semibold" style={{ fontFamily: 'Playfair Display, serif' }}>
@@ -750,7 +750,7 @@ function AppShell() {
 
   // ── Interface principale ───────────────────────────────────
   return (
-    <div className="min-h-screen" style={{ background: '#1A0F0A' }}>
+    <div className="min-h-screen">
       {/* Texture grain */}
       <div className="fixed inset-0 opacity-[0.022] pointer-events-none z-0"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")` }} />
