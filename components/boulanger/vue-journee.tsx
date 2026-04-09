@@ -277,11 +277,12 @@ export default function VueJournee({ workflow, canRead: canReadFn, onNavigateSte
 
       {/* Contenu swipeable */}
       <motion.div
-        className="pt-2 touch-pan-y"
+        className="pt-2"
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.15}
-        onDragEnd={handleDragEnd}>
+        onDragEnd={handleDragEnd}
+        style={{ touchAction: 'pan-y' }}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeStep}
