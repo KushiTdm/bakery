@@ -427,7 +427,7 @@ function PlusDrawer({
   pendingOrders: number;
 }) {
   const router = useRouter();
-  const { canRead, userRole } = useBoulanger();
+  const { canRead, userRole, logout } = useBoulanger();
 
   const navigate = (item: DrawerItem) => {
     if (item.href)      router.push(item.href);
@@ -443,7 +443,8 @@ function PlusDrawer({
             className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40" onClick={onClose} />
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto">
+            className="fixed left-0 right-0 z-50 max-w-lg mx-auto"
+            style={{ bottom: 72 }}>
             <div className="border rounded-t-3xl overflow-hidden shadow-2xl"
               style={{ background: '#130B06', borderColor: 'rgba(193,154,107,0.12)' }}>
 
@@ -533,6 +534,19 @@ function PlusDrawer({
                       onClick={() => navigate(item)} />
                   );
                 })()}
+
+                {/* ── DÉCONNEXION ─────────────────────────────── */}
+                <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button onClick={logout}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-colors"
+                    style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                      style={{ background: 'rgba(239,68,68,0.12)' }}>
+                      <LogOut size={16} style={{ color: '#EF4444' }} />
+                    </div>
+                    <span className="text-sm font-semibold" style={{ color: '#EF4444' }}>Déconnexion</span>
+                  </button>
+                </div>
 
               </div>
             </div>
