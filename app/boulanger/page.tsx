@@ -445,14 +445,14 @@ function PlusDrawer({
             transition={{ type: 'spring', damping: 30, stiffness: 320 }}
             className="fixed left-0 right-0 z-50 max-w-lg mx-auto"
             style={{ bottom: 72 }}>
-            <div className="border rounded-t-3xl overflow-hidden shadow-2xl"
-              style={{ background: '#130B06', borderColor: 'rgba(193,154,107,0.12)' }}>
+            <div className="border rounded-t-3xl overflow-hidden shadow-2xl flex flex-col"
+              style={{ background: '#130B06', borderColor: 'rgba(193,154,107,0.12)', maxHeight: 'calc(100dvh - 140px)' }}>
 
               {/* Handle + titre */}
-              <div className="flex justify-center pt-3 pb-1">
+              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div className="w-10 h-1 bg-white/15 rounded-full" />
               </div>
-              <div className="flex items-center justify-between px-5 py-2">
+              <div className="flex items-center justify-between px-5 py-2 flex-shrink-0">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest font-semibold">Navigation</p>
                 <button onClick={onClose}
                   className="w-7 h-7 rounded-xl flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
@@ -461,7 +461,7 @@ function PlusDrawer({
                 </button>
               </div>
 
-              <div className="px-4 pb-8">
+              <div className="px-4 pb-8 overflow-y-auto flex-1 min-h-0">
 
                 {/* ── QUOTIDIEN ────────────────────────────────── */}
                 <SectionLabel label="Quotidien" />
