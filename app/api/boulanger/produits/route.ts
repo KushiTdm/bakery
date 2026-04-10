@@ -52,7 +52,7 @@ const ProduitSchema = z.object({
   // 2 = J+1 (pâtisseries standards)
   // 3 = J+2 (gâteaux secs, biscuits)
   // Max 7 jours (produits très stables)
-  duree_conservation_jours:  z.number().int().min(1).max(7).optional().default(1),
+  duree_conservation_jours:  z.number().int().min(1).max(7).optional(),
 });
 
 const ProduitUpdateSchema = ProduitSchema.partial().extend({

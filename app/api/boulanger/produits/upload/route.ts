@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { getBoulangerSession, canAccess, unauthorized, forbidden } from '@/lib/auth-boulanger';
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB avant compression
 const MAX_DIMENSION  = 1200;             // px — largeur et hauteur max
@@ -144,30 +145,14 @@ async function compressToWebP(buffer: Buffer, mimeType: string): Promise<Buffer>
 
 export async function POST(req: NextRequest) {
   try {
-    // ── 1. Auth ───────────────────────────────────────────────
+    // ── 1. Auth (owner + gérants avec catalogue:write) ────────
 
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-    }
+    const session = await getBoulangerSession(req);
+    if (!session) return unauthorized();
+    if (!canAccess(session, 'catalogue', 'write')) return forbidden('Accès catalogue refusé');
 
     const admin = getSupabaseAdmin();
-    const token = authHeader.slice(7);
-
-    const { data: { user }, error: authErr } = await admin.auth.getUser(token);
-    if (authErr || !user) {
-      return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
-    }
-
-    const { data: boulangerie } = await admin
-      .from('boulangeries')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!boulangerie) {
-      return NextResponse.json({ error: 'Boulangerie introuvable' }, { status: 404 });
-    }
+    const boulangerie = { id: session.boulangerieId };
 
     // ── 2. Récupère le fichier ────────────────────────────────
 

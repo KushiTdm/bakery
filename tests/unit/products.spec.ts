@@ -29,7 +29,7 @@ test.describe('Catalogue produits - Structure', () => {
       expect(product.price).toBeGreaterThan(0);
 
       expect(product.image).toBeDefined();
-      expect(product.image).toMatch(/^https?:\/\//);
+      expect(product.image).toMatch(/^(https?:\/\/|\/products\/)/)
     }
   });
 

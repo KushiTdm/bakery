@@ -18,6 +18,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { isMemoryRateLimited } from '@/lib/rate-limit';
+import { isValidSlug } from '@/lib/sanitize';
+
+// ── Lock en mémoire pour empêcher les achats concurrents du même client ──
+const purchaseInProgress = new Set<string>();
 
 const AchatSchema = z.object({
   panier_complet: z.boolean().optional(),
@@ -42,7 +46,7 @@ export async function POST(
 ) {
   const { slug: rawSlug } = await params;
   const slug = rawSlug?.trim().toLowerCase();
-  if (!slug || slug.length > 60) {
+  if (!slug || slug.length > 60 || !isValidSlug(slug)) {
     return NextResponse.json({ error: 'Slug invalide' }, { status: 400 });
   }
 
@@ -84,11 +88,21 @@ export async function POST(
     );
   }
 
+  // ── Lock concurrence (même client, même boulangerie) ─────
+  const lockKey = `${slug}:${user.email}`;
+  if (purchaseInProgress.has(lockKey)) {
+    return NextResponse.json(
+      { error: 'Un achat est déjà en cours.' },
+      { status: 409 }
+    );
+  }
+  purchaseInProgress.add(lockKey);
+
   try {
     // ── Résoudre la boulangerie ──────────────────────────────
     const { data: boulangerie } = await admin
       .from('boulangeries')
-      .select('id, actif, timezone, penalite_active, flash_heure_fin')
+      .select('id, actif, timezone, penalite_active, flash_heure_debut, flash_heure_fin')
       .eq('slug', slug)
       .single();
 
@@ -97,6 +111,20 @@ export async function POST(
     }
     if (!boulangerie.actif) {
       return NextResponse.json({ error: 'Boulangerie non active' }, { status: 403 });
+    }
+
+    // ── Vérifier période horaire flash (VULN-002) ───────────
+    const tz = boulangerie.timezone ?? 'Europe/Paris';
+    const nowLocal = new Date().toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+    const currentHour = parseInt(nowLocal.split('T')[1].split(':')[0]);
+    const hDebut = boulangerie.flash_heure_debut ?? 18;
+    const hFin   = boulangerie.flash_heure_fin   ?? 20;
+
+    if (currentHour < hDebut || currentHour >= hFin) {
+      return NextResponse.json(
+        { error: `Les paniers flash sont disponibles de ${hDebut}h à ${hFin}h. Achat hors période flash.` },
+        { status: 403 }
+      );
     }
 
     // ── Vérifier client non bloqué ───────────────────────────
@@ -117,8 +145,24 @@ export async function POST(
     }
 
     // ── Résoudre les produit_ids ─────────────────────────────
-    const tz = boulangerie.timezone ?? 'Europe/Paris';
     const todayLocal = new Date().toLocaleDateString('sv-SE', { timeZone: tz });
+
+    // ── Vérifier doublon achat (même client, même jour) ─────
+    const { count: existingOrders } = await admin
+      .from('commandes')
+      .select('*', { count: 'exact', head: true })
+      .eq('boulangerie_id', boulangerie.id)
+      .eq('client_email', user.email?.toLowerCase())
+      .eq('type', 'anti_gaspi')
+      .gte('created_at', `${todayLocal}T00:00:00`)
+      .lt('created_at', `${todayLocal}T23:59:59`);
+
+    if ((existingOrders ?? 0) > 0) {
+      return NextResponse.json(
+        { error: 'Vous avez déjà acheté un panier flash aujourd\'hui.' },
+        { status: 409 }
+      );
+    }
 
     let produitIds = parsed.data.produit_ids;
 
@@ -265,5 +309,7 @@ export async function POST(
   } catch (err) {
     console.error('[POST acheter]', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+  } finally {
+    purchaseInProgress.delete(lockKey);
   }
 }

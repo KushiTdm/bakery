@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   catch { return NextResponse.json({ error: 'Corps JSON invalide' }, { status: 400 }); }
 
   const dateProd = body.date_production;
-  if (!dateProd || !/^\d{4}-\d{2}-\d{2}$/.test(dateProd)) {
+  if (!dateProd || !/^\d{4}-\d{2}-\d{2}$/.test(dateProd) || isNaN(new Date(dateProd).getTime())) {
     return NextResponse.json({ error: 'date_production invalide (YYYY-MM-DD)' }, { status: 400 });
   }
 

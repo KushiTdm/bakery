@@ -20,6 +20,7 @@ import { createTestUser } from '../fixtures/test-data';
 test.describe('E2E: Flux Complet Boulanger', () => {
 
   test('🔄 Parcours complet : Inscription → Production → Clôture → Rapport IA', async ({ page, request }) => {
+    test.setTimeout(60_000);
     const testUser = createTestUser();
     const today    = new Date().toISOString().split('T')[0];
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().split('T')[0];

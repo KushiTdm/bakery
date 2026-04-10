@@ -5,23 +5,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { getTodayInTimezone } from '@/lib/ai-anonymize';
+import { getBoulangerSession, unauthorized } from '@/lib/auth-boulanger';
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-  }
+  const session = await getBoulangerSession(req);
+  if (!session) return unauthorized();
 
   const admin = getSupabaseAdmin();
-  const { data: { user }, error } = await admin.auth.getUser(authHeader.slice(7));
-  if (error || !user) {
-    return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-  }
-
   const { data: boulangerie } = await admin
     .from('boulangeries')
     .select('id, timezone')
-    .eq('user_id', user.id)
+    .eq('id', session.boulangerieId)
     .single();
 
   if (!boulangerie) {

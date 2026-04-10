@@ -46,12 +46,30 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
     {
+      name: 'security',
+      testDir: './tests/security',
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
+    },
+    {
+      name: 'penalites',
+      testDir: './tests/penalites',
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
+    },
+    {
+      name: 'conservation',
+      testDir: './tests/conservation',
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
+    },
+    {
+      name: 'equipe',
+      testDir: './tests/equipe',
+      use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
+    },
+    {
       name: 'e2e',
       testDir: './tests/e2e',
       use: { ...devices['Desktop Chrome'], baseURL: BASE_URL },
     },
-    // Projet chromium supprimé — chaque testDir a son propre projet nommé.
-    // Lancer npx playwright test sans --project exécute tous les projets ci-dessus.
   ],
 
   webServer: process.env.CI ? undefined : {
