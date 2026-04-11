@@ -9,8 +9,6 @@ import { categories } from '@/lib/products';
 import type { Product } from '@/lib/products';
 import FlashSection from '@/components/flash-section';
 
-// ── Types ──────────────────────────────────────────────────────
-
 interface BoulangeriePublicInfo {
   adresse:          string | null;
   ville:            string | null;
@@ -18,14 +16,16 @@ interface BoulangeriePublicInfo {
   creneaux_retrait: string[];
 }
 
-// ── Conversion créneaux en plages ──────────────────────────────
 function heureToPlage(heure: string): string {
   const h = parseInt(heure.split(':')[0], 10);
   const hFin = h + 4;
   return `${h}h–${hFin}h`;
 }
 
-// ── Hook catalogue ─────────────────────────────────────────────
+interface ProductWithStock extends Product {
+  stock?:    number;
+  en_stock?: boolean;
+}
 
 function useCatalogue(slug: string | null) {
   const [products,    setProducts]    = useState<ProductWithStock[]>([]);
@@ -41,9 +41,7 @@ function useCatalogue(slug: string | null) {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(`/api/catalogue/${slug}`, {
-          cache: 'no-store',
-        });
+        const res = await fetch(`/api/catalogue/${slug}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as {
           products:     ProductWithStock[];
@@ -84,24 +82,12 @@ function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
   return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
 }
 
-// ── Card produit ───────────────────────────────────────────────
-// CORRECTION : addItem ne requiert plus d'auth.
-// L'auth est demandée uniquement au checkout dans cart-sidebar.
-
-interface ProductWithStock extends Product {
-  stock?:    number;
-  en_stock?: boolean;
-}
-
 function ProductCard({ product, index, hasStockInfo }: { product: ProductWithStock; index: number; hasStockInfo: boolean }) {
-  const { addItem, setRetraitDate, setIsCartOpen } = useCart();
+  const { addItem, setRetraitDate } = useCart();
   const isOutOfStock = hasStockInfo && product.en_stock === false;
 
   const handleAdd = () => {
-    if (isOutOfStock) {
-      // Produit indisponible aujourd'hui → pré-commande pour demain
-      setRetraitDate('tomorrow');
-    }
+    if (isOutOfStock) setRetraitDate('tomorrow');
     addItem(product);
   };
 
@@ -112,9 +98,9 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 30 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.06 }}
+      transition={{ duration: 0.4, delay: Math.min(index * 0.04, 0.3) }}
       className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 border border-[#E8E0D5]/60"
     >
       <div className="relative overflow-hidden aspect-[4/3]">
@@ -126,37 +112,37 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
           width={400}
           height={300}
         />
-        <span className="absolute top-3 left-3 bg-white/90 text-[#2C1810] text-xs font-medium px-2.5 py-1 rounded-full capitalize backdrop-blur-sm">
+        <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-white/90 text-[#2C1810] text-[10px] sm:text-xs font-medium px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full capitalize backdrop-blur-sm">
           {product.category}
         </span>
         {isOutOfStock && (
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
-            <span className="text-white text-[10px] font-semibold">Épuisé aujourd&apos;hui</span>
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5 sm:px-3 sm:py-2">
+            <span className="text-white text-[9px] sm:text-[10px] font-semibold">Épuisé aujourd&apos;hui</span>
           </div>
         )}
         {hasStockInfo && !isOutOfStock && typeof product.stock === 'number' && product.stock <= 3 && product.stock > 0 && (
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-amber-900/50 to-transparent px-3 py-2">
-            <span className="text-amber-100 text-[10px] font-semibold">Plus que {product.stock} disponible{product.stock > 1 ? 's' : ''}</span>
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-amber-900/50 to-transparent px-2 py-1.5 sm:px-3 sm:py-2">
+            <span className="text-amber-100 text-[9px] sm:text-[10px] font-semibold">Plus que {product.stock} disponible{product.stock > 1 ? 's' : ''}</span>
           </div>
         )}
       </div>
-      <div className="p-4">
-        <h3 className="font-semibold text-[#2C1810] text-sm mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
+      <div className="p-3 sm:p-4">
+        <h3 className="font-semibold text-[#2C1810] text-xs sm:text-sm mb-0.5 sm:mb-1 leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
           {product.name}
         </h3>
-        <p className="text-[#2C1810]/50 text-xs mb-3 line-clamp-1">{product.description}</p>
-        <div className="flex items-center justify-between">
-          <span className="text-lg font-bold text-[#C19A6B]">{product.price.toFixed(2)} €</span>
+        <p className="text-[#2C1810]/50 text-[10px] sm:text-xs mb-2 sm:mb-3 line-clamp-1">{product.description}</p>
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-base sm:text-lg font-bold text-[#C19A6B]">{product.price.toFixed(2)} €</span>
           {isOutOfStock ? (
             <motion.button
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.93 }}
               onClick={handlePreOrder}
               aria-label={`Réserver ${product.name} pour demain`}
-              className="bg-amber-600 text-white p-2 rounded-full hover:bg-amber-500 transition-colors flex items-center gap-1"
+              className="bg-amber-600 text-white p-1.5 sm:p-2 rounded-full hover:bg-amber-500 transition-colors flex items-center gap-0.5 sm:gap-1"
             >
-              <CalendarPlus size={14} />
-              <span className="text-[10px] font-semibold pr-1">Demain</span>
+              <CalendarPlus size={12} />
+              <span className="text-[9px] sm:text-[10px] font-semibold pr-0.5 sm:pr-1">Demain</span>
             </motion.button>
           ) : (
             <motion.button
@@ -164,9 +150,9 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
               whileTap={{ scale: 0.93 }}
               onClick={handleAdd}
               aria-label={`Ajouter ${product.name} au panier`}
-              className="bg-[#2C1810] text-white p-2.5 rounded-full hover:bg-[#C19A6B] transition-colors"
+              className="bg-[#2C1810] text-white p-2 sm:p-2.5 rounded-full hover:bg-[#C19A6B] transition-colors flex-shrink-0"
             >
-              <Plus size={15} strokeWidth={2.5} />
+              <Plus size={14} strokeWidth={2.5} />
             </motion.button>
           )}
         </div>
@@ -174,8 +160,6 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
     </motion.article>
   );
 }
-
-// ── Page principale ────────────────────────────────────────────
 
 export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
@@ -189,7 +173,6 @@ export default function ClickCollect() {
   const adresseRetrait  = formatAdresseRetrait(boulangerie);
   const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '12:00', '16:00'];
 
-  // Affichage des plages horaires
   const plagesLabel = creneauxRetrait
     .sort()
     .map(c => heureToPlage(c))
@@ -201,37 +184,39 @@ export default function ClickCollect() {
   const dernierCreneauFin = parseInt(dernierCreneau.split(':')[0], 10) + 4;
 
   return (
-    <div className="pt-20 min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="pt-16 sm:pt-20 min-h-screen bg-[#FDFBF7]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
 
-        <header className="mb-10">
+        <header className="mb-6 sm:mb-10">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <h1 className="text-3xl sm:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
-              Click &amp; Collect — Boulangerie Paris
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
+              Click &amp; Collect
             </h1>
-            <p className="text-[#2C1810]/55 mt-2 text-sm max-w-xl">
+            <p className="text-[#2C1810]/55 mt-1.5 sm:mt-2 text-xs sm:text-sm max-w-xl">
               Commandez en ligne nos pains artisanaux, viennoiseries et pâtisseries.
               Retrait en boutique — paiement sur place.
             </p>
             {!loading && source === 'supabase' && (
-              <div className="flex items-center gap-1.5 mt-3">
+              <div className="flex items-center gap-1.5 mt-2 sm:mt-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                <span className="text-xs text-[#2C1810]/35">Catalogue mis à jour</span>
+                <span className="text-[10px] sm:text-xs text-[#2C1810]/35">Catalogue mis à jour</span>
               </div>
             )}
           </motion.div>
         </header>
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        {/* Layout responsive — colonne sur mobile, grille sur lg+ */}
+        <div className="grid lg:grid-cols-3 gap-5 sm:gap-8">
 
-          <main className="lg:col-span-2">
-            <nav aria-label="Filtrer par catégorie" className="flex flex-wrap gap-2 mb-7">
+          <main className="lg:col-span-2 order-2 lg:order-1">
+            {/* Filtres catégories — scroll horizontal sur mobile */}
+            <nav aria-label="Filtrer par catégorie" className="flex gap-2 mb-5 sm:mb-7 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
               {categories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => setActiveCategory(cat.id)}
                   aria-pressed={activeCategory === cat.id}
-                  className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-200 ${
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-medium transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
                     activeCategory === cat.id
                       ? 'bg-[#2C1810] text-white'
                       : 'bg-white text-[#2C1810]/70 border border-[#E8E0D5] hover:border-[#C19A6B]/50'
@@ -243,16 +228,17 @@ export default function ClickCollect() {
             </nav>
 
             {loading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4" aria-busy="true">
+              // Skeleton — 2 colonnes sur mobile, 3 sur sm+
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4" aria-busy="true">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse border border-[#E8E0D5]/60">
                     <div className="aspect-[4/3] bg-[#E8E0D5]" />
-                    <div className="p-4 space-y-2">
+                    <div className="p-3 sm:p-4 space-y-2">
                       <div className="h-3 bg-[#E8E0D5] rounded w-3/4" />
                       <div className="h-3 bg-[#E8E0D5] rounded w-full" />
                       <div className="flex justify-between pt-1">
-                        <div className="h-5 bg-[#E8E0D5] rounded w-14" />
-                        <div className="w-8 h-8 bg-[#E8E0D5] rounded-full" />
+                        <div className="h-4 bg-[#E8E0D5] rounded w-14" />
+                        <div className="w-7 h-7 bg-[#E8E0D5] rounded-full" />
                       </div>
                     </div>
                   </div>
@@ -265,50 +251,52 @@ export default function ClickCollect() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="grid grid-cols-2 sm:grid-cols-3 gap-4"
+                  // 2 colonnes sur mobile, 2 sur sm, 3 sur md+
+                  className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4"
                 >
-                  {filteredProducts.map((product, index) => (
-                    <ProductCard key={product.id} product={product} index={index} hasStockInfo={hasStock} />
-                  ))}
+                  {filteredProducts.length === 0 ? (
+                    <div className="col-span-2 sm:col-span-3 text-center py-12">
+                      <p className="text-[#2C1810]/40 text-sm">Aucun produit dans cette catégorie</p>
+                    </div>
+                  ) : (
+                    filteredProducts.map((product, index) => (
+                      <ProductCard key={product.id} product={product} index={index} hasStockInfo={hasStock} />
+                    ))
+                  )}
                 </motion.div>
               </AnimatePresence>
             )}
           </main>
 
-          <aside className="lg:col-span-1">
-            <div className="sticky top-28 space-y-5">
+          {/* Sidebar — au-dessus des produits sur mobile */}
+          <aside className="lg:col-span-1 order-1 lg:order-2">
+            <div className="lg:sticky lg:top-28 space-y-4 sm:space-y-5">
               <FlashSection />
 
-              <section className="bg-white rounded-2xl p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
-                <h2 className="text-[#2C1810] font-semibold text-sm mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
+              <section className="bg-white rounded-2xl p-4 sm:p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
+                <h2 className="text-[#2C1810] font-semibold text-sm mb-3 sm:mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
                   Informations retrait
                 </h2>
-                <ul className="space-y-2.5 text-xs text-[#2C1810]/60">
+                <ul className="space-y-2 sm:space-y-2.5 text-xs text-[#2C1810]/60">
                   <li className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p className="flex items-start gap-1">
-                      <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                      <span><strong>{adresseRetrait}</strong></span>
-                    </p>
+                    <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                    <span><strong>{adresseRetrait}</strong></span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p className="flex items-start gap-1">
-                      <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                      <span>Créneaux disponibles : <strong>{plagesLabel}</strong></span>
-                    </p>
+                    <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                    <span>Créneaux : <strong>{plagesLabel}</strong></span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Paiement <strong>sur place uniquement</strong> — espèces ou carte</p>
+                    <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
+                    <span>Paiement <strong>sur place</strong> — espèces ou carte</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] mt-1.5 flex-shrink-0" />
-                    <p>Commande conservée <strong>jusqu'à {dernierCreneauFin}h</strong>, puis libérée</p>
+                    <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
+                    <span>Commande conservée jusqu'à <strong>{dernierCreneauFin}h</strong></span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
-                    <p>Click & Collect <strong className="text-green-600">100% gratuit</strong></p>
+                    <div className="w-2 h-2 rounded-full bg-green-500 mt-1 flex-shrink-0" />
+                    <span>Click &amp; Collect <strong className="text-green-600">100% gratuit</strong></span>
                   </li>
                 </ul>
               </section>

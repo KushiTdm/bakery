@@ -43,8 +43,6 @@ function creneauxToPlages(creneaux: string[]): { value: string; label: string }[
   return [...creneaux].sort().map(c => ({ value: c, label: heureToPlage(c) }));
 }
 
-// ── Hook : infos boulangerie ────────────────────────────────────
-
 function useBoulangerieInfo(slug: string | null) {
   const [info, setInfo] = useState<BoulangeriePublicInfo>({
     adresse: null, ville: null, code_postal: null,
@@ -65,10 +63,6 @@ function useBoulangerieInfo(slug: string | null) {
 
   return info;
 }
-
-// ── Hook : profil client ────────────────────────────────────────
-// Récupère le VRAI prénom et téléphone depuis profils_clients
-// pour les envoyer correctement dans la commande
 
 function useClientProfil() {
   const [profil, setProfil] = useState<ProfilClient | null>(null);
@@ -109,8 +103,6 @@ function formatAdresse(info: BoulangeriePublicInfo): string {
   return parts.length > 0 ? parts.join(', ') : 'Adresse en boutique';
 }
 
-// ── Écran de confirmation ──────────────────────────────────────
-
 function formatDateRetrait(dateStr: string | null): string {
   if (!dateStr) return "Aujourd'hui";
   const d = new Date(dateStr + 'T12:00:00');
@@ -133,24 +125,24 @@ function OrderConfirmation({
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="flex flex-col items-center justify-center h-full px-6 py-10 text-center"
+      className="flex flex-col items-center justify-center h-full px-4 sm:px-6 py-8 sm:py-10 text-center"
     >
       <motion.div
         initial={{ scale: 0 }} animate={{ scale: 1 }}
         transition={{ type: 'spring', damping: 14, delay: 0.1 }}
-        className={`w-20 h-20 rounded-full flex items-center justify-center mb-5 ${isPreOrder ? 'bg-amber-100' : 'bg-green-100'}`}
+        className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-4 sm:mb-5 ${isPreOrder ? 'bg-amber-100' : 'bg-green-100'}`}
       >
         {isPreOrder
-          ? <CalendarPlus size={40} className="text-amber-600" />
-          : <CheckCircle size={40} className="text-green-600" />
+          ? <CalendarPlus size={32} className="text-amber-600" />
+          : <CheckCircle size={32} className="text-green-600" />
         }
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-        <h3 className="text-[#2C1810] text-xl font-bold mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="w-full max-w-sm">
+        <h3 className="text-[#2C1810] text-lg sm:text-xl font-bold mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
           {isPreOrder ? 'Pré-commande confirmée !' : 'Commande confirmée !'}
         </h3>
-        <p className="text-[#2C1810]/50 text-sm mb-5">
+        <p className="text-[#2C1810]/50 text-sm mb-4 sm:mb-5">
           Total : <span className="font-bold text-[#C19A6B]">{total.toFixed(2)} €</span>
         </p>
 
@@ -160,32 +152,32 @@ function OrderConfirmation({
           </div>
         )}
 
-        <div className="bg-[#F5F0E8] rounded-2xl p-4 mb-5 space-y-3 text-left">
+        <div className="bg-[#F5F0E8] rounded-2xl p-3 sm:p-4 mb-4 sm:mb-5 space-y-2.5 sm:space-y-3 text-left">
           {[
             { icon: ShoppingBag, label: 'Numéro de commande', value: orderNumber, mono: true },
             { icon: MapPin,      label: 'Retrait en boutique', value: adresse },
             ...(isPreOrder ? [{ icon: Calendar, label: 'Date de retrait', value: formatDateRetrait(dateRetrait), mono: false }] : []),
             { icon: Clock,       label: 'Créneau de retrait',  value: heureToPlage(heureRetrait) },
-            { icon: Mail,        label: 'Confirmation',        value: 'Email envoyé à votre adresse' },
+            { icon: Mail,        label: 'Confirmation',        value: 'Email envoyé' },
           ].map(({ icon: Icon, label, value, mono }) => (
             <div key={label} className="flex items-center gap-2.5">
-              <div className="w-7 h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
-                <Icon size={13} className="text-[#C19A6B]" />
+              <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
+                <Icon size={12} className="text-[#C19A6B]" />
               </div>
-              <div>
-                <p className="text-[#2C1810]/50 text-xs">{label}</p>
-                <p className={`text-[#2C1810] text-sm font-medium ${mono ? 'font-mono font-bold' : ''}`}>{value}</p>
+              <div className="min-w-0">
+                <p className="text-[#2C1810]/50 text-[10px] sm:text-xs">{label}</p>
+                <p className={`text-[#2C1810] text-xs sm:text-sm font-medium truncate ${mono ? 'font-mono font-bold' : ''}`}>{value}</p>
               </div>
             </div>
           ))}
         </div>
 
-        <p className="text-[#2C1810]/40 text-xs mb-5">
+        <p className="text-[#2C1810]/40 text-xs mb-4 sm:mb-5">
           Paiement sur place uniquement · Espèces ou carte bancaire
         </p>
         <button
           onClick={onClose}
-          className="w-full bg-[#2C1810] text-white py-3.5 rounded-xl font-semibold text-sm hover:bg-[#C19A6B] transition-colors"
+          className="w-full bg-[#2C1810] text-white py-3 sm:py-3.5 rounded-xl font-semibold text-sm hover:bg-[#C19A6B] transition-colors"
         >
           Fermer
         </button>
@@ -229,9 +221,17 @@ export default function CartSidebar() {
     }
   }, [boulangerieInfo.creneaux_retrait, selectedHeure, plages]);
 
-  const adresseFormatted = formatAdresse(boulangerieInfo);
+  // Prevent body scroll when cart is open
+  useEffect(() => {
+    if (isCartOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isCartOpen]);
 
-  // ── Checkout ─────────────────────────────────────────────────
+  const adresseFormatted = formatAdresse(boulangerieInfo);
 
   const handleCheckout = async () => {
     if (!user) { setIsAuthOpen(true); return; }
@@ -243,21 +243,18 @@ export default function CartSidebar() {
     setSubmitError(null);
 
     try {
-      // FIX : utilise le vrai prénom depuis profils_clients
       const clientPrenom = clientProfil?.prenom
         ?? user.user_metadata?.prenom
         ?? user.email?.split('@')[0]
         ?? 'Client';
 
-      // FIX : inclut le vrai téléphone depuis profils_clients
       const clientTelephone = clientProfil?.telephone ?? null;
 
-      // Calculer la date de retrait
       let dateRetraitStr: string | null = null;
       if (isPreOrder) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        dateRetraitStr = tomorrow.toLocaleDateString('sv-SE'); // YYYY-MM-DD
+        dateRetraitStr = tomorrow.toLocaleDateString('sv-SE');
       }
 
       const res = await fetch('/api/orders', {
@@ -322,16 +319,18 @@ export default function CartSidebar() {
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[55]"
           />
 
+          {/* Sidebar — full width on mobile, max-md on larger */}
           <motion.div
             initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 h-full w-full max-w-md bg-[#FDFBF7] z-[56] flex flex-col shadow-2xl"
+            className="fixed right-0 top-0 h-full w-full sm:max-w-md bg-[#FDFBF7] z-[56] flex flex-col shadow-2xl"
+            style={{ maxWidth: '100vw' }}
           >
             {/* Header */}
-            <div className="bg-[#2C1810] px-6 py-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <ShoppingBag size={20} className="text-[#C19A6B]" />
-                <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
+            <div className="bg-[#2C1810] px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <ShoppingBag size={18} className="text-[#C19A6B]" />
+                <h2 className="text-white font-bold text-base sm:text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
                   {orderConfirmed
                     ? confirmedPreOrder ? 'Pré-commande passée' : 'Commande passée'
                     : isPreOrder ? 'Pré-commande' : 'Mon Panier'
@@ -343,13 +342,13 @@ export default function CartSidebar() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {!orderConfirmed && items.length > 0 && (
                   <button onClick={clearCart} className="text-white/40 hover:text-white/80 transition-colors text-xs flex items-center gap-1">
                     <Trash2 size={12} /> Vider
                   </button>
                 )}
-                <button onClick={handleClose} className="text-white/60 hover:text-white transition-colors">
+                <button onClick={handleClose} className="text-white/60 hover:text-white transition-colors p-1">
                   <X size={22} />
                 </button>
               </div>
@@ -369,14 +368,14 @@ export default function CartSidebar() {
                   initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                   className="flex flex-col items-center justify-center h-full px-6 text-center"
                 >
-                  <div className="w-20 h-20 bg-[#C19A6B]/10 rounded-full flex items-center justify-center mb-4">
-                    <ShoppingBag size={36} className="text-[#C19A6B]/50" />
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-[#C19A6B]/10 rounded-full flex items-center justify-center mb-4">
+                    <ShoppingBag size={28} className="text-[#C19A6B]/50" />
                   </div>
                   <h3 className="text-[#2C1810] font-semibold text-lg mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
                     Panier vide
                   </h3>
                   <p className="text-[#2C1810]/50 text-sm mb-6">
-                    Découvrez notre sélection du jour et ajoutez vos produits préférés.
+                    Découvrez notre sélection et ajoutez vos produits préférés.
                   </p>
                   <button
                     onClick={() => setIsCartOpen(false)}
@@ -386,22 +385,22 @@ export default function CartSidebar() {
                   </button>
                 </motion.div>
               ) : (
-                <div className="p-4 space-y-3">
+                <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                   <AnimatePresence>
                     {items.map(({ product, quantity }) => (
                       <motion.div
                         key={product.id} layout
                         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, x: 60, transition: { duration: 0.2 } }}
-                        className="bg-white rounded-xl p-3 flex gap-3 shadow-sm"
+                        className="bg-white rounded-xl p-2.5 sm:p-3 flex gap-2.5 sm:gap-3 shadow-sm"
                       >
-                        <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg overflow-hidden flex-shrink-0">
                           <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[#2C1810] font-semibold text-sm truncate">{product.name}</p>
-                          <p className="text-[#C19A6B] font-bold text-sm mt-0.5">{product.price.toFixed(2)} €</p>
-                          <div className="flex items-center gap-2 mt-2">
+                          <p className="text-[#2C1810] font-semibold text-xs sm:text-sm truncate">{product.name}</p>
+                          <p className="text-[#C19A6B] font-bold text-xs sm:text-sm mt-0.5">{product.price.toFixed(2)} €</p>
+                          <div className="flex items-center gap-1.5 sm:gap-2 mt-1.5 sm:mt-2">
                             <button
                               onClick={() => updateQuantity(product.id, quantity - 1)}
                               className="w-6 h-6 rounded-full bg-[#F5F0E8] flex items-center justify-center hover:bg-[#C19A6B] hover:text-white transition-colors"
@@ -418,10 +417,10 @@ export default function CartSidebar() {
                           </div>
                         </div>
                         <div className="flex flex-col items-end justify-between flex-shrink-0">
-                          <button onClick={() => removeItem(product.id)} className="text-[#2C1810]/30 hover:text-red-400 transition-colors">
+                          <button onClick={() => removeItem(product.id)} className="text-[#2C1810]/30 hover:text-red-400 transition-colors p-0.5">
                             <X size={14} />
                           </button>
-                          <p className="text-[#2C1810] font-bold text-sm">{(product.price * quantity).toFixed(2)} €</p>
+                          <p className="text-[#2C1810] font-bold text-xs sm:text-sm">{(product.price * quantity).toFixed(2)} €</p>
                         </div>
                       </motion.div>
                     ))}
@@ -430,11 +429,14 @@ export default function CartSidebar() {
               )}
             </div>
 
-            {/* Footer */}
+            {/* Footer — tient compte de la safe area iOS */}
             {items.length > 0 && !orderConfirmed && (
-              <div className="border-t border-[#E8E0D5] bg-white px-5 py-5 space-y-3">
+              <div
+                className="border-t border-[#E8E0D5] bg-white px-4 sm:px-5 pt-4 space-y-3 flex-shrink-0"
+                style={{ paddingBottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
+              >
                 {/* Totaux */}
-                <div className="space-y-1.5 text-sm">
+                <div className="space-y-1 text-sm">
                   <div className="flex justify-between text-[#2C1810]/60">
                     <span>Sous-total HT</span><span>{(totalPrice - TVA).toFixed(2)} €</span>
                   </div>
@@ -442,7 +444,7 @@ export default function CartSidebar() {
                     <span>TVA (5,5%)</span><span>{TVA.toFixed(2)} €</span>
                   </div>
                   <div className="flex justify-between text-[#2C1810]/60">
-                    <span>Click & Collect</span>
+                    <span>Click &amp; Collect</span>
                     <span className="text-green-600 font-medium">Gratuit</span>
                   </div>
                   <div className="h-px bg-[#E8E0D5] my-1" />
@@ -452,7 +454,7 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
-                {/* Date de retrait : aujourd'hui / demain */}
+                {/* Date de retrait */}
                 <div>
                   <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
                     <Calendar size={12} /> Date de retrait
@@ -460,7 +462,7 @@ export default function CartSidebar() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setRetraitDate('today')}
-                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                      className={`flex-1 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all border ${
                         retraitDate === 'today'
                           ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
                           : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
@@ -470,13 +472,13 @@ export default function CartSidebar() {
                     </button>
                     <button
                       onClick={() => setRetraitDate('tomorrow')}
-                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all border flex items-center justify-center gap-1 ${
                         retraitDate === 'tomorrow'
                           ? 'bg-amber-500 text-white border-amber-500'
                           : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-amber-400/50'
                       }`}
                     >
-                      <CalendarPlus size={13} />
+                      <CalendarPlus size={12} />
                       Demain
                     </button>
                   </div>
@@ -487,22 +489,22 @@ export default function CartSidebar() {
                     <CalendarPlus size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
                     <div>
                       <strong>Pré-commande pour demain</strong>
-                      <p className="text-amber-600/80 mt-0.5">Vos produits seront préparés spécialement pour vous. Retrait demain au créneau sélectionné.</p>
+                      <p className="text-amber-600/80 mt-0.5">Vos produits seront préparés spécialement pour vous.</p>
                     </div>
                   </div>
                 )}
 
-                {/* Créneaux — plages horaires */}
+                {/* Créneaux */}
                 <div>
                   <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
                     <Clock size={12} /> Créneau de retrait
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
                     {plages.map(p => (
                       <button
                         key={p.value}
                         onClick={() => setSelectedHeure(p.value)}
-                        className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                        className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all border ${
                           selectedHeure === p.value
                             ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
                             : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
@@ -516,21 +518,23 @@ export default function CartSidebar() {
 
                 {/* Adresse */}
                 <div className="bg-[#F5F0E8] rounded-xl px-3 py-2.5 flex items-start gap-2">
-                  <MapPin size={13} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-[#2C1810]/50 text-xs">Retrait en boutique</p>
-                    <p className="text-[#2C1810] text-sm font-medium">{adresseFormatted}</p>
+                  <MapPin size={12} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[#2C1810]/50 text-[10px] sm:text-xs">Retrait en boutique</p>
+                    <p className="text-[#2C1810] text-xs sm:text-sm font-medium truncate">{adresseFormatted}</p>
                   </div>
                 </div>
 
                 {/* Statut connexion */}
                 {user ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700 flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                    {clientProfil?.prenom
-                      ? <><strong>{clientProfil.prenom}</strong> · {user.email}</>
-                      : user.email
-                    }
+                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full flex-shrink-0" />
+                    <span className="truncate">
+                      {clientProfil?.prenom
+                        ? <><strong>{clientProfil.prenom}</strong> · {user.email}</>
+                        : user.email
+                      }
+                    </span>
                   </div>
                 ) : (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
@@ -552,7 +556,7 @@ export default function CartSidebar() {
                   whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                   onClick={handleCheckout}
                   disabled={isSubmitting || !selectedHeure}
-                  className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-4 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full bg-[#2C1810] hover:bg-[#C19A6B] text-white py-3.5 rounded-xl font-semibold text-sm transition-colors duration-300 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isSubmitting
                     ? <><Loader2 size={16} className="animate-spin" /> Envoi en cours…</>
@@ -564,7 +568,7 @@ export default function CartSidebar() {
                   }
                 </motion.button>
 
-                <p className="text-center text-[#2C1810]/40 text-xs">
+                <p className="text-center text-[#2C1810]/40 text-[10px] sm:text-xs">
                   {isPreOrder ? 'Pré-commande pour demain · ' : ''}Retrait en boutique · Paiement sur place
                 </p>
               </div>

@@ -25,9 +25,19 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Close mobile menu on outside scroll
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isMobileMenuOpen]);
 
   const isTransparent = onVitrine && !isScrolled;
 
@@ -43,22 +53,24 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20">
+          <div className="flex items-center justify-between h-16 sm:h-20">
 
             {/* Logo */}
             <button
               onClick={() => { setActiveTab('vitrine'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className={`text-xl font-bold tracking-tight transition-colors duration-300 ${isTransparent ? 'text-white' : 'text-[#2C1810]'}`}
+              className={`text-base sm:text-xl font-bold tracking-tight transition-colors duration-300 ${isTransparent ? 'text-white' : 'text-[#2C1810]'}`}
               style={{ fontFamily: 'Playfair Display, serif' }}
             >
-              {bakName}
+              <span className="hidden sm:inline">{bakName}</span>
+              {/* Short name on very small screens */}
+              <span className="sm:hidden">{bakName.split(' ').slice(0, 2).join(' ')}</span>
             </button>
 
             {/* Tabs centraux — desktop */}
             <div className={`hidden md:flex items-center rounded-full p-1 transition-all duration-300 ${isTransparent ? 'bg-black/20 backdrop-blur-sm' : 'bg-[#F5F0E8]'}`}>
               <button
                 onClick={() => setActiveTab('vitrine')}
-                className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
+                className={`flex items-center gap-2 px-4 lg:px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
                   activeTab === 'vitrine'
                     ? 'bg-white text-[#2C1810] shadow-sm'
                     : isTransparent ? 'text-white/80 hover:text-white' : 'text-[#2C1810]/60 hover:text-[#2C1810]'
@@ -69,22 +81,21 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
               </button>
               <button
                 onClick={() => setActiveTab('commander')}
-                className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
+                className={`flex items-center gap-2 px-4 lg:px-5 py-2 rounded-full text-sm font-medium transition-all duration-300 ${
                   activeTab === 'commander'
                     ? 'bg-[#C19A6B] text-white shadow-sm'
                     : isTransparent ? 'text-white/80 hover:text-white' : 'text-[#2C1810]/60 hover:text-[#2C1810]'
                 }`}
               >
                 <UtensilsCrossed size={14} />
-                Click & Collect
+                Click &amp; Collect
               </button>
             </div>
 
             {/* Actions droite */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {user ? (
                 <div className="hidden md:flex items-center gap-2">
-                  {/* Bouton espace client */}
                   <button
                     onClick={() => setClientSpaceOpen(true)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all duration-200 ${
@@ -118,7 +129,7 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
                 </button>
               )}
 
-              {/* Panier — toujours visible sur commander */}
+              {/* Panier */}
               <AnimatePresence>
                 {activeTab === 'commander' && (
                   <motion.button
@@ -129,6 +140,7 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
                     whileTap={{ scale: 0.95 }}
                     className="relative p-2 text-[#2C1810] hover:text-[#C19A6B] transition-colors"
                     onClick={() => setIsCartOpen(true)}
+                    aria-label={`Panier — ${totalItems} article${totalItems > 1 ? 's' : ''}`}
                   >
                     <ShoppingBag size={22} />
                     <AnimatePresence>
@@ -138,7 +150,7 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
                           initial={{ scale: 0 }}
                           animate={{ scale: 1 }}
                           exit={{ scale: 0 }}
-                          className="absolute -top-1 -right-1 bg-[#C19A6B] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
+                          className="absolute -top-1 -right-1 bg-[#C19A6B] text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center"
                         >
                           {totalItems > 9 ? '9+' : totalItems}
                         </motion.span>
@@ -148,9 +160,15 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
                 )}
               </AnimatePresence>
 
+              {/* Hamburger mobile */}
               <button
-                className={`md:hidden p-2 transition-colors ${isTransparent ? 'text-white' : 'text-[#2C1810]'}`}
+                className={`md:hidden p-2 rounded-lg transition-colors ${
+                  isTransparent
+                    ? 'text-white hover:bg-white/10'
+                    : 'text-[#2C1810] hover:bg-[#F5F0E8]'
+                }`}
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                aria-label={isMobileMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
               >
                 {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
               </button>
@@ -158,57 +176,67 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
           </div>
         </div>
 
-        {/* Menu mobile */}
+        {/* Menu mobile — plein écran sur petits appareils */}
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden bg-[#FDFBF7] border-t border-[#E8E0D5]"
+              transition={{ duration: 0.2 }}
+              className="md:hidden bg-[#FDFBF7] border-t border-[#E8E0D5] overflow-hidden"
             >
-              <div className="px-4 py-5 space-y-3">
+              <div
+                className="px-4 pt-4 pb-6 space-y-2"
+                style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+              >
                 <button
                   onClick={() => { setActiveTab('vitrine'); setIsMobileMenuOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                    activeTab === 'vitrine' ? 'bg-[#2C1810] text-white' : 'text-[#2C1810] hover:bg-[#F5F0E8]'
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition-all ${
+                    activeTab === 'vitrine'
+                      ? 'bg-[#2C1810] text-white'
+                      : 'text-[#2C1810] bg-[#F5F0E8] hover:bg-[#EDE8E0]'
                   }`}
                 >
-                  <Store size={16} /> La Boulangerie
+                  <Store size={18} /> La Boulangerie
                 </button>
                 <button
                   onClick={() => { setActiveTab('commander'); setIsMobileMenuOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                    activeTab === 'commander' ? 'bg-[#C19A6B] text-white' : 'text-[#2C1810] hover:bg-[#F5F0E8]'
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition-all ${
+                    activeTab === 'commander'
+                      ? 'bg-[#C19A6B] text-white'
+                      : 'text-[#2C1810] bg-[#F5F0E8] hover:bg-[#EDE8E0]'
                   }`}
                 >
-                  <UtensilsCrossed size={16} /> Click & Collect
+                  <UtensilsCrossed size={18} /> Click &amp; Collect
                 </button>
 
-                {/* Espace client mobile */}
-                {user && (
+                {/* Séparateur */}
+                <div className="h-px bg-[#E8E0D5] my-2" />
+
+                {user ? (
+                  <>
+                    <button
+                      onClick={() => { setClientSpaceOpen(true); setIsMobileMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold text-[#C19A6B] bg-[#C19A6B]/8 hover:bg-[#C19A6B]/15 transition-all"
+                    >
+                      <Package size={18} /> Mes commandes
+                    </button>
+                    <button
+                      onClick={() => { logout(); setIsMobileMenuOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-medium text-[#2C1810]/50 hover:bg-[#F5F0E8] transition-all"
+                    >
+                      <LogOut size={16} /> Se déconnecter
+                    </button>
+                  </>
+                ) : (
                   <button
-                    onClick={() => { setClientSpaceOpen(true); setIsMobileMenuOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[#C19A6B] hover:bg-[#C19A6B]/10 transition-all"
+                    onClick={() => { setIsAuthOpen(true); setIsMobileMenuOpen(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold text-[#C19A6B] bg-[#C19A6B]/8 hover:bg-[#C19A6B]/15 transition-all"
                   >
-                    <Package size={16} /> Mes commandes
+                    <User size={18} /> Se connecter
                   </button>
                 )}
-
-                <div className="pt-2 border-t border-[#E8E0D5]">
-                  {user ? (
-                    <button onClick={logout} className="text-[#2C1810]/50 text-sm flex items-center gap-2 px-2">
-                      <LogOut size={14} /> Se déconnecter
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => { setIsAuthOpen(true); setIsMobileMenuOpen(false); }}
-                      className="text-[#C19A6B] font-medium text-sm flex items-center gap-2 px-2"
-                    >
-                      <User size={14} /> Se connecter
-                    </button>
-                  )}
-                </div>
               </div>
             </motion.div>
           )}
