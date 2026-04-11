@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingBag, MapPin, Clock } from 'lucide-react';
+import { Plus, MapPin, Clock, CalendarPlus } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
 import { useSlug } from '@/hooks/use-slug';
 import { categories } from '@/lib/products';
@@ -28,10 +28,11 @@ function heureToPlage(heure: string): string {
 // ── Hook catalogue ─────────────────────────────────────────────
 
 function useCatalogue(slug: string | null) {
-  const [products,    setProducts]    = useState<Product[]>([]);
+  const [products,    setProducts]    = useState<ProductWithStock[]>([]);
   const [boulangerie, setBoulangerie] = useState<BoulangeriePublicInfo | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [source,      setSource]      = useState<'supabase' | 'local'>('local');
+  const [hasStock,    setHasStock]    = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -45,13 +46,15 @@ function useCatalogue(slug: string | null) {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as {
-          products:     Product[];
+          products:     ProductWithStock[];
           source:       string;
           boulangerie?: BoulangeriePublicInfo;
+          hasStock?:    boolean;
         };
         if (!cancelled) {
           setProducts(data.products ?? []);
           setSource(data.source === 'supabase' ? 'supabase' : 'local');
+          setHasStock(data.hasStock === true);
           if (data.boulangerie) setBoulangerie(data.boulangerie);
         }
       } catch {
@@ -69,7 +72,7 @@ function useCatalogue(slug: string | null) {
     return () => { cancelled = true; };
   }, [slug]);
 
-  return { products, boulangerie, loading, source };
+  return { products, boulangerie, loading, source, hasStock };
 }
 
 function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
@@ -85,10 +88,25 @@ function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
 // CORRECTION : addItem ne requiert plus d'auth.
 // L'auth est demandée uniquement au checkout dans cart-sidebar.
 
-function ProductCard({ product, index }: { product: Product; index: number }) {
-  const { addItem } = useCart();
+interface ProductWithStock extends Product {
+  stock?:    number;
+  en_stock?: boolean;
+}
+
+function ProductCard({ product, index, hasStockInfo }: { product: ProductWithStock; index: number; hasStockInfo: boolean }) {
+  const { addItem, setRetraitDate, setIsCartOpen } = useCart();
+  const isOutOfStock = hasStockInfo && product.en_stock === false;
 
   const handleAdd = () => {
+    if (isOutOfStock) {
+      // Produit indisponible aujourd'hui → pré-commande pour demain
+      setRetraitDate('tomorrow');
+    }
+    addItem(product);
+  };
+
+  const handlePreOrder = () => {
+    setRetraitDate('tomorrow');
     addItem(product);
   };
 
@@ -103,7 +121,7 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
         <img
           src={product.image}
           alt={`${product.name} — ${product.category} artisanal`}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ${isOutOfStock ? 'opacity-60 grayscale-[30%]' : ''}`}
           loading="lazy"
           width={400}
           height={300}
@@ -111,6 +129,16 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
         <span className="absolute top-3 left-3 bg-white/90 text-[#2C1810] text-xs font-medium px-2.5 py-1 rounded-full capitalize backdrop-blur-sm">
           {product.category}
         </span>
+        {isOutOfStock && (
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
+            <span className="text-white text-[10px] font-semibold">Épuisé aujourd&apos;hui</span>
+          </div>
+        )}
+        {hasStockInfo && !isOutOfStock && typeof product.stock === 'number' && product.stock <= 3 && product.stock > 0 && (
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-amber-900/50 to-transparent px-3 py-2">
+            <span className="text-amber-100 text-[10px] font-semibold">Plus que {product.stock} disponible{product.stock > 1 ? 's' : ''}</span>
+          </div>
+        )}
       </div>
       <div className="p-4">
         <h3 className="font-semibold text-[#2C1810] text-sm mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
@@ -119,15 +147,28 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
         <p className="text-[#2C1810]/50 text-xs mb-3 line-clamp-1">{product.description}</p>
         <div className="flex items-center justify-between">
           <span className="text-lg font-bold text-[#C19A6B]">{product.price.toFixed(2)} €</span>
-          <motion.button
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.93 }}
-            onClick={handleAdd}
-            aria-label={`Ajouter ${product.name} au panier`}
-            className="bg-[#2C1810] text-white p-2.5 rounded-full hover:bg-[#C19A6B] transition-colors"
-          >
-            <ShoppingBag size={15} />
-          </motion.button>
+          {isOutOfStock ? (
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.93 }}
+              onClick={handlePreOrder}
+              aria-label={`Réserver ${product.name} pour demain`}
+              className="bg-amber-600 text-white p-2 rounded-full hover:bg-amber-500 transition-colors flex items-center gap-1"
+            >
+              <CalendarPlus size={14} />
+              <span className="text-[10px] font-semibold pr-1">Demain</span>
+            </motion.button>
+          ) : (
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.93 }}
+              onClick={handleAdd}
+              aria-label={`Ajouter ${product.name} au panier`}
+              className="bg-[#2C1810] text-white p-2.5 rounded-full hover:bg-[#C19A6B] transition-colors"
+            >
+              <Plus size={15} strokeWidth={2.5} />
+            </motion.button>
+          )}
         </div>
       </div>
     </motion.article>
@@ -139,7 +180,7 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
 export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
   const resolution = useSlug();
-  const { products, boulangerie, loading, source } = useCatalogue(resolution?.slug ?? null);
+  const { products, boulangerie, loading, source, hasStock } = useCatalogue(resolution?.slug ?? null);
 
   const filteredProducts = activeCategory === 'all'
     ? products
@@ -227,7 +268,7 @@ export default function ClickCollect() {
                   className="grid grid-cols-2 sm:grid-cols-3 gap-4"
                 >
                   {filteredProducts.map((product, index) => (
-                    <ProductCard key={product.id} product={product} index={index} />
+                    <ProductCard key={product.id} product={product} index={index} hasStockInfo={hasStock} />
                   ))}
                 </motion.div>
               </AnimatePresence>

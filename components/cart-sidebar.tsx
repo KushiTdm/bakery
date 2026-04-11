@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, Minus, Plus, ShoppingBag, Trash2, ArrowRight,
   CheckCircle, MapPin, Clock, Mail, AlertCircle, Loader2,
+  Calendar, CalendarPlus,
 } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
 import { useSlug } from '@/hooks/use-slug';
@@ -110,11 +111,23 @@ function formatAdresse(info: BoulangeriePublicInfo): string {
 
 // ── Écran de confirmation ──────────────────────────────────────
 
+function formatDateRetrait(dateStr: string | null): string {
+  if (!dateStr) return "Aujourd'hui";
+  const d = new Date(dateStr + 'T12:00:00');
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return "Aujourd'hui";
+  if (d.toDateString() === tomorrow.toDateString()) return 'Demain';
+  return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
 function OrderConfirmation({
-  orderNumber, total, heureRetrait, adresse, onClose,
+  orderNumber, total, heureRetrait, adresse, onClose, isPreOrder, dateRetrait,
 }: {
   orderNumber: string; total: number; heureRetrait: string;
-  adresse: string; onClose: () => void;
+  adresse: string; onClose: () => void; isPreOrder: boolean; dateRetrait: string | null;
 }) {
   return (
     <motion.div
@@ -125,23 +138,33 @@ function OrderConfirmation({
       <motion.div
         initial={{ scale: 0 }} animate={{ scale: 1 }}
         transition={{ type: 'spring', damping: 14, delay: 0.1 }}
-        className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-5"
+        className={`w-20 h-20 rounded-full flex items-center justify-center mb-5 ${isPreOrder ? 'bg-amber-100' : 'bg-green-100'}`}
       >
-        <CheckCircle size={40} className="text-green-600" />
+        {isPreOrder
+          ? <CalendarPlus size={40} className="text-amber-600" />
+          : <CheckCircle size={40} className="text-green-600" />
+        }
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
         <h3 className="text-[#2C1810] text-xl font-bold mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
-          Commande confirmée !
+          {isPreOrder ? 'Pré-commande confirmée !' : 'Commande confirmée !'}
         </h3>
         <p className="text-[#2C1810]/50 text-sm mb-5">
           Total : <span className="font-bold text-[#C19A6B]">{total.toFixed(2)} €</span>
         </p>
 
+        {isPreOrder && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700 mb-4">
+            Retrait prévu <strong>{formatDateRetrait(dateRetrait)}</strong> — votre boulanger préparera vos produits spécialement.
+          </div>
+        )}
+
         <div className="bg-[#F5F0E8] rounded-2xl p-4 mb-5 space-y-3 text-left">
           {[
             { icon: ShoppingBag, label: 'Numéro de commande', value: orderNumber, mono: true },
             { icon: MapPin,      label: 'Retrait en boutique', value: adresse },
+            ...(isPreOrder ? [{ icon: Calendar, label: 'Date de retrait', value: formatDateRetrait(dateRetrait), mono: false }] : []),
             { icon: Clock,       label: 'Créneau de retrait',  value: heureToPlage(heureRetrait) },
             { icon: Mail,        label: 'Confirmation',        value: 'Email envoyé à votre adresse' },
           ].map(({ icon: Icon, label, value, mono }) => (
@@ -180,19 +203,22 @@ export default function CartSidebar() {
     totalItems, totalPrice,
     user, setIsAuthOpen,
     boulangerieSlug,
+    retraitDate, setRetraitDate, isPreOrder,
   } = useCart();
 
   const resolution      = useSlug();
   const boulangerieInfo = useBoulangerieInfo(resolution?.slug ?? boulangerieSlug ?? null);
   const clientProfil    = useClientProfil();
 
-  const [orderConfirmed, setOrderConfirmed] = useState(false);
-  const [orderNumber, setOrderNumber]       = useState('');
-  const [confirmedTotal, setConfirmedTotal] = useState(0);
-  const [heureRetrait, setHeureRetrait]     = useState('');
-  const [selectedHeure, setSelectedHeure]   = useState('');
-  const [isSubmitting, setIsSubmitting]     = useState(false);
-  const [submitError, setSubmitError]       = useState<string | null>(null);
+  const [orderConfirmed, setOrderConfirmed]   = useState(false);
+  const [orderNumber, setOrderNumber]         = useState('');
+  const [confirmedTotal, setConfirmedTotal]   = useState(0);
+  const [heureRetrait, setHeureRetrait]       = useState('');
+  const [selectedHeure, setSelectedHeure]     = useState('');
+  const [isSubmitting, setIsSubmitting]       = useState(false);
+  const [submitError, setSubmitError]         = useState<string | null>(null);
+  const [confirmedPreOrder, setConfirmedPreOrder] = useState(false);
+  const [confirmedDateRetrait, setConfirmedDateRetrait] = useState<string | null>(null);
   const submittingRef = useRef(false);
 
   const plages = creneauxToPlages(boulangerieInfo.creneaux_retrait);
@@ -226,6 +252,14 @@ export default function CartSidebar() {
       // FIX : inclut le vrai téléphone depuis profils_clients
       const clientTelephone = clientProfil?.telephone ?? null;
 
+      // Calculer la date de retrait
+      let dateRetraitStr: string | null = null;
+      if (isPreOrder) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        dateRetraitStr = tomorrow.toLocaleDateString('sv-SE'); // YYYY-MM-DD
+      }
+
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -235,6 +269,7 @@ export default function CartSidebar() {
           client_email:      user.email!,
           client_telephone:  clientTelephone,
           heure_retrait:     selectedHeure,
+          date_retrait:      dateRetraitStr,
           lignes: items.map(({ product, quantity }) => ({
             produit_id:    product.id,
             produit_nom:   product.name,
@@ -251,8 +286,11 @@ export default function CartSidebar() {
       setOrderNumber(`CMD-${rawId.slice(0, 8).toUpperCase()}`);
       setConfirmedTotal(totalPrice);
       setHeureRetrait(selectedHeure);
+      setConfirmedPreOrder(isPreOrder);
+      setConfirmedDateRetrait(dateRetraitStr);
       setOrderConfirmed(true);
       clearCart();
+      setRetraitDate('today');
     } catch {
       setSubmitError('Erreur réseau. Vérifiez votre connexion.');
     } finally {
@@ -267,6 +305,8 @@ export default function CartSidebar() {
     setOrderNumber('');
     setConfirmedTotal(0);
     setSubmitError(null);
+    setConfirmedPreOrder(false);
+    setConfirmedDateRetrait(null);
   };
 
   const TVA       = totalPrice * 0.055;
@@ -292,7 +332,10 @@ export default function CartSidebar() {
               <div className="flex items-center gap-3">
                 <ShoppingBag size={20} className="text-[#C19A6B]" />
                 <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
-                  {orderConfirmed ? 'Commande passée' : 'Mon Panier'}
+                  {orderConfirmed
+                    ? confirmedPreOrder ? 'Pré-commande passée' : 'Commande passée'
+                    : isPreOrder ? 'Pré-commande' : 'Mon Panier'
+                  }
                 </h2>
                 {!orderConfirmed && totalItems > 0 && (
                   <span className="bg-[#C19A6B] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
@@ -318,7 +361,8 @@ export default function CartSidebar() {
                 <OrderConfirmation
                   orderNumber={orderNumber} total={confirmedTotal}
                   heureRetrait={heureRetrait} adresse={adresseFormatted}
-                  onClose={handleClose}
+                  onClose={handleClose} isPreOrder={confirmedPreOrder}
+                  dateRetrait={confirmedDateRetrait}
                 />
               ) : items.length === 0 ? (
                 <motion.div
@@ -408,6 +452,46 @@ export default function CartSidebar() {
                   </div>
                 </div>
 
+                {/* Date de retrait : aujourd'hui / demain */}
+                <div>
+                  <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
+                    <Calendar size={12} /> Date de retrait
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setRetraitDate('today')}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                        retraitDate === 'today'
+                          ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
+                          : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
+                      }`}
+                    >
+                      Aujourd&apos;hui
+                    </button>
+                    <button
+                      onClick={() => setRetraitDate('tomorrow')}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                        retraitDate === 'tomorrow'
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-amber-400/50'
+                      }`}
+                    >
+                      <CalendarPlus size={13} />
+                      Demain
+                    </button>
+                  </div>
+                </div>
+
+                {isPreOrder && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
+                    <CalendarPlus size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong>Pré-commande pour demain</strong>
+                      <p className="text-amber-600/80 mt-0.5">Vos produits seront préparés spécialement pour vous. Retrait demain au créneau sélectionné.</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Créneaux — plages horaires */}
                 <div>
                   <label className="text-[#2C1810]/60 text-xs font-medium block mb-1.5 flex items-center gap-1.5">
@@ -473,13 +557,15 @@ export default function CartSidebar() {
                   {isSubmitting
                     ? <><Loader2 size={16} className="animate-spin" /> Envoi en cours…</>
                     : user
-                      ? <>Confirmer la commande <ArrowRight size={16} /></>
+                      ? isPreOrder
+                        ? <>Confirmer la pré-commande <CalendarPlus size={16} /></>
+                        : <>Confirmer la commande <ArrowRight size={16} /></>
                       : <>Se connecter pour commander <ArrowRight size={16} /></>
                   }
                 </motion.button>
 
                 <p className="text-center text-[#2C1810]/40 text-xs">
-                  Retrait en boutique uniquement · Paiement sur place
+                  {isPreOrder ? 'Pré-commande pour demain · ' : ''}Retrait en boutique · Paiement sur place
                 </p>
               </div>
             )}

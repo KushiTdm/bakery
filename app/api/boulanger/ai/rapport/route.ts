@@ -438,12 +438,13 @@ export async function POST(req: NextRequest) {
       id: string; type: string | null; client_prenom: string | null;
       client_email: string; montant_total: number; statut: string;
       heure_retrait: string | null; created_at: string;
-      lignes: { produit_nom: string; quantite: number; prix_unitaire: number }[] | null;
+      date_retrait: string | null;
+      lignes: { produit_id?: string; produit_nom: string; quantite: number; prix_unitaire: number }[] | null;
     }
 
     const { data: commandesRaw } = await admin
       .from('commandes')
-      .select('id, type, client_prenom, client_email, montant_total, statut, heure_retrait, created_at, lignes')
+      .select('id, type, client_prenom, client_email, montant_total, statut, heure_retrait, created_at, date_retrait, lignes')
       .eq('boulangerie_id', boulangerieId)
       .gte('created_at', today + 'T00:00:00')
       .lt('created_at', today + 'T23:59:59');
@@ -459,6 +460,39 @@ export async function POST(req: NextRequest) {
       created_at:    c.created_at,
       lignes:        c.lignes ?? undefined,
     }));
+
+    // ── 5b. Pré-commandes pour demain (date_retrait = demain) ────
+    const demainDatePreco = (() => {
+      const d = new Date(today + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().split('T')[0];
+    })();
+
+    const { data: preCommandesRaw } = await admin
+      .from('commandes')
+      .select('id, client_prenom, montant_total, statut, heure_retrait, lignes')
+      .eq('boulangerie_id', boulangerieId)
+      .eq('date_retrait', demainDatePreco)
+      .in('statut', ['en_attente', 'confirmee']);
+
+    // Agrégation pré-commandes par produit pour l'IA
+    const preCommandesProduits: Record<string, { nom: string; quantite: number }> = {};
+    let preCommandesTotal = 0;
+    let preCommandesCA = 0;
+    if (preCommandesRaw) {
+      for (const pc of preCommandesRaw as CommandeDB[]) {
+        preCommandesTotal++;
+        preCommandesCA += Number(pc.montant_total ?? 0);
+        const lignes = (pc.lignes ?? []) as { produit_id?: string; produit_nom: string; quantite: number }[];
+        for (const l of lignes) {
+          const key = l.produit_id ?? l.produit_nom;
+          if (!preCommandesProduits[key]) {
+            preCommandesProduits[key] = { nom: l.produit_nom, quantite: 0 };
+          }
+          preCommandesProduits[key].quantite += l.quantite;
+        }
+      }
+    }
 
     // ── 6. Paniers flash du jour ───────────────────────────────
     interface PanierDB {
@@ -518,7 +552,11 @@ export async function POST(req: NextRequest) {
     );
 
     const systemPrompt = buildSystemPrompt();
-    const userPrompt   = buildUserPromptEnrichi(payload, feedbackVendeuse, wizardData);
+    const userPrompt   = buildUserPromptEnrichi(payload, feedbackVendeuse, wizardData, {
+      preCommandesTotal,
+      preCommandesCA,
+      preCommandesProduits,
+    });
 
     // ── 9. Appel z.ai ─────────────────────────────────────────
     const controller = new AbortController();
@@ -679,9 +717,12 @@ export async function POST(req: NextRequest) {
       .filter(Boolean);
 
     // Produits manquants dans la réponse IA → on reconduit la quantité d'aujourd'hui
+    // + ajout des pré-commandes pour les produits non couverts
     const couverts  = new Set(previsionsRows.map(r => r?.produit_id));
     const manquants = produitsList.filter(p => !couverts.has(p.id)).map(p => {
       const base = stocksList.find(s => s.produit_id === p.id)?.production ?? 0;
+      const precoQte = preCommandesProduits[p.id]?.quantite ?? 0;
+      const suggeree = Math.max(base, base + precoQte);
       return {
         boulangerie_id:    boulangerieId,
         rapport_id:        rapportId,
@@ -690,12 +731,14 @@ export async function POST(req: NextRequest) {
         produit_nom:       p.nom,
         produit_categorie: p.categorie,
         produit_emoji:     p.emoji,
-        quantite_suggeree: base,
+        quantite_suggeree: suggeree,
         quantite_min:      null,
         quantite_max:      null,
         quantite_base:     base,
-        variation_pct:     0,
-        raison:            'Reconduit — produit non couvert par la réponse IA',
+        variation_pct:     base > 0 ? Math.round(((suggeree - base) / base) * 100) : 0,
+        raison:            precoQte > 0
+          ? `Reconduit + ${precoQte} pré-commandé(s) pour demain`
+          : 'Reconduit — produit non couvert par la réponse IA',
         appliquee:         false,
       };
     });
@@ -774,6 +817,11 @@ function buildUserPromptEnrichi(
     evenement_impact?:    string;
     evenement_pct?:       number;
   },
+  preCommandes?: {
+    preCommandesTotal: number;
+    preCommandesCA: number;
+    preCommandesProduits: Record<string, { nom: string; quantite: number }>;
+  },
 ): string {
   let sectionFeedback = '';
   if (feedbackVendeuse) {
@@ -817,10 +865,27 @@ Impact estimé : ${impactLabel}
     sectionConsignes += '\n⚠️ Inclus ces consignes mot pour mot dans le champ "consignes_transmises".';
   }
 
+  let sectionPreCommandes = '';
+  if (preCommandes && preCommandes.preCommandesTotal > 0) {
+    const lignes = Object.values(preCommandes.preCommandesProduits)
+      .map(p => `  - ${p.nom} : ${p.quantite} unité(s) pré-commandée(s)`)
+      .join('\n');
+    sectionPreCommandes = `
+=== PRÉ-COMMANDES POUR DEMAIN ===
+Nombre de pré-commandes : ${preCommandes.preCommandesTotal}
+CA pré-commandes : ${preCommandes.preCommandesCA.toFixed(2)} €
+Détail par produit :
+${lignes}
+⚠️ IMPORTANT : Ces pré-commandes DOIVENT être intégrées dans les prévisions de production de demain.
+Pour chaque produit pré-commandé, AUGMENTE la quantite_suggeree d'au moins la quantité pré-commandée.
+Mentionne les pré-commandes dans le briefing_matin.top3_a_produire et dans la synthèse.`;
+  }
+
   return `${buildUserPrompt(payload)}
 ${sectionFeedback}
 ${sectionEvenement}
 ${sectionConsignes}
+${sectionPreCommandes}
 
 → Génère le JSON COMPLET avec TOUTES les sections demandées.
 → UTILISE TOUJOURS LES VRAIS NOMS des produits dans les textes.

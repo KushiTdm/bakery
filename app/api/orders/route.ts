@@ -81,6 +81,7 @@ const CommandeSchema = z.object({
   client_email:     z.string().email().max(254),
   client_telephone: z.string().max(20).optional().nullable(),
   heure_retrait:    z.string().regex(/^\d{2}:\d{2}$/),
+  date_retrait:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   lignes:           z.array(LigneCommandeSchema).min(1).max(30),
   notes:            z.string().max(500).optional().nullable(),
 });
@@ -248,43 +249,91 @@ export async function POST(req: NextRequest) {
     );
     const montant_final = Math.round(Math.min(montant_total, 99999.99) * 100) / 100;
 
-    // Appel RPC atomique : vérifie le stock ET insère la commande en une seule transaction
-    const { data: commandeId, error: stockErr } = await supabase.rpc('verifier_stock_commande', {
-      p_boulangerie_id:   boulangerie.id,
-      p_date:             todayLocal,
-      p_lignes:           sanitizedData.lignes,
-      p_timezone:         tz,
-      p_client_prenom:    sanitizedData.client_prenom,
-      p_client_email:     sanitizedData.client_email,
-      p_client_telephone: sanitizedData.client_telephone ?? null,
-      p_heure_retrait:    sanitizedData.heure_retrait,
-      p_notes:            sanitizedData.notes ?? null,
-      p_montant_total:    montant_final,
-    });
-
-    if (stockErr) {
-      // P0002 = stock insuffisant (RAISE EXCEPTION dans la RPC)
-      if (stockErr.code === 'P0002' || stockErr.message?.includes('Stock insuffisant')) {
-        const details = stockErr.message?.includes('|')
-          ? stockErr.message.split('|').filter(Boolean)
-          : [stockErr.message ?? 'Stock insuffisant'];
+    // Validation date_retrait : doit être aujourd'hui ou demain uniquement
+    let dateRetrait: string | null = sanitizedData.date_retrait ?? null;
+    if (dateRetrait) {
+      const drDate = new Date(dateRetrait + 'T12:00:00Z');
+      const todayDate = new Date(todayLocal + 'T12:00:00Z');
+      const tomorrowDate = new Date(todayDate);
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+      const diffDays = Math.round((drDate.getTime() - todayDate.getTime()) / (86400 * 1000));
+      if (diffDays < 0 || diffDays > 1) {
         return NextResponse.json(
-          { error: 'Stock insuffisant', details },
-          { status: 409 }
+          { error: 'La date de retrait doit être aujourd\'hui ou demain.' },
+          { status: 400 }
         );
       }
-      // P0001 = journée non saisie
-      if (stockErr.code === 'P0001' || stockErr.message?.includes('production du jour')) {
-        return NextResponse.json(
-          { error: 'La production du jour n\'a pas encore été saisie. Impossible de commander.' },
-          { status: 409 }
-        );
-      }
-      console.error('[POST /api/orders] stock check RPC error:', stockErr);
-      return NextResponse.json({ error: 'Erreur vérification stock' }, { status: 500 });
+      // Si c'est aujourd'hui, on annule le date_retrait pour simplifier
+      if (diffDays === 0) dateRetrait = null;
     }
 
-    const commande = { id: commandeId as string };
+    const isPreOrder = !!dateRetrait;
+
+    let commande: { id: string };
+
+    if (isPreOrder) {
+      // ── PRÉ-COMMANDE (demain) : insertion directe sans vérification de stock ──
+      // La production pour demain n'a pas encore eu lieu, pas de stock à vérifier.
+      const { data: inserted, error: insertErr } = await supabase
+        .from('commandes')
+        .insert({
+          boulangerie_id:   boulangerie.id,
+          client_prenom:    sanitizedData.client_prenom,
+          client_email:     sanitizedData.client_email,
+          client_telephone: sanitizedData.client_telephone ?? null,
+          heure_retrait:    sanitizedData.heure_retrait,
+          notes:            sanitizedData.notes ?? null,
+          montant_total:    montant_final,
+          statut:           'en_attente',
+          lignes:           sanitizedData.lignes,
+          date_retrait:     dateRetrait,
+        })
+        .select('id')
+        .single();
+
+      if (insertErr || !inserted) {
+        console.error('[POST /api/orders] pre-order insert error:', insertErr);
+        return NextResponse.json({ error: 'Erreur lors de l\'enregistrement de la pré-commande.' }, { status: 500 });
+      }
+      commande = { id: inserted.id };
+    } else {
+      // ── COMMANDE DU JOUR : vérification stock via RPC atomique ──
+      const { data: commandeId, error: stockErr } = await supabase.rpc('verifier_stock_commande', {
+        p_boulangerie_id:   boulangerie.id,
+        p_date:             todayLocal,
+        p_lignes:           sanitizedData.lignes,
+        p_timezone:         tz,
+        p_client_prenom:    sanitizedData.client_prenom,
+        p_client_email:     sanitizedData.client_email,
+        p_client_telephone: sanitizedData.client_telephone ?? null,
+        p_heure_retrait:    sanitizedData.heure_retrait,
+        p_notes:            sanitizedData.notes ?? null,
+        p_montant_total:    montant_final,
+      });
+
+      if (stockErr) {
+        // P0002 = stock insuffisant (RAISE EXCEPTION dans la RPC)
+        if (stockErr.code === 'P0002' || stockErr.message?.includes('Stock insuffisant')) {
+          const details = stockErr.message?.includes('|')
+            ? stockErr.message.split('|').filter(Boolean)
+            : [stockErr.message ?? 'Stock insuffisant'];
+          return NextResponse.json(
+            { error: 'Stock insuffisant', details },
+            { status: 409 }
+          );
+        }
+        // P0001 = journée non saisie
+        if (stockErr.code === 'P0001' || stockErr.message?.includes('production du jour')) {
+          return NextResponse.json(
+            { error: 'La production du jour n\'a pas encore été saisie. Impossible de commander.' },
+            { status: 409 }
+          );
+        }
+        console.error('[POST /api/orders] stock check RPC error:', stockErr);
+        return NextResponse.json({ error: 'Erreur vérification stock' }, { status: 500 });
+      }
+      commande = { id: commandeId as string };
+    }
 
     // Email de confirmation (appel direct, non bloquant)
     try {
@@ -296,6 +345,7 @@ export async function POST(req: NextRequest) {
         heure_retrait: sanitizedData.heure_retrait,
         lignes:        sanitizedData.lignes,
         montant_total: montant_final,
+        date_retrait:  dateRetrait,
         boulangerie:   { nom: boulangerie.nom ?? 'Boulangerie', adresse: boulangerie.adresse ?? null, ville: boulangerie.ville ?? null, code_postal: boulangerie.code_postal ?? null, telephone: boulangerie.telephone ?? null },
       });
       if (!emailResult.success) {
@@ -310,16 +360,22 @@ export async function POST(req: NextRequest) {
     const internalSecret2 = process.env.INTERNAL_API_SECRET ?? '';
     if (appUrl2 && internalSecret2) {
       const montantFormate = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(montant_final);
+      const notifTitle = isPreOrder
+        ? `📅 Pré-commande demain — ${montantFormate}`
+        : `🛒 Nouvelle commande — ${montantFormate}`;
+      const notifBody = isPreOrder
+        ? `${sanitizedData.client_prenom} · retrait demain à ${sanitizedData.heure_retrait}`
+        : `${sanitizedData.client_prenom} · retrait à ${sanitizedData.heure_retrait}`;
       fetch(`${appUrl2}/api/notifications/send`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', 'x-internal-secret': internalSecret2 },
         body: JSON.stringify({
           boulangerie_id: boulangerie.id,
           payload: {
-            title: `🛒 Nouvelle commande — ${montantFormate}`,
-            body:  `${sanitizedData.client_prenom} · retrait à ${sanitizedData.heure_retrait}`,
+            title: notifTitle,
+            body:  notifBody,
             url:   '/boulanger/commandes',
-            tag:   'nouvelle-commande',
+            tag:   isPreOrder ? 'precommande' : 'nouvelle-commande',
           },
         }),
       }).catch(e => console.warn('[POST /api/orders] push non envoyé:', e));

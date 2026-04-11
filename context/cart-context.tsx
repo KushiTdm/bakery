@@ -24,6 +24,8 @@ export interface CartItem {
   quantity: number;
 }
 
+export type RetraitDate = 'today' | 'tomorrow';
+
 interface CartContextType {
   items:             CartItem[];
   totalItems:        number;
@@ -41,6 +43,9 @@ interface CartContextType {
   setPendingProduct: (p: CartProduct | null) => void;
   logout:            () => Promise<void>;
   boulangerieSlug:   string;
+  retraitDate:       RetraitDate;
+  setRetraitDate:    (d: RetraitDate) => void;
+  isPreOrder:        boolean;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -57,6 +62,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [isAuthOpen, setIsAuthOpen]         = useState(false);
   const [pendingProduct, setPendingProduct] = useState<CartProduct | null>(null);
   const [boulangerieSlug]                   = useState(resolveBoulangerieSlug);
+  const [retraitDate, setRetraitDate]       = useState<RetraitDate>('today');
+  const isPreOrder = retraitDate === 'tomorrow';
 
   useEffect(() => {
     supabase.auth.getSession().then(
@@ -143,6 +150,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       pendingProduct, setPendingProduct,
       logout,
       boulangerieSlug,
+      retraitDate, setRetraitDate, isPreOrder,
     }}>
       {children}
     </CartContext.Provider>

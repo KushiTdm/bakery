@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Minus, Sparkles, TrendingUp, ChevronRight,
   Loader2, CheckCircle2, ChevronDown, ChevronUp, Package,
-  Brain, Clock, AlertCircle,
+  Brain, Clock, AlertCircle, CalendarCheck, ShoppingBag,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
@@ -64,6 +64,20 @@ const CATEGORY_CONFIG: Record<string, {
 };
 
 const CATEGORY_ORDER = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwichs'];
+
+// ── Composant : badge pré-commande ────────────────────────────
+
+function PreCommandeBadge({ quantite }: { quantite: number }) {
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 rounded-xl px-2.5 py-1.5">
+      <CalendarCheck size={10} className="text-blue-400 flex-shrink-0" />
+      <span className="text-blue-300 text-[10px] font-medium">
+        {quantite} pré-commandé{quantite > 1 ? 's' : ''}
+      </span>
+      <span className="text-blue-300/60 text-[9px]">pour aujourd&apos;hui</span>
+    </div>
+  );
+}
 
 // ── Composant : badge report J-1 ──────────────────────────────
 
@@ -122,6 +136,7 @@ function ProduitRow({
   onAjusterReport,
   isFirst,
   categoryColor,
+  preOrderQty,
 }: {
   stock:              StockEntry;
   suggestion?:        ProductionSuggestion;
@@ -132,6 +147,7 @@ function ProduitRow({
   onAjusterReport:    (id: string, delta: number) => void;
   isFirst:            boolean;
   categoryColor:      string;
+  preOrderQty:        number;
 }) {
   const hasSuggestion =
     suggestion !== undefined &&
@@ -163,6 +179,11 @@ function ProduitRow({
             quantite={stock.reportVeille ?? 0}
             onAjuster={delta => onAjusterReport(stock.id, delta)}
           />
+        )}
+
+        {/* Badge pré-commande — visible si des unités sont pré-commandées */}
+        {preOrderQty > 0 && (
+          <PreCommandeBadge quantite={preOrderQty} />
         )}
 
         {/* Suggestion de production (Levain IA ou historique) */}
@@ -253,6 +274,7 @@ function ProduitRow({
 function CategorieSection({
   category, stocks, suggestions, aiSuggestionsMap,
   onIncrement, onDecrement, onApplySuggestion, onAjusterReport,
+  preOrdersByProduct,
 }: {
   category:          string;
   stocks:            StockEntry[];
@@ -262,6 +284,7 @@ function CategorieSection({
   onDecrement:       (id: string) => void;
   onApplySuggestion: (id: string) => void;
   onAjusterReport:   (id: string, delta: number) => void;
+  preOrdersByProduct: Record<string, number>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const cfg = CATEGORY_CONFIG[category] ?? CATEGORY_CONFIG.boulangerie;
@@ -327,6 +350,7 @@ function CategorieSection({
                   onAjusterReport={onAjusterReport}
                   isFirst={index === 0}
                   categoryColor={cfg.color}
+                  preOrderQty={preOrdersByProduct[stock.id] ?? 0}
                 />
               );
             })}
@@ -370,6 +394,7 @@ export default function VueMatin() {
     productionSuggestions,
     updateProduction, updateReportVeille,
     syncStatus, authLoading,
+    preOrdersByProduct, preOrdersTotal, preOrdersCA,
   } = useBoulanger();
 
   const [validated,     setValidated]     = useState(false);
@@ -594,6 +619,32 @@ export default function VueMatin() {
         )}
       </AnimatePresence>
 
+      {/* ── Bandeau pré-commandes ────────────────────────────────── */}
+      <AnimatePresence>
+        {preOrdersTotal > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-start gap-3 bg-blue-500/8 border border-blue-500/20 rounded-2xl px-4 py-3">
+              <ShoppingBag size={14} className="text-blue-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-blue-300 text-sm font-semibold">
+                  {preOrdersTotal} pré-commande{preOrdersTotal > 1 ? 's' : ''} pour aujourd&apos;hui
+                </p>
+                <p className="text-blue-300/60 text-[10px] mt-0.5 leading-relaxed">
+                  {preOrdersCA.toFixed(0)} € de CA garanti.
+                  Les quantités pré-commandées sont indiquées sur chaque produit ci-dessous.
+                  <strong className="text-blue-300/80"> Assurez-vous de produire au minimum ces quantités.</strong>
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Sélecteur fournées ─────────────────────────────────── */}
       <div>
         <div className="flex items-center gap-2 mb-2">
@@ -677,6 +728,7 @@ export default function VueMatin() {
             onDecrement={handleDecrement}
             onApplySuggestion={handleApplySuggestion}
             onAjusterReport={handleAjusterReport}
+            preOrdersByProduct={preOrdersByProduct}
           />
         ))}
       </div>

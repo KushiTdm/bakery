@@ -181,6 +181,10 @@ interface BoulangerContextType {
   syncStatus:          SyncStatus;
   todayStocks:         StockEntry[];
   reservedByProduct:   Record<string, number>;  // quantités réservées par produit_nom (C&C actives)
+  // ── Pré-commandes pour aujourd'hui ─────────────────────────
+  preOrdersByProduct:  Record<string, number>;  // quantités pré-commandées par produit_id
+  preOrdersTotal:      number;                  // nombre total de pré-commandes
+  preOrdersCA:         number;                  // CA total des pré-commandes
   // ── Report inter-journées ──────────────────────────────────
   reportsVeille:       Record<string, ReportVeilleInfo>;
   updateReportVeille:  (produitId: string, quantite: number) => void;
@@ -217,6 +221,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
 
   const [boulangerieTz, setBoulangerieTz]   = useState<string>('Europe/Paris');
   const [reservedByProduct, setReservedByProduct] = useState<Record<string, number>>({});
+  const [preOrdersByProduct, setPreOrdersByProduct] = useState<Record<string, number>>({});
+  const [preOrdersTotal, setPreOrdersTotal] = useState(0);
+  const [preOrdersCA, setPreOrdersCA] = useState(0);
 
   const [userRole, setUserRole]       = useState<BoulangerRole | null>(null);
   const [memberId, setMemberId]       = useState<string | null>(null);
@@ -261,6 +268,9 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
     setBoulangerie(null);
     setBoulangerieTz('Europe/Paris');
     setReservedByProduct({});
+    setPreOrdersByProduct({});
+    setPreOrdersTotal(0);
+    setPreOrdersCA(0);
     setUserRole(null);
     setMemberId(null);
     setPermissions(DEFAULT_PERMISSIONS.owner);
@@ -358,6 +368,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       // ── Charger les réservations C&C actives du jour ──────────
       // Permet d'afficher "X réservé(s)" dans le snapshot
       loadTodayReservations(token, tz);
+      loadTodayPreOrders(token, tz);
 
       // Stocker les reports disponibles (pour l'affichage dans vue-matin)
       setReportsVeille(reports_veille ?? {});
@@ -437,6 +448,32 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       setReservedByProduct(reserved);
     } catch (err) {
       console.warn('[BoulangerContext] loadTodayReservations:', err);
+    }
+  }
+
+  // ── loadTodayPreOrders — pré-commandes pour aujourd'hui ─────
+  async function loadTodayPreOrders(token: string, tz: string) {
+    try {
+      const todayLocal = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+      const res = await fetch(`/api/boulanger/precommandes?date=${todayLocal}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const data = await res.json() as {
+        par_produit: Array<{ produit_id: string; produit_nom: string; quantite: number }>;
+        total_commandes: number;
+        total_ca: number;
+      };
+      const byProduct: Record<string, number> = {};
+      for (const p of data.par_produit ?? []) {
+        if (p.produit_id) byProduct[p.produit_id] = p.quantite;
+      }
+      setPreOrdersByProduct(byProduct);
+      setPreOrdersTotal(data.total_commandes);
+      setPreOrdersCA(data.total_ca);
+    } catch (err) {
+      console.warn('[BoulangerContext] loadTodayPreOrders:', err);
     }
   }
 
@@ -660,6 +697,7 @@ export function BoulangerProvider({ children }: { children: ReactNode }) {
       syncStatus,
       todayStocks,
       reservedByProduct,
+      preOrdersByProduct, preOrdersTotal, preOrdersCA,
       reportsVeille,
       updateReportVeille,
       updateProduction, updateSnapshot, validateSnapshot, updateStockFinal,

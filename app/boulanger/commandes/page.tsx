@@ -10,23 +10,25 @@ import type { DbCommande, DbLigneCommande } from '@/lib/supabase';
 import {
   Zap, ShoppingBag, Phone, Mail, Clock, Check,
   X, RefreshCw, Loader2, AlertCircle, ChevronRight,
-  ArrowLeft, BellOff, Send, Package, Users,
+  ArrowLeft, BellOff, Send, Package, Users, CalendarCheck,
 } from 'lucide-react';
 
 interface OrderItem { name: string; qty: number; price: number; }
 
 interface Order {
-  id:          string;
-  shortId:     string;
-  prenom:      string;
-  email:       string;
-  telephone:   string | null;
-  items:       OrderItem[];
-  total:       number;
+  id:           string;
+  shortId:      string;
+  prenom:       string;
+  email:        string;
+  telephone:    string | null;
+  items:        OrderItem[];
+  total:        number;
   heureRetrait: string;
-  status:      'pending' | 'confirmed' | 'ready' | 'done' | 'cancelled' | 'not_collected';
-  type:        'clickcollect' | 'flash';
-  createdAt:   string;
+  status:       'pending' | 'confirmed' | 'ready' | 'done' | 'cancelled' | 'not_collected';
+  type:         'clickcollect' | 'flash';
+  createdAt:    string;
+  dateRetrait:  string | null;
+  isPreOrder:   boolean;
 }
 
 type FilterType = 'all' | 'clickcollect' | 'flash' | 'pending' | string;
@@ -88,6 +90,7 @@ function mapDbToOrder(c: EnrichedCommande): Order {
     i.name.toLowerCase().includes('anti-gaspi') ||
     i.name.toLowerCase().includes('panier')
   );
+  const dateRetrait = (c as unknown as Record<string, unknown>).date_retrait as string | null ?? null;
   return {
     id:           c.id,
     shortId:      c.id.slice(0, 6).toUpperCase(),
@@ -100,6 +103,8 @@ function mapDbToOrder(c: EnrichedCommande): Order {
     status:       DB_STATUS_MAP[c.statut] ?? 'pending',
     type:         isFlash ? 'flash' : 'clickcollect',
     createdAt:    c.created_at,
+    dateRetrait,
+    isPreOrder:   !!dateRetrait,
   };
 }
 
@@ -314,7 +319,15 @@ function OrderCard({ order, onOpen, onQuickAdvance, advancing }: {
           {order.items.map(i => `${i.qty}× ${i.name}`).join(' · ')}
         </p>
         <div className="flex items-center justify-between">
-          <StatusBadge status={order.status} />
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={order.status} />
+            {order.isPreOrder && (
+              <span className="text-[10px] px-2 py-1 rounded-full border font-medium bg-amber-400/12 text-amber-300 border-amber-400/25 flex items-center gap-1">
+                <CalendarCheck size={9} />
+                Pré-commande
+              </span>
+            )}
+          </div>
           {next && !isDone && (
             <motion.button whileTap={{ scale: 0.92 }} onClick={e => onQuickAdvance(e, order.id)} disabled={advancing}
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border font-medium transition-colors touch-manipulation ${

@@ -155,13 +155,15 @@ export async function GET(
             }
 
             // Réservations par commandes actives + récupérées (par produit_id)
+            // Inclut : commandes du jour SANS date_retrait (classiques) + commandes
+            //          avec date_retrait = aujourd'hui (pré-commandes pour aujourd'hui)
+            // Exclut : pré-commandes avec date_retrait = demain (ne consomment pas le stock du jour)
             const { data: activeOrders } = await admin
               .from('commandes')
-              .select('lignes')
+              .select('lignes, date_retrait')
               .eq('boulangerie_id', boul.id)
-              .gte('created_at', dayStartUtc)
-              .lt('created_at', dayEndUtc)
-              .in('statut', ['en_attente', 'confirmee', 'prete', 'recuperee']);
+              .in('statut', ['en_attente', 'confirmee', 'prete', 'recuperee'])
+              .or(`and(created_at.gte.${dayStartUtc},created_at.lt.${dayEndUtc},date_retrait.is.null),date_retrait.eq.${todayLocal}`);
 
             const reservedById: Record<string, number> = {};
             if (activeOrders) {

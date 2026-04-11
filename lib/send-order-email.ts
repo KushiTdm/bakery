@@ -19,6 +19,7 @@ interface SendOrderEmailParams {
   heure_retrait: string;
   lignes:        Ligne[];
   montant_total: number;
+  date_retrait?: string | null;
   boulangerie: {
     nom:         string;
     adresse:     string | null;
@@ -73,7 +74,14 @@ export async function sendOrderConfirmationEmail(params: SendOrderEmailParams): 
     .map(l => `  - ${l.produit_nom} x${l.quantite} @ ${formatPrice(l.prix_unitaire)} = ${formatPrice(l.quantite * l.prix_unitaire)}`)
     .join('\n');
 
-  const subject = `🥖 Confirmation de votre commande - ${boulangerie.nom}`;
+  const isPreOrder = !!params.date_retrait;
+  const dateRetraitFormatted = params.date_retrait
+    ? new Date(params.date_retrait + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    : null;
+
+  const subject = isPreOrder
+    ? `📅 Pré-commande confirmée pour ${dateRetraitFormatted} - ${boulangerie.nom}`
+    : `🥖 Confirmation de votre commande - ${boulangerie.nom}`;
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -99,7 +107,10 @@ export async function sendOrderConfirmationEmail(params: SendOrderEmailParams): 
       </p>
 
       <p style="font-size: 16px; color: #374151; margin: 0 0 25px 0;">
-        Merci pour votre commande ! Elle a bien été enregistrée et sera prête à l'heure demandée.
+        ${isPreOrder
+          ? `Merci pour votre pré-commande ! Elle a bien été enregistrée pour <strong>${escapeHtml(dateRetraitFormatted!)}</strong>. Votre boulanger préparera vos produits spécialement pour vous.`
+          : `Merci pour votre commande ! Elle a bien été enregistrée et sera prête à l'heure demandée.`
+        }
       </p>
 
       <!-- Récapitulatif -->
