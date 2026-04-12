@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    services:
-      # Base de données de test si nécessaire
-      # postgres:
-      #   image: postgres:15
-      #   env:
-      #     POSTGRES_PASSWORD: postgres
-      #   ports:
-      #     - 5432:5432
+    # Services (décommenter si base de données de test nécessaire)
+    # services:
+    #   postgres:
+    #     image: postgres:15
+    #     env:
+    #       POSTGRES_PASSWORD: postgres
+    #     ports:
+    #       - 5432:5432
 
     env:
       # Variables d'environnement pour les tests
