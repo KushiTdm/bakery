@@ -4,8 +4,6 @@
 
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 interface Ligne {
   produit_nom:   string;
   quantite:      number;
@@ -373,6 +371,13 @@ Propulsé par Sauve Mie · Moins de pain gaspillé, plus de clients.
   const fromAddress = process.env.RESEND_FROM_DOMAIN
     ? `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN}>`
     : 'onboarding@resend.dev';
+
+  if (!process.env.RESEND_API_KEY) {
+    console.log('[send-order-email] RESEND_API_KEY manquante — email non envoyé');
+    return { success: false, error: 'RESEND_API_KEY manquante' };
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   try {
     console.log(`[send-order-email] Envoi à ${client_email} depuis ${fromAddress}...`);

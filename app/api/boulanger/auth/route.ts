@@ -8,8 +8,6 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { isValidSlug } from '@/lib/sanitize';
 import { isAuthRateLimited, resetAuthRateLimit } from '@/lib/rate-limit';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 // ── Schémas Zod ───────────────────────────────────────────────
 
 const LoginSchema = z.object({
@@ -465,13 +463,18 @@ export async function POST(req: NextRequest) {
 
       const { html: welcomeHtml, text: welcomeText } = buildWelcomeEmail(body.nom, appUrl);
 
-      resend.emails.send({
-        from:    fromDomain ? `Sauve Mie <noreply@${fromDomain}>` : 'Sauve Mie <onboarding@resend.dev>',
-        to:      body.email,
-        subject: `Bienvenue sur Sauve Mie — ${body.nom} est prête !`,
-        html:    welcomeHtml,
-        text:    welcomeText,
-      }).catch(e => console.warn('[auth/register] email bienvenue non envoyé:', e));
+      if (!process.env.RESEND_API_KEY) {
+        console.log('[auth/register] RESEND_API_KEY manquante — email de bienvenue non envoyé');
+      } else {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        resend.emails.send({
+          from:    fromDomain ? `Sauve Mie <noreply@${fromDomain}>` : 'Sauve Mie <onboarding@resend.dev>',
+          to:      body.email,
+          subject: `Bienvenue sur Sauve Mie — ${body.nom} est prête !`,
+          html:    welcomeHtml,
+          text:    welcomeText,
+        }).catch(e => console.warn('[auth/register] email bienvenue non envoyé:', e));
+      }
 
       return NextResponse.json(
         {

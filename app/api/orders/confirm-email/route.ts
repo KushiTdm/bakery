@@ -4,10 +4,6 @@ import { z } from 'zod';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
-// ── Initialisation Resend ──────────────────────────────────────
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 // ── Schéma Zod ────────────────────────────────────────────────
 
 const LigneSchema = z.object({
@@ -413,6 +409,13 @@ Propulsé par Sauve Mie · Moins de pain gaspillé, plus de clients.
 `.trim();
 
     // 8. Envoi via Resend (avec 1 retry automatique)
+    if (!process.env.RESEND_API_KEY) {
+      console.log('[orders/confirm-email] RESEND_API_KEY manquante — email non envoyé');
+      return NextResponse.json({ error: 'RESEND_API_KEY manquante' }, { status: 500 });
+    }
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
     const fromAddress = process.env.RESEND_FROM_DOMAIN
       ? `${boulangerie.nom} <noreply@${process.env.RESEND_FROM_DOMAIN}>`
       : 'onboarding@resend.dev';
