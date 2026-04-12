@@ -1,18 +1,18 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- Sauve Mie — Migration MASTER CONSOLIDÉE v5.0
--- 30 mars 2026
+-- Sauve Mie — Migration COMPLÈTE CONSOLIDÉE v6.0
+-- 12 avril 2026
 --
--- Synthèse complète de toutes les migrations précédentes :
---   · migration-complete.sql              (schema v4→v5→ia→meteo→levain)
---   · migration-forecasts-fourchette-v2.sql (quantite_min/max prévisions)
---   · migration-p2-improvements.sql       (audit_logs, RGPD, indexes P2)
---   · migration_conservation.sql          (durée conservation, roll-over)
---   · migration_dashboard_gerant-29-03.sql (last_login tracking équipe)
---   · 002_commandes_penalites_flash.sql   (pénalités, achat flash, type)
+-- Synthèse de TOUTES les migrations en un seul fichier :
+--   · migration-master.sql (v5.0)         (schema complet 16 tables)
+--   · migration_onboarding_add_on.sql     (plan 'trial', onboarding)
+--   · migration_profil_boulangerie.sql    (jours_fermes, clientèle, spécialités, horaires, objectifs)
+--   · migration_vitrine_cms.sql           (CMS vitrine, bucket vitrine-images)
+--   · migration_precommandes.sql          (date_retrait, pré-commande J+1)
+--   · seed.sql                            (données de démonstration)
 --
 -- ✅ Idempotent : safe à relancer depuis zéro
 -- ✅ Transaction unique : BEGIN … COMMIT
--- ✅ 16 tables, 17 fonctions, RLS complet, storage
+-- ✅ 16 tables, 18 fonctions, RLS complet, 2 buckets storage
 --
 -- ⚠️  Action manuelle requise (hors SQL) :
 --    · Supabase Dashboard → Authentication → Settings
@@ -50,6 +50,18 @@ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
 CREATE OR REPLACE FUNCTION update_meteo_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = public AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
+
+-- 1b. Helper RLS : boulangerie de l'employé connecté
+--     Déclaré tôt car référencé dans les policies RLS dès la section 2.
+--     LANGUAGE plpgsql obligatoire ici : contrairement à sql, plpgsql ne
+--     valide pas le corps à la création — la table employes n'existe pas encore.
+CREATE OR REPLACE FUNCTION get_employee_boulangerie_id()
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public AS $$
+BEGIN
+  RETURN (SELECT boulangerie_id FROM employes
+          WHERE user_id = auth.uid() AND statut = 'actif' LIMIT 1);
+END;
+$$;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 2. TABLE : boulangeries
@@ -93,6 +105,30 @@ CREATE TABLE IF NOT EXISTS boulangeries (
   -- [migration_conservation] seuil pénalité configurable
   seuil_penalite           INT         NOT NULL DEFAULT 3,
   penalite_active          BOOLEAN     NOT NULL DEFAULT TRUE,
+  -- [migration_profil_boulangerie] profil IA / onboarding
+  jours_fermes             TEXT[]      DEFAULT '{}',
+  type_clientele           TEXT        DEFAULT 'particulier'
+                           CHECK (type_clientele IN ('particulier', 'mixte', 'entreprise', 'touristique')),
+  specialites              TEXT[]      DEFAULT '{}',
+  horaires_ouverture       TEXT        DEFAULT '06:00',
+  horaires_fermeture       TEXT        DEFAULT '19:00',
+  objectif_ca_journalier   DECIMAL     DEFAULT NULL,
+  objectif_taux_vente      INT         DEFAULT NULL
+                           CHECK (objectif_taux_vente IS NULL OR (objectif_taux_vente >= 0 AND objectif_taux_vente <= 100)),
+  -- [migration_vitrine_cms] CMS vitrine page d'accueil
+  vitrine_accroche         TEXT        CHECK (length(vitrine_accroche) <= 120),
+  vitrine_sous_titre       TEXT        CHECK (length(vitrine_sous_titre) <= 200),
+  vitrine_hero_image_url   TEXT,
+  vitrine_hero_storage_path TEXT,
+  vitrine_about_image_url  TEXT,
+  vitrine_about_storage_path TEXT,
+  vitrine_histoire         TEXT        CHECK (length(vitrine_histoire) <= 800),
+  vitrine_badge_label      TEXT        CHECK (length(vitrine_badge_label) <= 60),
+  vitrine_horaires         JSONB       DEFAULT '[
+    {"day": "Lundi — Vendredi", "hours": "6h30 – 20h00"},
+    {"day": "Samedi", "hours": "7h00 – 20h00"},
+    {"day": "Dimanche", "hours": "7h00 – 13h00"}
+  ]'::jsonb,
   created_at               TIMESTAMPTZ DEFAULT NOW(),
   updated_at               TIMESTAMPTZ DEFAULT NOW()
 );
@@ -120,6 +156,37 @@ ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS levain_quota_week_start DATE  
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS levain_quota_used       INT         DEFAULT 0;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS seuil_penalite          INT         NOT NULL DEFAULT 3;
 ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS penalite_active         BOOLEAN     NOT NULL DEFAULT TRUE;
+-- [migration_profil_boulangerie]
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS jours_fermes            TEXT[]      DEFAULT '{}';
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS type_clientele          TEXT        DEFAULT 'particulier';
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS specialites             TEXT[]      DEFAULT '{}';
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS horaires_ouverture      TEXT        DEFAULT '06:00';
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS horaires_fermeture      TEXT        DEFAULT '19:00';
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS objectif_ca_journalier  DECIMAL     DEFAULT NULL;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS objectif_taux_vente     INT         DEFAULT NULL;
+-- [migration_vitrine_cms]
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_accroche          TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_sous_titre        TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_hero_image_url    TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_hero_storage_path TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_about_image_url   TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_about_storage_path TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_histoire          TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_badge_label       TEXT;
+ALTER TABLE boulangeries ADD COLUMN IF NOT EXISTS vitrine_horaires          JSONB DEFAULT '[
+  {"day": "Lundi — Vendredi", "hours": "6h30 – 20h00"},
+  {"day": "Samedi", "hours": "7h00 – 20h00"},
+  {"day": "Dimanche", "hours": "7h00 – 13h00"}
+]'::jsonb;
+
+DO $$ BEGIN
+  ALTER TABLE boulangeries ADD CONSTRAINT chk_type_clientele
+    CHECK (type_clientele IN ('particulier', 'mixte', 'entreprise', 'touristique'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE boulangeries ADD CONSTRAINT chk_objectif_taux_vente
+    CHECK (objectif_taux_vente IS NULL OR (objectif_taux_vente >= 0 AND objectif_taux_vente <= 100));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Suppression colonnes Airtable résiduelles
 ALTER TABLE boulangeries DROP COLUMN IF EXISTS airtable_api_key;
@@ -461,6 +528,8 @@ CREATE TABLE IF NOT EXISTS commandes (
   type             TEXT         NOT NULL DEFAULT 'clickcollect'
                    CHECK (type IN ('clickcollect', 'anti_gaspi')),
   lignes           JSONB        NOT NULL DEFAULT '[]'::jsonb,
+  -- [migration_precommandes] date de retrait (NULL = aujourd'hui)
+  date_retrait     DATE,
   created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -470,6 +539,7 @@ UPDATE commandes SET statut = 'recuperee' WHERE statut = 'retiree';
 
 -- Ajouts idempotents
 ALTER TABLE commandes ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'clickcollect';
+ALTER TABLE commandes ADD COLUMN IF NOT EXISTS date_retrait DATE;
 
 -- Mise à jour contrainte statut pour inclure non_recuperee
 ALTER TABLE commandes DROP CONSTRAINT IF EXISTS commandes_statut_check;
@@ -479,6 +549,8 @@ ALTER TABLE commandes ADD CONSTRAINT commandes_statut_check
 CREATE INDEX IF NOT EXISTS commandes_boulangerie_date_idx ON commandes(boulangerie_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_commandes_email            ON commandes(client_email, boulangerie_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_commandes_type             ON commandes(boulangerie_id, type, created_at DESC);
+-- [migration_precommandes] index pré-commandes par date_retrait
+CREATE INDEX IF NOT EXISTS idx_commandes_date_retrait     ON commandes(boulangerie_id, date_retrait, statut);
 
 DROP TRIGGER IF EXISTS commandes_updated_at ON commandes;
 CREATE TRIGGER commandes_updated_at
@@ -843,12 +915,7 @@ CREATE INDEX IF NOT EXISTS idx_client_penalites_lookup
 -- 14. FONCTIONS HELPER (multi-user & sécurité)
 -- ────────────────────────────────────────────────────────────────────────
 
--- 14a. Helper RLS : boulangerie de l'employé connecté
-CREATE OR REPLACE FUNCTION get_employee_boulangerie_id()
-RETURNS UUID LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
-  SELECT boulangerie_id FROM employes
-  WHERE user_id = auth.uid() AND statut = 'actif' LIMIT 1;
-$$;
+-- 14a. get_employee_boulangerie_id → déjà créée en section 1b
 
 -- 14b. check_boulanger_access — middleware SSR
 DROP FUNCTION IF EXISTS check_boulanger_access(UUID);
@@ -1119,6 +1186,26 @@ CREATE POLICY "produits_photos_owner_delete"
   ON storage.objects FOR DELETE
   USING (bucket_id = 'produits-photos' AND auth.uid() IS NOT NULL
     AND (storage.foldername(name))[1] IN (SELECT id::TEXT FROM boulangeries WHERE user_id = auth.uid()));
+
+-- ────────────────────────────────────────────────────────────────────────
+-- 17b. STORAGE — Bucket vitrine-images [migration_vitrine_cms]
+-- ────────────────────────────────────────────────────────────────────────
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'vitrine-images',
+  'vitrine-images',
+  true,
+  5242880,  -- 5 MB
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/avif']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Lecture publique (les images vitrine sont affichées sur la page publique)
+DROP POLICY IF EXISTS "vitrine_images_public_read" ON storage.objects;
+CREATE POLICY "vitrine_images_public_read"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'vitrine-images');
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 18. NETTOYAGE héritage
@@ -1554,31 +1641,27 @@ $$;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- 25b. RPC ATOMIQUE : VÉRIFICATION STOCK COMMANDE C&C
+--      + [migration_precommandes] support pré-commandes J+1 via p_date_retrait
 -- ────────────────────────────────────────────────────────────────────────
 -- Vérifie la disponibilité du stock pour une commande Click & Collect
--- de manière atomique (SELECT FOR SHARE sur stocks_journaliers).
+-- de manière atomique (SELECT FOR UPDATE sur stocks_journaliers).
 --
--- Résout 3 bugs :
---   1. Race condition : le verrou empêche deux commandes simultanées
---      de lire le même état "avant" et de dépasser le stock.
---   2. Bypass sans journée : la RPC RAISE si aucune journée n'existe.
---   3. Matching par produit_id : plus de contournement par nom modifié.
---
--- Retourne TRUE si le stock est suffisant.
--- RAISE EXCEPTION si stock insuffisant ou journée absente.
+-- Si p_date_retrait > p_date (= demain), on insère sans vérifier le stock
+-- car la production n'a pas encore eu lieu pour cette date.
 -- ────────────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION verifier_stock_commande(
   p_boulangerie_id   UUID,
   p_date             DATE,
-  p_lignes           JSONB,  -- [{produit_id, produit_nom, quantite, prix_unitaire}, ...]
+  p_lignes           JSONB,
   p_timezone         TEXT DEFAULT 'Europe/Paris',
   p_client_prenom    TEXT DEFAULT NULL,
   p_client_email     TEXT DEFAULT NULL,
   p_client_telephone TEXT DEFAULT NULL,
   p_heure_retrait    TIME DEFAULT NULL,
   p_notes            TEXT DEFAULT NULL,
-  p_montant_total    NUMERIC DEFAULT NULL
+  p_montant_total    NUMERIC DEFAULT NULL,
+  p_date_retrait     DATE DEFAULT NULL
 ) RETURNS UUID LANGUAGE plpgsql AS $$
 DECLARE
   v_journee_id     UUID;
@@ -1596,7 +1679,34 @@ DECLARE
   v_day_start      TIMESTAMPTZ;
   v_day_end        TIMESTAMPTZ;
   v_commande_id    UUID;
+  v_effective_date DATE;
 BEGIN
+  -- Date de retrait effective : si non fournie, c'est aujourd'hui
+  v_effective_date := COALESCE(p_date_retrait, p_date);
+
+  -- ═══════════════════════════════════════════════════════════════
+  -- PRÉ-COMMANDE (date_retrait > aujourd'hui) → pas de vérif stock
+  -- On insère directement la commande car la production n'a pas
+  -- encore eu lieu pour cette date.
+  -- ═══════════════════════════════════════════════════════════════
+  IF v_effective_date > p_date THEN
+    IF p_client_prenom IS NOT NULL THEN
+      INSERT INTO commandes (
+        boulangerie_id, client_prenom, client_email, client_telephone,
+        heure_retrait, notes, montant_total, statut, lignes, date_retrait
+      ) VALUES (
+        p_boulangerie_id, p_client_prenom, p_client_email, p_client_telephone,
+        p_heure_retrait, p_notes, p_montant_total, 'en_attente', p_lignes,
+        v_effective_date
+      ) RETURNING id INTO v_commande_id;
+    END IF;
+    RETURN v_commande_id;
+  END IF;
+
+  -- ═══════════════════════════════════════════════════════════════
+  -- COMMANDE DU JOUR — Vérification stock standard
+  -- ═══════════════════════════════════════════════════════════════
+
   -- Bornes de la journée en tenant compte du timezone de la boulangerie
   v_day_start := (p_date::TEXT || ' 00:00:00')::TIMESTAMP AT TIME ZONE p_timezone;
   v_day_end   := ((p_date + 1)::TEXT || ' 00:00:00')::TIMESTAMP AT TIME ZONE p_timezone;
@@ -1643,6 +1753,7 @@ BEGIN
       AND c.created_at >= v_day_start
       AND c.created_at <  v_day_end
       AND c.statut IN ('en_attente', 'confirmee', 'prete', 'recuperee')
+      AND (c.date_retrait IS NULL OR c.date_retrait = p_date)
       AND l->>'produit_id' = v_produit_id;
 
     -- 5. Calculer les réservations flash (quantite_initiale entière)
@@ -1674,10 +1785,11 @@ BEGIN
   IF p_client_prenom IS NOT NULL THEN
     INSERT INTO commandes (
       boulangerie_id, client_prenom, client_email, client_telephone,
-      heure_retrait, notes, montant_total, statut, lignes
+      heure_retrait, notes, montant_total, statut, lignes, date_retrait
     ) VALUES (
       p_boulangerie_id, p_client_prenom, p_client_email, p_client_telephone,
-      p_heure_retrait, p_notes, p_montant_total, 'en_attente', p_lignes
+      p_heure_retrait, p_notes, p_montant_total, 'en_attente', p_lignes,
+      v_effective_date
     ) RETURNING id INTO v_commande_id;
   END IF;
 
@@ -1693,10 +1805,13 @@ DO $$
 DECLARE
   n_tables      INT;
   n_fonctions   INT;
-  n_bucket      INT;
+  n_buckets     INT;
   n_airtable    INT;
   n_search_path INT;
   n_fk_indexes  INT;
+  n_vitrine     INT;
+  n_profil      INT;
+  n_precommande INT;
 BEGIN
   SELECT COUNT(*) INTO n_tables
     FROM information_schema.tables
@@ -1725,8 +1840,8 @@ BEGIN
        'verifier_stock_commande'
      );
 
-  SELECT COUNT(*) INTO n_bucket
-    FROM storage.buckets WHERE id = 'produits-photos';
+  SELECT COUNT(*) INTO n_buckets
+    FROM storage.buckets WHERE id IN ('produits-photos', 'vitrine-images');
 
   SELECT COUNT(*) INTO n_airtable
     FROM information_schema.columns
@@ -1753,12 +1868,33 @@ BEGIN
        'idx_ai_rapports_meteo_id','idx_production_forecasts_rapport_id'
      );
 
+  -- Vérification migration_vitrine_cms
+  SELECT COUNT(*) INTO n_vitrine
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'boulangeries'
+     AND column_name IN ('vitrine_accroche', 'vitrine_hero_image_url', 'vitrine_horaires');
+
+  -- Vérification migration_profil_boulangerie
+  SELECT COUNT(*) INTO n_profil
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'boulangeries'
+     AND column_name IN ('jours_fermes', 'type_clientele', 'specialites');
+
+  -- Vérification migration_precommandes
+  SELECT COUNT(*) INTO n_precommande
+    FROM information_schema.columns
+   WHERE table_schema = 'public'
+     AND table_name = 'commandes'
+     AND column_name = 'date_retrait';
+
   RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-  RAISE NOTICE '✅ Sauve Mie — Migration Master v5.0 (30 mars 2026)';
+  RAISE NOTICE '✅ Sauve Mie — Migration Complète v6.0 (12 avril 2026)';
   RAISE NOTICE '';
   RAISE NOTICE '   Tables        : % / 16', n_tables;
-  RAISE NOTICE '   Fonctions     : % / 17', n_fonctions;
-  RAISE NOTICE '   Storage       : %', CASE WHEN n_bucket > 0 THEN '✓' ELSE '✗ manquant' END;
+  RAISE NOTICE '   Fonctions     : % / 18', n_fonctions;
+  RAISE NOTICE '   Storage       : % / 2 buckets', n_buckets;
   RAISE NOTICE '   Airtable      : % colonne(s) résiduelle(s)', n_airtable;
   RAISE NOTICE '';
   RAISE NOTICE '   🔒 Sécurité';
@@ -1778,6 +1914,9 @@ BEGIN
   RAISE NOTICE '   Achat flash atomique   : ✅ acheter_paniers_flash RPC';
   RAISE NOTICE '   Statut non_recuperee   : ✅ natif en base';
   RAISE NOTICE '   Type commande          : ✅ clickcollect / anti_gaspi';
+  RAISE NOTICE '   Profil boulangerie     : ✅ % / 3 colonnes (jours, clientèle, spécialités)', n_profil;
+  RAISE NOTICE '   Vitrine CMS            : ✅ % / 3 colonnes + bucket vitrine-images', n_vitrine;
+  RAISE NOTICE '   Pré-commandes J+1      : ✅ % colonne date_retrait + verifier_stock_commande', n_precommande;
   RAISE NOTICE '';
   RAISE NOTICE '   ⚠️  Action manuelle :';
   RAISE NOTICE '   Supabase → Auth → Settings → Leaked Password Protection';
@@ -1786,8 +1925,11 @@ BEGIN
   IF n_tables    < 16 THEN RAISE EXCEPTION '❌ Tables manquantes : % / 16',    n_tables; END IF;
   IF n_fonctions < 17 THEN RAISE EXCEPTION '❌ Fonctions manquantes : % / 17', n_fonctions; END IF;
   IF n_search_path < 4 THEN RAISE EXCEPTION '❌ search_path manquant : % / 4', n_search_path; END IF;
-  IF n_bucket    = 0  THEN RAISE WARNING '⚠️  Bucket produits-photos manquant'; END IF;
+  IF n_buckets   < 2  THEN RAISE WARNING '⚠️  Buckets manquants : % / 2', n_buckets; END IF;
   IF n_airtable  > 0  THEN RAISE WARNING '⚠️  % colonne(s) Airtable encore présentes', n_airtable; END IF;
+  IF n_vitrine   < 3  THEN RAISE WARNING '⚠️  Colonnes vitrine manquantes : % / 3', n_vitrine; END IF;
+  IF n_profil    < 3  THEN RAISE WARNING '⚠️  Colonnes profil manquantes : % / 3', n_profil; END IF;
+  IF n_precommande < 1 THEN RAISE WARNING '⚠️  Colonne date_retrait manquante sur commandes'; END IF;
 END $$;
 
 COMMIT;

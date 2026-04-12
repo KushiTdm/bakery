@@ -1,7 +1,7 @@
 # Architecture complète du Projet BakeryOS
 
-> Généré le 11/04/2026 - Arborescence EXHAUSTIVE
-> Total: 88 répertoires / 244 fichiers
+> Généré le 12/04/2026 - Arborescence EXHAUSTIVE
+> Total: 91 répertoires / 257 fichiers
 
 ```
 project-boulangerie/
@@ -11,6 +11,9 @@ project-boulangerie/
 ├── .eslintrc.json
 ├── .github/
 │   └── workflows/
+│       ├── workflows/
+│       │   └── test.yml
+│       ├── readme.md
 │       └── playwright.yml
 ├── .gitignore
 ├── aides.md
@@ -226,11 +229,7 @@ project-boulangerie/
 │   └── workflow.ts
 │
 ├── 📁 migrations/             ✅ Base de données
-│   ├── migration-master.sql
-│   ├── migration_onboarding_add_on.sql
-│   ├── migration_precommandes.sql
-│   ├── migration_profil_boulangerie.sql
-│   ├── migration_vitrine_cms.sql
+│   ├── migration-complete.sql
 │   └── seed.sql
 │
 ├── 📁 playwright-report/
@@ -309,9 +308,9 @@ project-boulangerie/
 ## 📊 Statistiques du projet
 | Catégorie | Valeur |
 |---|---|
-| Nombre total de répertoires | 88 |
-| Nombre total de fichiers | 244 |
-| Lignes de code estimées | ~ 25 000 lignes |
+| Nombre total de répertoires | 91 |
+| Nombre total de fichiers | 257 |
+| Lignes de code estimées | ~ 26 200 lignes |
 
 ## 🛠 Stack Technique
 ✅ **Framework**: Next.js 15 App Router

@@ -1,0 +1,54 @@
+name: Post-Deploy Smoke Tests
+
+on:
+  # Déclenché par Vercel via un webhook repository_dispatch
+  repository_dispatch:
+    types: [vercel-deploy-success]
+
+jobs:
+  smoke-tests:
+    name: Production Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # URL de production — adapte si tu as un domaine custom
+      TEST_BASE_URL: https://sauvemie.fr
+      PLAYWRIGHT_BASE_URL: https://sauvemie.fr
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke tests (read-only, non-destructifs)
+        run: npx playwright test tests/smoke/ --reporter=html,github
+
+      - name: Upload smoke report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Open GitHub issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Smoke tests échoués après deploy production',
+              body: `## Détails\n\n- **Run** : ${context.runId}\n- **Commit** : ${context.sha}\n- **Timestamp** : ${new Date().toISOString()}\n\n[Voir le rapport complet](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              labels: ['bug', 'production'],
+            });

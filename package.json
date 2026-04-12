@@ -11,7 +11,10 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "test:security": "playwright test tests/security/",
+    "test:smoke": "playwright test tests/smoke/",
+    "test:unit": "playwright test tests/unit/"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
