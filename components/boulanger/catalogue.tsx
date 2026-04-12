@@ -56,60 +56,78 @@ function ProduitCard({
         !produit.actif_catalogue ? 'opacity-50' : '',
       ].join(' ')}
     >
-      <div className="flex items-center gap-3 p-3">
-        <div className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-1 touch-none">
-          <GripVertical size={16} />
+      <div className="flex items-center gap-2 sm:gap-3 p-3">
+        {/* Grip — masqué sur mobile tactile, visible sur desktop */}
+        <div className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-0.5 touch-none hidden sm:block">
+          <GripVertical size={15} />
         </div>
-        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
+
+        {/* Image / Emoji */}
+        <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
           {produit.image_public_url ? (
             <img src={produit.image_public_url} alt={produit.nom} className="w-full h-full object-cover" draggable={false} />
           ) : (
-            <span className="text-2xl">{produit.emoji}</span>
+            <span className="text-xl">{produit.emoji}</span>
           )}
         </div>
+
+        {/* Nom + catégorie — plus de truncation agressive */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="text-white font-medium text-sm truncate">{produit.nom}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Nom complet sur 2 lignes si besoin */}
+            <p className="text-white font-medium text-sm leading-tight break-words" style={{ wordBreak: 'break-word' }}>
+              {produit.nom}
+            </p>
             {produit.allergenes.length > 0 && (
               <span className="text-[10px] text-amber-400/60 flex-shrink-0">⚠ {produit.allergenes.length}</span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             <span className="text-[#C19A6B] text-xs font-bold font-mono">{produit.prix_vente.toFixed(2)}€</span>
             <span className="text-white/20 text-xs">·</span>
             <span className="text-white/30 text-xs capitalize">{produit.categorie}</span>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+
+        {/* Actions — compactes sur mobile */}
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => onToggle('actif_catalogue')}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_catalogue ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
+            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center transition-all ${
+              produit.actif_catalogue ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-white/5 text-white/25 hover:bg-white/10'
+            }`}
           >
-            {produit.actif_catalogue ? <Eye size={14} /> : <EyeOff size={14} />}
+            {produit.actif_catalogue ? <Eye size={13} /> : <EyeOff size={13} />}
           </button>
           <button
             onClick={() => onToggle('actif_flash')}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
+            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center transition-all ${
+              produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25' : 'bg-white/5 text-white/25 hover:bg-white/10'
+            }`}
           >
-            {produit.actif_flash ? <Zap size={14} /> : <ZapOff size={14} />}
+            {produit.actif_flash ? <Zap size={13} /> : <ZapOff size={13} />}
           </button>
           <button
             onClick={onEdit}
-            className="w-8 h-8 rounded-lg bg-white/5 text-white/40 hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] flex items-center justify-center transition-all"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 text-white/40 hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] flex items-center justify-center transition-all"
           >
-            <Pencil size={14} />
+            <Pencil size={13} />
           </button>
           {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button onClick={onDelete} className="px-2 py-1 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">Confirmer</button>
-              <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 text-[10px] text-white/30 hover:text-white/60 transition-colors">Annuler</button>
+            <div className="flex items-center gap-0.5">
+              <button onClick={onDelete} className="px-1.5 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors whitespace-nowrap">
+                ✓
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="px-1.5 py-0.5 text-[10px] text-white/30 hover:text-white/60 transition-colors">
+                ✗
+              </button>
             </div>
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="w-8 h-8 rounded-lg bg-white/5 text-white/25 hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-all"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/5 text-white/25 hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-all"
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
             </button>
           )}
         </div>
@@ -166,7 +184,7 @@ function CategorieSection({
 
   return (
     <div className="mb-4">
-      <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 w-full mb-2 group">
+      <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 w-full mb-2 group py-1">
         <p className="text-white/50 text-xs font-semibold uppercase tracking-widest">{CATEGORIE_LABELS[categorie]}</p>
         <span className="text-white/20 text-xs">{produits.length} produit{produits.length > 1 ? 's' : ''}</span>
         <div className="flex gap-1 ml-auto">
@@ -205,18 +223,16 @@ function CategorieSection({
 // ── Page principale ───────────────────────────────────────────
 
 export default function Catalogue() {
-  const { produits, loading, error, creer, modifier, supprimer, toggleActif, uploaderPhoto, reordonner, refetch } = useProduitsBoulanger();
+  const { produits, loading, error, creer, modifier, supprimer, toggleActif, uploaderPhoto, reordonner } = useProduitsBoulanger();
 
   const [search, setSearch]                     = useState('');
   const [filterActif, setFilterActif]           = useState<'all' | 'actif' | 'inactif'>('all');
   const [filterFlash, setFilterFlash]           = useState(false);
   const [modalOpen, setModalOpen]               = useState(false);
   const [editingProduit, setEditingProduit]     = useState<Produit | null>(null);
-  // 🆕 État wizard onboarding
   const [showStarter, setShowStarter]           = useState(false);
   const [starterDismissed, setStarterDismissed] = useState(false);
 
-  // 🆕 Déclenche CatalogueStarter si catalogue vide et non ignoré
   const shouldShowStarter = !loading && produits.length === 0 && !starterDismissed && !showStarter;
 
   const filtered = produits.filter(p => {
@@ -252,12 +268,8 @@ export default function Catalogue() {
     handleClose();
   };
 
-  // 🆕 Handler CatalogueStarter : crée tous les produits sélectionnés en batch
   const handleStarterValider = async (drafts: ProduitDraft[]) => {
-    // Création en série pour préserver l'ordre
-    for (const draft of drafts) {
-      await creer(draft);
-    }
+    for (const draft of drafts) await creer(draft);
     setStarterDismissed(true);
     setShowStarter(false);
   };
@@ -266,7 +278,6 @@ export default function Catalogue() {
   const nbActifs = produits.filter(p => p.actif_catalogue).length;
   const nbFlash  = produits.filter(p => p.actif_flash).length;
 
-  // ── 🆕 Affichage CatalogueStarter ────────────────────────────
   if (shouldShowStarter || showStarter) {
     return (
       <CatalogueStarter
@@ -279,75 +290,73 @@ export default function Catalogue() {
   return (
     <div className="pb-24">
       {/* Header */}
-      <div className="mb-6" data-tour="catalogue-header">
+      <div className="mb-5" data-tour="catalogue-header">
         <p className="text-[#C19A6B] text-xs font-medium tracking-widest uppercase mb-1">Catalogue</p>
-        <div className="flex items-end justify-between">
-          <h2 className="text-white text-2xl font-bold" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-white text-xl sm:text-2xl font-bold" style={{ fontFamily: 'Playfair Display, serif' }}>
             Mes produits
           </h2>
-          <div className="flex items-center gap-2">
-            {/* 🆕 Bouton pour re-déclencher le wizard */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             {produits.length === 0 && starterDismissed && (
               <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={() => { setStarterDismissed(false); setShowStarter(true); }}
-                className="flex items-center gap-1.5 bg-white/8 border border-white/12 text-white/50 px-3 py-2 rounded-xl text-xs hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] transition-all"
+                className="flex items-center gap-1.5 bg-white/8 border border-white/12 text-white/50 px-2.5 py-2 rounded-xl text-xs hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] transition-all"
               >
-                <Sparkles size={13} /> Démarrage rapide
+                <Sparkles size={12} /> <span className="hidden sm:inline">Démarrage rapide</span>
               </motion.button>
             )}
             <motion.button
               data-tour="catalogue-add-btn"
               whileTap={{ scale: 0.95 }}
               onClick={handleNew}
-              className="flex items-center gap-2 bg-[#C19A6B] text-[#1A0F0A] px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-[#D4AE85] transition-colors"
+              className="flex items-center gap-1.5 bg-[#C19A6B] text-[#1A0F0A] px-3 py-2.5 rounded-xl font-bold text-sm hover:bg-[#D4AE85] transition-colors"
             >
-              <Plus size={16} />
-              Ajouter
+              <Plus size={15} />
+              <span>Ajouter</span>
             </motion.button>
           </div>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         {([
-          { label: 'Total',  value: nbTotal,  color: 'text-white',      icon: null },
-          { label: 'Actifs', value: nbActifs, color: 'text-green-400',  icon: <Eye size={12} /> },
-          { label: 'Flash',  value: nbFlash,  color: 'text-yellow-400', icon: <Zap size={12} /> },
+          { label: 'Total',  value: nbTotal,  color: 'text-white' },
+          { label: 'Actifs', value: nbActifs, color: 'text-green-400' },
+          { label: 'Flash',  value: nbFlash,  color: 'text-yellow-400' },
         ] as const).map(kpi => (
-          <div key={kpi.label} className="bg-white/5 border border-white/8 rounded-xl p-3 text-center">
-            <div className={`flex items-center justify-center gap-1 ${kpi.color}`}>
-              {kpi.icon}
-              <span className="font-bold text-xl font-mono">{kpi.value}</span>
-            </div>
-            <p className="text-white/30 text-[10px] uppercase tracking-wider mt-0.5">{kpi.label}</p>
+          <div key={kpi.label} className="bg-white/5 border border-white/8 rounded-xl p-2.5 sm:p-3 text-center">
+            <span className={`font-bold text-lg sm:text-xl font-mono ${kpi.color}`}>{kpi.value}</span>
+            <p className="text-white/30 text-[9px] sm:text-[10px] uppercase tracking-wider mt-0.5">{kpi.label}</p>
           </div>
         ))}
       </div>
 
       {/* Recherche + filtres */}
       <div className="flex gap-2 mb-4">
-        <div className="relative flex-1">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
+        <div className="relative flex-1 min-w-0">
+          <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
           <input
             type="text"
-            placeholder="Rechercher un produit…"
+            placeholder="Rechercher…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-2.5 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/40 transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-xl pl-7 pr-3 py-2.5 text-white text-sm placeholder:text-white/20 outline-none focus:border-[#C19A6B]/40 transition-colors"
           />
         </div>
         <button
           onClick={() => setFilterFlash(v => !v)}
-          className={`px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 ${filterFlash ? 'bg-yellow-400/20 text-yellow-400 border border-yellow-400/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'}`}
+          className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-1 flex-shrink-0 ${
+            filterFlash ? 'bg-yellow-400/20 text-yellow-400 border border-yellow-400/30' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/8'
+          }`}
         >
-          <Zap size={12} /> Flash
+          <Zap size={11} /> <span className="hidden sm:inline">Flash</span>
         </button>
         <select
           value={filterActif}
           onChange={e => setFilterActif(e.target.value as typeof filterActif)}
-          className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white/60 text-xs outline-none focus:border-[#C19A6B]/40 transition-colors"
+          className="bg-white/5 border border-white/10 rounded-xl px-2 sm:px-3 py-2 text-white/60 text-xs outline-none focus:border-[#C19A6B]/40 transition-colors flex-shrink-0"
         >
           <option value="all">Tous</option>
           <option value="actif">Actifs</option>
@@ -355,8 +364,9 @@ export default function Catalogue() {
         </select>
       </div>
 
+      {/* Info drag — uniquement visible sur tablette+ */}
       {produits.length > 1 && (
-        <div className="flex items-center gap-2 mb-4 px-1">
+        <div className="hidden sm:flex items-center gap-2 mb-3 px-1">
           <GripVertical size={12} className="text-white/20" />
           <p className="text-white/25 text-xs">Glissez les lignes pour réordonner</p>
         </div>
@@ -371,26 +381,24 @@ export default function Catalogue() {
 
       {loading && (
         <div className="space-y-2">
-          {[1,2,3,4,5].map(i => <div key={i} className="h-16 bg-white/4 rounded-2xl animate-pulse" />)}
+          {[1,2,3,4,5].map(i => <div key={i} className="h-14 bg-white/4 rounded-2xl animate-pulse" />)}
         </div>
       )}
 
-      {/* 🆕 État vide avec proposition CatalogueStarter */}
+      {/* État vide */}
       {!loading && produits.length === 0 && (
-        <div className="text-center py-16">
-          <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Package size={28} className="text-white/20" />
+        <div className="text-center py-12">
+          <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Package size={24} className="text-white/20" />
           </div>
           <p className="text-white/50 font-medium mb-1">Aucun produit</p>
-          <p className="text-white/25 text-sm mb-6">
-            Commencez avec nos modèles pré-configurés ou créez manuellement.
-          </p>
+          <p className="text-white/25 text-sm mb-5">Commencez avec nos modèles ou créez manuellement.</p>
           <div className="flex flex-col gap-3 max-w-xs mx-auto">
             <button
               onClick={() => setShowStarter(true)}
               className="flex items-center justify-center gap-2 bg-[#C19A6B] text-[#1A0F0A] px-5 py-3 rounded-xl font-bold text-sm"
             >
-              <Sparkles size={16} /> Démarrage rapide (12 produits)
+              <Sparkles size={15} /> Démarrage rapide (12 produits)
             </button>
             <button
               onClick={handleNew}
@@ -432,13 +440,13 @@ export default function Catalogue() {
 
       {/* Légende */}
       {!loading && produits.length > 0 && (
-        <div className="mt-6 bg-white/3 border border-white/6 rounded-xl p-4">
+        <div className="mt-5 bg-white/3 border border-white/6 rounded-xl p-3 sm:p-4">
           <p className="text-white/30 text-xs font-semibold uppercase tracking-wider mb-2">Légende</p>
-          <div className="grid grid-cols-2 gap-2 text-xs text-white/40">
-            <div className="flex items-center gap-2"><Eye size={12} className="text-green-400" /> Visible catalogue</div>
-            <div className="flex items-center gap-2"><EyeOff size={12} className="text-white/25" /> Masqué catalogue</div>
-            <div className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" /> Inclus flash soir</div>
-            <div className="flex items-center gap-2"><ZapOff size={12} className="text-white/25" /> Exclu flash soir</div>
+          <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs text-white/40">
+            <div className="flex items-center gap-2"><Eye size={11} className="text-green-400" /> Visible catalogue</div>
+            <div className="flex items-center gap-2"><EyeOff size={11} className="text-white/25" /> Masqué</div>
+            <div className="flex items-center gap-2"><Zap size={11} className="text-yellow-400" /> Flash soir</div>
+            <div className="flex items-center gap-2"><ZapOff size={11} className="text-white/25" /> Exclu flash</div>
           </div>
         </div>
       )}

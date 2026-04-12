@@ -1,6 +1,5 @@
 'use client';
-// app/boulanger/page.tsx — Sauve Mie · Workflow Journée v2
-// Responsive fix : mobile / tablette / desktop
+// app/boulanger/page.tsx — Sauve Mie · Responsive fix
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -51,7 +50,7 @@ function LiveClock() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Indicateur de synchronisation
+// Indicateur sync
 // ─────────────────────────────────────────────────────────────
 
 function SyncIndicator() {
@@ -62,21 +61,18 @@ function SyncIndicator() {
         <motion.div key="saving" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
           className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#C19A6B]/10 border border-[#C19A6B]/20">
           <Loader2 size={10} className="text-[#C19A6B] animate-spin" />
-          <span className="text-[10px] text-[#C19A6B]/80 font-medium hidden sm:inline">Sync</span>
         </motion.div>
       )}
       {syncStatus === 'saved' && (
         <motion.div key="saved" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
           className="flex items-center gap-1 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/20">
           <Check size={10} className="text-green-400" />
-          <span className="text-[10px] text-green-400 font-medium hidden sm:inline">OK</span>
         </motion.div>
       )}
       {syncStatus === 'error' && (
         <motion.div key="error" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
           className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/20">
           <CloudOff size={10} className="text-red-400" />
-          <span className="text-[10px] text-red-400 font-medium hidden sm:inline">Offline</span>
         </motion.div>
       )}
     </AnimatePresence>
@@ -84,36 +80,27 @@ function SyncIndicator() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Vue d'ensemble (Accueil)
+// Vue Accueil
 // ─────────────────────────────────────────────────────────────
 
 interface PendingCommande {
-  id: string;
-  client_prenom: string;
-  heure_retrait: string;
-  montant_total: number;
-  statut: string;
+  id: string; client_prenom: string; heure_retrait: string;
+  montant_total: number; statut: string;
 }
 
 function VueAccueil({
-  onNavigate,
-  workflow,
+  onNavigate, workflow,
 }: {
   onNavigate: (v: ViewType | 'commandes' | 'journee') => void;
   workflow: ReturnType<typeof useWorkflowJournee>;
 }) {
-  const {
-    todayStocks, revenueToday, unsoldToday, unsoldRateToday,
-    totalProducedToday,
-  } = useBoulanger();
-
-  const [pendingCount, setPendingCount]   = useState(0);
+  const { todayStocks, revenueToday, unsoldRateToday, totalProducedToday } = useBoulanger();
+  const [pendingCount, setPendingCount] = useState(0);
   const [loadingOrders, setLoadingOrders] = useState(true);
-  const [alertesStock, setAlertesStock]   = useState<string[]>([]);
+  const [alertesStock, setAlertesStock] = useState<string[]>([]);
 
   const {
-    productionSaisie, snapshot14hFait,
-    journeeCloturee, flashConfigured,
+    productionSaisie, snapshot14hFait, journeeCloturee, flashConfigured,
     canAccessSnapshot, canAccessFlash, canAccessSoir,
     currentSuggestedStep, currentStepLabel,
   } = workflow;
@@ -128,13 +115,11 @@ function VueAccueil({
         if (!session?.access_token) return;
         const today = new Date().toISOString().split('T')[0];
         const res = await fetch(`/api/boulanger/commandes?date=${today}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          cache: 'no-store',
+          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
         });
         if (!res.ok) return;
         const { commandes } = await res.json() as { commandes: PendingCommande[] };
-        const pending = (commandes ?? []).filter(c => c.statut === 'en_attente');
-        setPendingCount(pending.length);
+        setPendingCount((commandes ?? []).filter(c => c.statut === 'en_attente').length);
       } catch { /* silent */ }
       finally { setLoadingOrders(false); }
     }
@@ -142,27 +127,24 @@ function VueAccueil({
   }, []);
 
   useEffect(() => {
-    const alertes = todayStocks
-      .filter(s => s.production > 0 && s.stockFinal > 0 && (s.stockFinal / s.production) > 0.4)
-      .map(s => s.name);
-    setAlertesStock(alertes);
+    setAlertesStock(
+      todayStocks.filter(s => s.production > 0 && s.stockFinal > 0 && (s.stockFinal / s.production) > 0.4).map(s => s.name)
+    );
   }, [todayStocks]);
 
   const hasProduction = totalProducedToday > 0;
   const kpiColor = unsoldRateToday < 5 ? 'text-green-400' : unsoldRateToday < 10 ? 'text-amber-400' : 'text-red-400';
+  const stepConfig = STEP_CONFIG.find(s => s.id === phase);
 
-  const workflowDots: { id: string; icon: React.ElementType; label: string; done: boolean; active: boolean; locked: boolean; color: string }[] = [
+  const workflowDots = [
     { id: 'matin',    icon: Sun,    label: 'Matin', done: productionSaisie, active: phase === 'matin' && !productionSaisie, locked: false,              color: '#C19A6B' },
     { id: 'snapshot', icon: Camera, label: 'Stock', done: snapshot14hFait,  active: phase === 'snapshot',                   locked: !canAccessSnapshot, color: '#5CC994' },
     { id: 'flash',    icon: Zap,    label: 'Flash', done: flashConfigured,  active: phase === 'flash',                      locked: !canAccessFlash,    color: '#EAC43A' },
     { id: 'soir',     icon: Moon,   label: 'Soir',  done: journeeCloturee,  active: phase === 'soir',                       locked: !canAccessSoir,     color: '#6FA8EA' },
   ];
 
-  const stepConfig = STEP_CONFIG.find(s => s.id === phase);
-
   return (
     <div className="space-y-4 pb-4">
-      {/* En-tête date */}
       <div className="pt-2">
         <h1 className="text-white text-xl sm:text-2xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
           {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -177,8 +159,8 @@ function VueAccueil({
           background: `linear-gradient(135deg, ${stepConfig?.color ?? '#C19A6B'}22 0%, ${stepConfig?.color ?? '#C19A6B'}08 100%)`,
           border: `1px solid ${stepConfig?.color ?? '#C19A6B'}40`,
         }}>
-        <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 sm:py-5">
-          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+        <div className="flex items-center gap-3 sm:gap-4 px-4 py-4 sm:py-5">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
             style={{ background: `${stepConfig?.color ?? '#C19A6B'}20` }}>
             {phase === 'matin'    && <Sun    size={22} style={{ color: stepConfig?.color }} />}
             {phase === 'snapshot' && <Camera size={22} style={{ color: stepConfig?.color }} />}
@@ -186,7 +168,7 @@ function VueAccueil({
             {phase === 'flash'    && <Zap    size={22} style={{ color: stepConfig?.color }} />}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white/50 text-[10px] sm:text-[11px] uppercase tracking-wider font-medium">
+            <p className="text-white/50 text-[10px] uppercase tracking-wider font-medium">
               {journeeCloturee ? 'Journée terminée' : 'À faire maintenant'}
             </p>
             <p className="font-bold text-base sm:text-lg mt-0.5 truncate" style={{ color: stepConfig?.color ?? '#C19A6B' }}>
@@ -198,33 +180,30 @@ function VueAccueil({
       </motion.button>
 
       {/* Workflow dots */}
-      <div className="flex items-center gap-1 sm:gap-1.5 px-1 overflow-x-auto pb-1">
+      <div className="flex items-center gap-1 px-0.5 overflow-x-auto pb-0.5">
         {workflowDots.map((dot, i) => {
           const Icon = dot.icon;
           return (
             <React.Fragment key={dot.id}>
               {i > 0 && (
-                <div className="flex-shrink-0 w-3 sm:w-4 h-px" style={{
-                  background: workflowDots[i - 1].done ? 'rgba(92,201,148,0.4)' : 'rgba(255,255,255,0.08)',
-                }} />
+                <div className="flex-shrink-0 w-3 h-px"
+                  style={{ background: workflowDots[i - 1].done ? 'rgba(92,201,148,0.4)' : 'rgba(255,255,255,0.08)' }} />
               )}
-              <div className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1.5 rounded-lg transition-all flex-shrink-0 ${dot.locked ? 'opacity-30' : ''}`}
+              <div className={`flex items-center gap-1 px-2 py-1.5 rounded-lg flex-shrink-0 ${dot.locked ? 'opacity-30' : ''}`}
                 style={{ background: dot.done ? 'rgba(92,201,148,0.08)' : dot.active ? `${dot.color}12` : 'transparent' }}>
-                <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0" style={{
-                  background: dot.done ? 'rgba(92,201,148,0.2)' : dot.active ? `${dot.color}25` : 'rgba(255,255,255,0.06)',
-                }}>
-                  {dot.done   ? <Check size={10} className="text-green-400" />
-                  : dot.locked ? <Lock  size={9}  className="text-white/20"  />
+                <div className="w-5 h-5 rounded-md flex items-center justify-center"
+                  style={{ background: dot.done ? 'rgba(92,201,148,0.2)' : dot.active ? `${dot.color}25` : 'rgba(255,255,255,0.06)' }}>
+                  {dot.done    ? <Check size={10} className="text-green-400" />
+                  : dot.locked  ? <Lock  size={9}  className="text-white/20"  />
                   : <Icon size={10} style={{ color: dot.active ? dot.color : 'rgba(255,255,255,0.35)' }} />}
                 </div>
-                <span className={`text-[10px] font-semibold whitespace-nowrap ${
-                  dot.done ? 'text-green-400/70' : dot.active ? '' : dot.locked ? 'text-white/15' : 'text-white/30'
-                }`} style={dot.active && !dot.done ? { color: dot.color } : undefined}>
+                <span className="text-[10px] font-semibold"
+                  style={{ color: dot.done ? 'rgba(92,201,148,0.7)' : dot.active ? dot.color : dot.locked ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.3)' }}>
                   {dot.label}
                 </span>
                 {dot.active && !dot.done && (
                   <motion.div animate={{ scale: [1, 1.4, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot.color }} />
+                    className="w-1.5 h-1.5 rounded-full" style={{ background: dot.color }} />
                 )}
               </div>
             </React.Fragment>
@@ -232,32 +211,30 @@ function VueAccueil({
         })}
       </div>
 
-      {/* KPI inline */}
+      {/* KPIs */}
       {hasProduction && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:justify-between rounded-xl px-3 sm:px-4 py-3 border"
           style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}>
-          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-1 sm:gap-1.5">
+          <div className="flex flex-col items-center sm:flex-row sm:items-center gap-1 sm:gap-1.5">
             <TrendingUp size={13} className="text-[#C19A6B] opacity-70" />
-            <div className="text-center sm:text-left">
-              <span className="text-[#C19A6B] font-bold text-base sm:text-base font-mono">{Math.round(revenueToday)}€</span>
-              <span className="text-white/25 text-[9px] block sm:inline sm:ml-0.5">CA</span>
+            <div className="text-center">
+              <span className="text-[#C19A6B] font-bold text-base font-mono block">{Math.round(revenueToday)}€</span>
+              <span className="text-white/25 text-[9px]">CA</span>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-1.5">
+          <div className="flex flex-col items-center gap-1">
             <Package size={13} className="text-white/40" />
-            <div className="text-center sm:text-left">
-              <span className="text-white/70 font-bold text-base font-mono">{totalProducedToday}</span>
-              <span className="text-white/25 text-[9px] block sm:inline sm:ml-0.5">pcs</span>
+            <div className="text-center">
+              <span className="text-white/70 font-bold text-base font-mono block">{totalProducedToday}</span>
+              <span className="text-white/25 text-[9px]">pcs</span>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-1.5">
-            {unsoldRateToday < 5
-              ? <TrendingDown size={13} className="text-green-400 opacity-70" />
-              : <AlertTriangle size={13} className={kpiColor + ' opacity-70'} />}
-            <div className="text-center sm:text-left">
-              <span className={`font-bold text-base font-mono ${kpiColor}`}>{unsoldRateToday.toFixed(0)}%</span>
-              <span className="text-white/25 text-[9px] block sm:inline sm:ml-0.5">inv.</span>
+          <div className="flex flex-col items-center gap-1">
+            {unsoldRateToday < 5 ? <TrendingDown size={13} className="text-green-400 opacity-70" /> : <AlertTriangle size={13} className={kpiColor + ' opacity-70'} />}
+            <div className="text-center">
+              <span className={`font-bold text-base font-mono block ${kpiColor}`}>{unsoldRateToday.toFixed(0)}%</span>
+              <span className="text-white/25 text-[9px]">inv.</span>
             </div>
           </div>
         </motion.div>
@@ -271,8 +248,7 @@ function VueAccueil({
               style={{ background: 'rgba(58,123,213,0.07)', borderColor: 'rgba(58,123,213,0.2)' }}>
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(58,123,213,0.15)' }}>
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(58,123,213,0.15)' }}>
                     <ShoppingBag size={15} className="text-blue-400" />
                   </div>
                   <p className="text-blue-300 font-semibold text-sm">
@@ -301,7 +277,6 @@ function VueAccueil({
         </motion.div>
       )}
 
-      {/* Sans production */}
       {!hasProduction && (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <p className="text-white/25 text-xs leading-relaxed max-w-xs">
@@ -310,8 +285,7 @@ function VueAccueil({
           <motion.button whileTap={{ scale: 0.97 }} onClick={() => onNavigate('journee')}
             className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold"
             style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.3)', color: '#C19A6B' }}>
-            <Sun size={15} />
-            Commencer la journée
+            <Sun size={15} /> Commencer la journée
           </motion.button>
         </div>
       )}
@@ -326,65 +300,50 @@ function VueAccueil({
 type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision' | 'vitrine';
 
 interface DrawerItem {
-  id: DrawerItemId;
-  label: string;
-  icon: React.ElementType;
-  desc: string;
-  href?: string;
-  view?: ViewType;
-  accent: string;
-  color: string;
-  permission: string | null;
+  id: DrawerItemId; label: string; icon: React.ElementType; desc: string;
+  href?: string; view?: ViewType; accent: string; color: string; permission: string | null;
 }
 
 const DRAWER_AI_ITEM: DrawerItem = {
   id: 'ia', label: 'Rapport IA', icon: Sparkles,
-  desc: 'Analyse complète par Levain, votre assistant IA',
+  desc: 'Analyse Levain, votre assistant IA',
   view: 'ia', accent: 'rgba(168,85,247,0.12)', color: '#A855F7', permission: null,
 };
 
 const DRAWER_ITEMS: DrawerItem[] = [
-  { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect et anti-gaspi du jour',  href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',  color: '#6FA8EA',               permission: 'commandes'  },
-  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Gérer votre catalogue & photos',         view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',   color: '#5CC994',               permission: 'catalogue'  },
-  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
-  { id: 'vitrine',    label: 'Vitrine',      icon: Palette,     desc: 'Personnaliser votre page d\'accueil',    view: 'vitrine',              accent: 'rgba(236,149,81,0.1)',   color: '#EC9551',               permission: null         },
-  { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',  color: '#B882D6',               permission: 'equipe'     },
-  { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse, plan',         view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
+  { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect du jour',             href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',  color: '#6FA8EA',               permission: 'commandes'  },
+  { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Catalogue & photos',                  view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',   color: '#5CC994',               permission: 'catalogue'  },
+  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & performance',            view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
+  { id: 'vitrine',    label: 'Vitrine',      icon: Palette,     desc: 'Page d\'accueil publique',            view: 'vitrine',              accent: 'rgba(236,149,81,0.1)',   color: '#EC9551',               permission: null         },
+  { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',         view: 'equipe',               accent: 'rgba(184,130,214,0.1)',  color: '#B882D6',               permission: 'equipe'     },
+  { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse',            view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
 ];
 
 const DRAWER_SUPERVISION_ITEM: DrawerItem = {
   id: 'supervision', label: 'Supervision', icon: Shield,
-  desc: 'Suivi équipe, alertes, activité',
+  desc: 'Suivi équipe & alertes',
   view: 'supervision', accent: 'rgba(168,85,247,0.1)', color: '#A855F7', permission: 'equipe',
 };
 
-function DrawerItemButton({
-  item, isActive, isCmds, pendingOrders, onClick, activeColor,
-}: {
-  item: DrawerItem;
-  isActive: boolean;
-  isCmds?: boolean;
-  pendingOrders?: number;
-  onClick: () => void;
-  activeColor?: string;
+function DrawerItemButton({ item, isActive, isCmds, pendingOrders, onClick, activeColor }: {
+  item: DrawerItem; isActive: boolean; isCmds?: boolean; pendingOrders?: number;
+  onClick: () => void; activeColor?: string;
 }) {
   const Icon = item.icon;
   const accentColor = activeColor ?? '#C19A6B';
   return (
     <motion.button whileTap={{ scale: 0.97 }} onClick={onClick}
-      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border text-left transition-all select-none"
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl border text-left transition-all select-none"
       style={{
         background:  isActive ? `${accentColor}20` : item.accent,
         borderColor: isActive ? `${accentColor}40` : isCmds ? 'rgba(58,123,213,0.25)' : `${item.color}20`,
       }}>
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 relative"
+      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 relative"
         style={{ background: item.accent, border: `1px solid ${item.color}22` }}>
-        <Icon size={16} style={{ color: item.color }} strokeWidth={1.8} />
+        <Icon size={15} style={{ color: item.color }} strokeWidth={1.8} />
         {isCmds && pendingOrders && pendingOrders > 0 && (
           <span className="absolute -top-1 -right-1 text-white font-black text-[9px] min-w-[15px] h-[15px] flex items-center justify-center rounded-full px-0.5"
-            style={{ background: '#3A7BD5' }}>
-            {pendingOrders}
-          </span>
+            style={{ background: '#3A7BD5' }}>{pendingOrders}</span>
         )}
       </div>
       <div className="flex-1 min-w-0">
@@ -393,34 +352,24 @@ function DrawerItemButton({
         </p>
         <p className="text-[11px] mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.3)' }}>{item.desc}</p>
       </div>
-      <ChevronRight size={13} className="flex-shrink-0" style={{ color: isActive ? accentColor : 'rgba(255,255,255,0.18)' }} />
+      <ChevronRight size={12} className="flex-shrink-0" style={{ color: isActive ? accentColor : 'rgba(255,255,255,0.18)' }} />
     </motion.button>
   );
 }
 
 function SectionLabel({ label }: { label: string }) {
-  return (
-    <p className="px-1 pt-3 pb-1.5 text-[9px] font-bold uppercase tracking-widest"
-      style={{ color: 'rgba(255,255,255,0.22)' }}>
-      {label}
-    </p>
-  );
+  return <p className="px-1 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.22)' }}>{label}</p>;
 }
 
-function PlusDrawer({
-  open, onClose, onNavigate, activeView, pendingOrders,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onNavigate: (v: ViewType) => void;
-  activeView: ViewType;
-  pendingOrders: number;
+function PlusDrawer({ open, onClose, onNavigate, activeView, pendingOrders }: {
+  open: boolean; onClose: () => void; onNavigate: (v: ViewType) => void;
+  activeView: ViewType; pendingOrders: number;
 }) {
   const router = useRouter();
   const { canRead, userRole, logout } = useBoulanger();
 
   const navigate = (item: DrawerItem) => {
-    if (item.href)      router.push(item.href);
+    if (item.href) router.push(item.href);
     else if (item.view) onNavigate(item.view);
     onClose();
   };
@@ -431,104 +380,57 @@ function PlusDrawer({
         <>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/65 backdrop-blur-sm z-40" onClick={onClose} />
-          {/* Drawer — colle au-dessus de la bottom nav (72px) + safe area iOS */}
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            className="fixed left-0 right-0 z-50 max-w-lg md:max-w-2xl mx-auto"
-            style={{ bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))' }}>
+            className="fixed left-0 right-0 z-50"
+            style={{ bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}>
             <div className="border rounded-t-3xl overflow-hidden shadow-2xl flex flex-col"
-              style={{
-                background: '#130B06',
-                borderColor: 'rgba(193,154,107,0.12)',
-                maxHeight: 'calc(100dvh - 160px)',
-              }}>
-
-              {/* Handle + titre */}
+              style={{ background: '#130B06', borderColor: 'rgba(193,154,107,0.12)', maxHeight: 'calc(100dvh - 120px)' }}>
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div className="w-10 h-1 bg-white/15 rounded-full" />
               </div>
-              <div className="flex items-center justify-between px-4 sm:px-5 py-2 flex-shrink-0">
+              <div className="flex items-center justify-between px-4 py-2 flex-shrink-0">
                 <p className="text-white/40 text-[10px] uppercase tracking-widest font-semibold">Navigation</p>
-                <button onClick={onClose}
-                  className="w-7 h-7 rounded-xl flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
+                <button onClick={onClose} className="w-7 h-7 rounded-xl flex items-center justify-center text-white/30 hover:text-white/60"
                   style={{ background: 'rgba(255,255,255,0.05)' }}>
                   <X size={13} />
                 </button>
               </div>
-
               <div className="px-3 sm:px-4 pb-6 overflow-y-auto flex-1 min-h-0 space-y-1">
-
                 <SectionLabel label="Quotidien" />
-
-                <DrawerItemButton
-                  item={DRAWER_AI_ITEM}
-                  isActive={activeView === 'ia'}
-                  activeColor="#A855F7"
-                  onClick={() => { onNavigate('ia'); onClose(); }}
-                />
-
+                <DrawerItemButton item={DRAWER_AI_ITEM} isActive={activeView === 'ia'} activeColor="#A855F7"
+                  onClick={() => { onNavigate('ia'); onClose(); }} />
                 {canRead('commandes') && (() => {
                   const item = DRAWER_ITEMS.find(d => d.id === 'commandes')!;
-                  return (
-                    <DrawerItemButton key="commandes" item={item}
-                      isActive={false} isCmds pendingOrders={pendingOrders}
-                      onClick={() => navigate(item)} />
-                  );
+                  return <DrawerItemButton key="commandes" item={item} isActive={false} isCmds pendingOrders={pendingOrders} onClick={() => navigate(item)} />;
                 })()}
-
                 <SectionLabel label="Gestion" />
-
                 {(['catalogue', 'dashboard', 'vitrine'] as DrawerItemId[]).map(id => {
                   const item = DRAWER_ITEMS.find(d => d.id === id);
                   if (!item) return null;
                   if (item.permission && !canRead(item.permission as Parameters<typeof canRead>[0])) return null;
                   if (id === 'vitrine' && userRole !== 'owner') return null;
-                  return (
-                    <DrawerItemButton key={id} item={item}
-                      isActive={item.view ? activeView === item.view : false}
-                      onClick={() => navigate(item)} />
-                  );
+                  return <DrawerItemButton key={id} item={item} isActive={item.view ? activeView === item.view : false} onClick={() => navigate(item)} />;
                 })}
-
-                {(canRead('equipe') || canRead('parametres')) && (
-                  <SectionLabel label="Administration" />
-                )}
-
+                {(canRead('equipe') || canRead('parametres')) && <SectionLabel label="Administration" />}
                 {canRead('equipe') && (() => {
                   const item = DRAWER_ITEMS.find(d => d.id === 'equipe')!;
-                  return (
-                    <DrawerItemButton key="equipe" item={item}
-                      isActive={activeView === item.view}
-                      onClick={() => navigate(item)} />
-                  );
+                  return <DrawerItemButton key="equipe" item={item} isActive={activeView === item.view} onClick={() => navigate(item)} />;
                 })()}
-
                 {canRead('equipe') && (
-                  <DrawerItemButton
-                    item={DRAWER_SUPERVISION_ITEM}
-                    isActive={activeView === 'supervision'}
-                    activeColor="#A855F7"
-                    onClick={() => { onNavigate('supervision'); onClose(); }}
-                  />
+                  <DrawerItemButton item={DRAWER_SUPERVISION_ITEM} isActive={activeView === 'supervision'} activeColor="#A855F7"
+                    onClick={() => { onNavigate('supervision'); onClose(); }} />
                 )}
-
                 {canRead('parametres') && (() => {
                   const item = DRAWER_ITEMS.find(d => d.id === 'parametres')!;
-                  return (
-                    <DrawerItemButton key="parametres" item={item}
-                      isActive={activeView === item.view}
-                      onClick={() => navigate(item)} />
-                  );
+                  return <DrawerItemButton key="parametres" item={item} isActive={activeView === item.view} onClick={() => navigate(item)} />;
                 })()}
-
                 <div className="pt-3 mt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <button onClick={logout}
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-colors"
+                  <button onClick={logout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl"
                     style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(239,68,68,0.12)' }}>
-                      <LogOut size={16} style={{ color: '#EF4444' }} />
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.12)' }}>
+                      <LogOut size={15} style={{ color: '#EF4444' }} />
                     </div>
                     <span className="text-sm font-semibold" style={{ color: '#EF4444' }}>Déconnexion</span>
                   </button>
@@ -542,35 +444,20 @@ function PlusDrawer({
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Vue bloquée
-// ─────────────────────────────────────────────────────────────
-
 function ViewBlocked() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <Shield size={32} className="text-white/15 mb-4" />
       <p className="text-white/40 text-sm font-medium">Vue non accessible</p>
-      <p className="text-white/20 text-xs mt-1">Votre rôle n'autorise pas cette section.</p>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Nav items
-// ─────────────────────────────────────────────────────────────
-
 type LocalView = 'accueil' | 'journee' | ViewType;
-
-const ALL_NAV_ITEMS: { id: LocalView; label: string; icon: React.ElementType }[] = [
-  { id: 'accueil', label: 'Accueil',    icon: Home },
-  { id: 'journee', label: 'Journée',    icon: CalendarDays },
-];
-
 const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision', 'vitrine'];
 
 // ─────────────────────────────────────────────────────────────
-// Shell principal
+// AppShell
 // ─────────────────────────────────────────────────────────────
 
 function AppShell() {
@@ -584,47 +471,36 @@ function AppShell() {
   const { startTour, tourCompleted, resetTour, loading: tourLoading } = useTour();
   const router = useRouter();
 
-  const [drawerOpen,   setDrawerOpen]   = useState(false);
-  const [localView,    setLocalView]    = useState<LocalView>('accueil');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [localView, setLocalView]   = useState<LocalView>('accueil');
   const [pendingCount, setPendingCount] = useState(0);
   const pendingRef = useRef(0);
 
-  const productionSaisie = useMemo(() => todayStocks.some(s => s.production > 0),      [todayStocks]);
-  const snapshot10hFait  = useMemo(() => todayStocks.some(s => s.snapshot10hDone),     [todayStocks]);
-  const snapshot14hFait  = useMemo(() => todayStocks.some(s => s.snapshot14hDone),     [todayStocks]);
-
+  const productionSaisie = useMemo(() => todayStocks.some(s => s.production > 0), [todayStocks]);
+  const snapshot10hFait  = useMemo(() => todayStocks.some(s => s.snapshot10hDone), [todayStocks]);
+  const snapshot14hFait  = useMemo(() => todayStocks.some(s => s.snapshot14hDone), [todayStocks]);
   const [journeeCloturee, setJourneeCloturee] = useState(false);
+
   useEffect(() => {
+    if (!isAuthenticated) return;
     async function checkCloture() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const todayRes = await fetch('/api/boulanger/ai/today', {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
-        const todayData = todayRes.ok
-          ? await todayRes.json() as { today: string }
-          : { today: new Date().toISOString().split('T')[0] };
-        const res = await fetch('/api/boulanger/journee', {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
+        const todayRes = await fetch('/api/boulanger/ai/today', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' });
+        const todayData = todayRes.ok ? await todayRes.json() as { today: string } : { today: new Date().toISOString().split('T')[0] };
+        const res = await fetch('/api/boulanger/journee', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' });
         if (!res.ok) return;
         const { journee } = await res.json() as { journee: { cloturee: boolean; date: string } | null };
         if (journee?.cloturee && journee.date === todayData.today) setJourneeCloturee(true);
       } catch { /* silent */ }
     }
-    if (isAuthenticated) checkCloture();
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
+    checkCloture();
     const interval = setInterval(async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const res = await fetch('/api/boulanger/journee', {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
+        const res = await fetch('/api/boulanger/journee', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' });
         if (!res.ok) return;
         const { journee } = await res.json() as { journee: { cloturee: boolean } | null };
         if (journee?.cloturee) setJourneeCloturee(true);
@@ -635,24 +511,21 @@ function AppShell() {
 
   const [timezone, setTimezone] = useState('Europe/Paris');
   useEffect(() => {
-    async function loadTimezone() {
+    if (!isAuthenticated) return;
+    (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const res = await fetch('/api/boulanger/ai/today', {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
+        const res = await fetch('/api/boulanger/ai/today', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' });
         if (res.ok) {
           const data = await res.json() as { timezone?: string };
           if (data.timezone) setTimezone(data.timezone);
         }
       } catch { /* silent */ }
-    }
-    if (isAuthenticated) loadTimezone();
+    })();
   }, [isAuthenticated]);
 
   const workflow = useWorkflowJournee({ productionSaisie, snapshot10hFait, snapshot14hFait, journeeCloturee, timezone });
-
   const isSecondaryActive = SECONDARY_VIEWS.includes(activeView);
 
   useEffect(() => {
@@ -662,9 +535,7 @@ function AppShell() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
         const today = new Date().toISOString().split('T')[0];
-        const res = await fetch(`/api/boulanger/commandes?date=${today}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
-        });
+        const res = await fetch(`/api/boulanger/commandes?date=${today}`, { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' });
         if (!res.ok) return;
         const { commandes } = await res.json() as { commandes: { statut: string }[] };
         const count = (commandes ?? []).filter(c => c.statut === 'en_attente').length;
@@ -683,17 +554,11 @@ function AppShell() {
   }, [setActiveView]);
 
   const handleDeepNavigate = useCallback((v: ViewType | 'commandes' | 'journee') => {
-    if (v === 'commandes') {
-      router.push('/boulanger/commandes');
-    } else if (v === 'journee') {
-      setLocalView('journee');
-    } else {
-      setLocalView(v);
-      setActiveView(v);
-    }
+    if (v === 'commandes') router.push('/boulanger/commandes');
+    else if (v === 'journee') setLocalView('journee');
+    else { setLocalView(v); setActiveView(v); }
   }, [setActiveView, router]);
 
-  // ── Loading ────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -712,15 +577,11 @@ function AppShell() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center max-w-sm mx-auto">
           <Shield size={40} className="text-white/20 mx-auto mb-4" />
-          <p className="text-white/70 text-lg font-semibold" style={{ fontFamily: 'Playfair Display, serif' }}>
-            Accès non autorisé
-          </p>
+          <p className="text-white/70 text-lg font-semibold" style={{ fontFamily: 'Playfair Display, serif' }}>Accès non autorisé</p>
           <p className="text-white/40 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
             Cet espace est réservé aux boulangers inscrits sur Sauve Mie.
           </p>
-          <button onClick={() => router.push('/')}
-            className="mt-6 px-6 py-3 rounded-xl font-semibold text-sm"
-            style={{ background: '#C19A6B', color: '#1A0F0A' }}>
+          <button onClick={() => router.push('/')} className="mt-6 px-6 py-3 rounded-xl font-semibold text-sm" style={{ background: '#C19A6B', color: '#1A0F0A' }}>
             Retour à la vitrine
           </button>
           <button onClick={logout} className="block mx-auto mt-3 text-white/25 text-xs hover:text-white/50">
@@ -732,57 +593,50 @@ function AppShell() {
   }
 
   if (boulangerie && userRole === 'owner' && !boulangerie.onboarding_completed_at) {
-    return (
-      <OnboardingWizard
-        boulangerie={boulangerie}
-        token={session?.access_token || ''}
-        onComplete={() => window.location.reload()}
-      />
-    );
+    return <OnboardingWizard boulangerie={boulangerie} token={session?.access_token || ''} onComplete={() => window.location.reload()} />;
   }
 
-  // ── Interface principale ───────────────────────────────────
+  const NAV_ITEMS = [
+    { id: 'accueil' as LocalView, label: 'Accueil',  icon: Home },
+    { id: 'journee' as LocalView, label: 'Journée',  icon: CalendarDays },
+  ];
+
   return (
     <div className="min-h-screen">
-      {/* Texture grain */}
+      {/* Grain texture */}
       <div className="fixed inset-0 opacity-[0.022] pointer-events-none z-0"
         style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")` }} />
 
       {/* Header */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md"
+      <header className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{ background: 'rgba(18,10,6,0.92)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <div className="max-w-lg md:max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 md:px-6 h-14 flex items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2 sm:gap-2.5 flex-1 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-sm sm:text-base"
-              style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.2)' }}>
-              🥖
-            </div>
+        <div className="w-full max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 text-sm"
+              style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.2)' }}>🥖</div>
             <div className="min-w-0">
               <p className="text-white text-sm font-bold leading-none truncate" style={{ fontFamily: 'Playfair Display, serif' }}>
                 {boulangerie.nom}
               </p>
-              <p className="text-[9px] sm:text-[10px] tracking-widest uppercase leading-none mt-0.5" style={{
-                color: userRole === 'owner'  ? 'rgba(193,154,107,0.6)'
-                     : userRole === 'gerant' ? 'rgba(106,168,234,0.7)'
-                     : 'rgba(255,255,255,0.3)',
+              <p className="text-[9px] tracking-widest uppercase leading-none mt-0.5" style={{
+                color: userRole === 'owner' ? 'rgba(193,154,107,0.6)' : userRole === 'gerant' ? 'rgba(106,168,234,0.7)' : 'rgba(255,255,255,0.3)',
               }}>
                 {userRole === 'owner' ? 'Espace boulanger' : ROLE_LABELS[userRole]}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <SyncIndicator />
             <LiveClock />
             {!tourLoading && userRole === 'owner' && (
               <button onClick={tourCompleted ? resetTour : startTour}
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center transition-all"
+                className="w-7 h-7 rounded-xl flex items-center justify-center"
                 style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.25)' }}>
                 <HelpCircle size={13} />
               </button>
             )}
             <button onClick={logout}
-              className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center transition-all"
+              className="w-7 h-7 rounded-xl flex items-center justify-center"
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.25)' }}>
               <LogOut size={13} />
             </button>
@@ -790,119 +644,123 @@ function AppShell() {
         </div>
       </header>
 
-      {/* Contenu principal — padding bottom inclut safe area iOS */}
+      {/* Contenu */}
       <main
-        className="relative z-10 max-w-lg md:max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 md:px-6 pt-[60px]"
-        style={{ paddingBottom: 'calc(88px + env(safe-area-inset-bottom, 0px))' }}>
+        className="relative z-10 w-full max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 pt-14"
+        style={{ paddingBottom: 'calc(56px + env(safe-area-inset-bottom, 0px) + 8px)' }}
+      >
         <AnimatePresence mode="wait">
           <motion.div key={localView}
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}>
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}>
 
-            {localView === 'accueil' && (
-              <VueAccueil onNavigate={handleDeepNavigate} workflow={workflow} />
-            )}
-
+            {localView === 'accueil' && <VueAccueil onNavigate={handleDeepNavigate} workflow={workflow} />}
             {localView === 'journee' && (
               <VueJournee workflow={workflow} canRead={canRead}
                 onNavigateStep={(step) => handleNavClick(step as LocalView)} />
             )}
-
-            {localView === 'matin' && (canRead('matin') ? <VueMatin /> : <ViewBlocked />)}
-
-            {localView === 'snapshot' && (
-              !canRead('snapshot') ? <ViewBlocked /> :
-              <WorkflowGuard step="snapshot" canAccess={workflow.canAccessSnapshot}
-                blockReason={workflow.snapshotBlockReason}
-                onNavigate={(step) => handleNavClick(step as LocalView)}>
+            {localView === 'matin'      && (canRead('matin')      ? <VueMatin />      : <ViewBlocked />)}
+            {localView === 'snapshot'   && (!canRead('snapshot')  ? <ViewBlocked /> :
+              <WorkflowGuard step="snapshot" canAccess={workflow.canAccessSnapshot} blockReason={workflow.snapshotBlockReason} onNavigate={(s) => handleNavClick(s as LocalView)}>
                 <VueSnapshot />
               </WorkflowGuard>
             )}
-
-            {localView === 'soir' && (
-              !canRead('soir') ? <ViewBlocked /> :
-              <WorkflowGuard step="soir" canAccess={workflow.canAccessSoir}
-                blockReason={workflow.soirBlockReason}
-                onNavigate={(step) => handleNavClick(step as LocalView)}>
+            {localView === 'soir'       && (!canRead('soir')      ? <ViewBlocked /> :
+              <WorkflowGuard step="soir" canAccess={workflow.canAccessSoir} blockReason={workflow.soirBlockReason} onNavigate={(s) => handleNavClick(s as LocalView)}>
                 <VueSoir />
               </WorkflowGuard>
             )}
-
-            {localView === 'flash' && (
-              !canRead('flash') ? <ViewBlocked /> :
-              <WorkflowGuard step="flash" canAccess={workflow.canAccessFlash}
-                blockReason={workflow.flashBlockReason}
-                onNavigate={(step) => handleNavClick(step as LocalView)}>
+            {localView === 'flash'      && (!canRead('flash')     ? <ViewBlocked /> :
+              <WorkflowGuard step="flash" canAccess={workflow.canAccessFlash} blockReason={workflow.flashBlockReason} onNavigate={(s) => handleNavClick(s as LocalView)}>
                 <VueFlash />
               </WorkflowGuard>
             )}
-
-            {localView === 'catalogue'  && (canRead('catalogue')  ? <Catalogue />     : <ViewBlocked />)}
-            {localView === 'dashboard'  && (canRead('dashboard')  ? <Dashboard />     : <ViewBlocked />)}
-            {localView === 'parametres' && (canRead('parametres') ? <Parametres />    : <ViewBlocked />)}
-            {localView === 'equipe'     && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
-            {localView === 'vitrine'    && (userRole === 'owner'  ? <VitrinEditor />  : <ViewBlocked />)}
-            {localView === 'ia'         && <VueRapportIA />}
-            {localView === 'supervision' && (
-              canRead('equipe')
-                ? <DashboardSupervision isOwner={userRole === 'owner'} />
-                : <ViewBlocked />
-            )}
+            {localView === 'catalogue'   && (canRead('catalogue')  ? <Catalogue />     : <ViewBlocked />)}
+            {localView === 'dashboard'   && (canRead('dashboard')  ? <Dashboard />     : <ViewBlocked />)}
+            {localView === 'parametres'  && (canRead('parametres') ? <Parametres />    : <ViewBlocked />)}
+            {localView === 'equipe'      && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
+            {localView === 'vitrine'     && (userRole === 'owner'  ? <VitrinEditor />  : <ViewBlocked />)}
+            {localView === 'ia'          && <VueRapportIA />}
+            {localView === 'supervision' && (canRead('equipe') ? <DashboardSupervision isOwner={userRole === 'owner'} /> : <ViewBlocked />)}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Bottom Nav — hauteur fixe + safe area iOS */}
+      {/* ── Bottom Nav ──
+          CORRECTION : pleine largeur garantie par width: 100%
+          4 colonnes égales : Accueil | Journée | (vide si besoin) | Menu
+          On utilise grid sur l'inner div pour que chaque item prenne exactement 1/N de la largeur
+      */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-md"
         style={{
           background: 'rgba(18,10,6,0.97)',
           borderTop: '1px solid rgba(255,255,255,0.07)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        }}>
-        {/* 3 items fixes + 1 menu = 4 colonnes */}
+          width: '100%',
+        }}
+      >
+        {/* inner container : grille 3 colonnes, pleine largeur */}
         <div
-          className="grid w-full max-w-lg md:max-w-2xl lg:max-w-4xl mx-auto"
-          style={{ gridTemplateColumns: 'repeat(3, 1fr) 1fr', height: '56px' }}>
-          {ALL_NAV_ITEMS.map(item => {
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            width: '100%',
+            height: '56px',
+          }}
+        >
+          {NAV_ITEMS.map(item => {
             const Icon = item.icon;
             const isActive = localView === item.id;
             return (
               <motion.button
                 key={item.id}
-                onClick={() => handleNavClick(item.id as LocalView)}
+                onClick={() => handleNavClick(item.id)}
                 whileTap={{ scale: 0.88 }}
-                className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1">
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px', touchAction: 'manipulation', userSelect: 'none', position: 'relative' }}
+              >
+                {/* Indicator */}
+                {isActive && (
+                  <span style={{
+                    position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
+                    width: '28px', height: '2px', borderRadius: '9999px',
+                    background: item.id === 'accueil' ? 'rgba(255,255,255,0.7)' : '#C19A6B',
+                  }} />
+                )}
                 <Icon
                   size={20}
                   strokeWidth={isActive ? 2.3 : 1.6}
                   style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }}
                 />
-                <span
-                  className="text-[9px] sm:text-[10px] font-bold leading-none"
-                  style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }}>
+                <span style={{
+                  fontSize: '10px', fontWeight: 700, lineHeight: 1,
+                  color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : '#C19A6B') : 'rgba(255,255,255,0.4)',
+                }}>
                   {item.label}
                 </span>
-                {isActive && (
-                  <motion.div
-                    layoutId="nav-indicator"
-                    className="absolute bottom-0 w-8 h-0.5 rounded-full"
-                    style={{ background: item.id === 'accueil' ? 'rgba(255,255,255,0.6)' : '#C19A6B' }}
-                  />
-                )}
               </motion.button>
             );
           })}
 
-          {/* Bouton Menu */}
+          {/* Bouton Menu — 3e colonne */}
           <motion.button
             onClick={() => setDrawerOpen(true)}
             whileTap={{ scale: 0.88 }}
-            className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1 relative">
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px', touchAction: 'manipulation', userSelect: 'none', position: 'relative' }}
+          >
+            {isSecondaryActive && (
+              <span style={{
+                position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
+                width: '28px', height: '2px', borderRadius: '9999px', background: '#C19A6B',
+              }} />
+            )}
             {pendingCount > 0 && (
-              <span
-                className="absolute top-1.5 right-3 text-white font-black text-[8px] min-w-[14px] h-[14px] flex items-center justify-center rounded-full"
-                style={{ background: '#3A7BD5' }}>
+              <span style={{
+                position: 'absolute', top: '6px', right: 'calc(50% - 18px)',
+                background: '#3A7BD5', color: 'white', fontSize: '8px', fontWeight: 900,
+                minWidth: '14px', height: '14px', borderRadius: '9999px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px',
+              }}>
                 {pendingCount > 9 ? '9+' : pendingCount}
               </span>
             )}
@@ -911,16 +769,16 @@ function AppShell() {
               strokeWidth={isSecondaryActive ? 2.3 : 1.6}
               style={{ color: isSecondaryActive ? '#C19A6B' : 'rgba(255,255,255,0.4)' }}
             />
-            <span
-              className="text-[9px] sm:text-[10px] font-bold leading-none"
-              style={{ color: isSecondaryActive ? '#C19A6B' : 'rgba(255,255,255,0.4)' }}>
+            <span style={{
+              fontSize: '10px', fontWeight: 700, lineHeight: 1,
+              color: isSecondaryActive ? '#C19A6B' : 'rgba(255,255,255,0.4)',
+            }}>
               Menu
             </span>
           </motion.button>
         </div>
       </nav>
 
-      {/* Drawer */}
       <PlusDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -929,17 +787,12 @@ function AppShell() {
         pendingOrders={pendingCount}
       />
 
-      {/* Tour guidé */}
       {userRole === 'owner' && (
         <TourWizard onNavigateToView={view => { setLocalView(view); setActiveView(view); }} />
       )}
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────
-// Export
-// ─────────────────────────────────────────────────────────────
 
 export default function BoulangerPage() {
   return (
