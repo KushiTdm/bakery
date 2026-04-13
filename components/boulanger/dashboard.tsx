@@ -18,6 +18,7 @@ import {
   Calendar, ChevronDown, Flame,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
+import VueSemaine from './vue-semaine';
 
 // ─────────────────────────────────────────────────────────────
 // Sparkline SVG inline (léger, sans dépendance)
@@ -530,6 +531,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* ── Récapitulatif par jour de la semaine ── */}
+      {hasHistory && <VueSemaine />}
 
       {/* ── Spotlight produits (meilleur / pire) ── */}
       {hasHistory && productWaste.length >= 2 && (

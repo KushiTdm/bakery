@@ -214,6 +214,21 @@ Protégé par **Supabase Auth (email + password)**. Organisé en 4 onglets :
 - Tableau par produit avec indicateur coloré (vert < 5% / amber 5–8% / rouge > 8%)
 - Recommandations automatiques
 
+#### 📅 Récapitulatif hebdomadaire — Stats par jour de la semaine
+- **7 cards interactives** (Lundi → Dimanche) avec KPIs synthétiques :
+  - CA moyen du jour, taux d'invendu moyen, valeur des pertes moyennes
+  - Barre de progression colorée (vert / amber / rouge) selon le taux d'invendu
+  - Nombre de jours analysés par jour de la semaine
+- **Vue détaillée au clic** sur chaque card :
+  - **Meilleur CA** et **Pire CA** avec la date exacte
+  - **Top 5 meilleures ventes** en moyenne pour ce jour (produit, volume, taux d'invendu)
+  - **Top 5 pires ventes** — produits les moins performants
+  - **Taux d'invendu** détaillé avec valeur de perte moyenne en euros
+  - **Commandes en ligne** : nombre moyen/jour, répartition click & collect vs anti-gaspi
+  - **Paniers anti-gaspi** : taux de vente, vendus/proposés, composition (produits les plus flashés)
+- Responsive : grille 2 cols mobile / 3 tablette / 4 moyen / 7 desktop
+- API dédiée `/api/boulanger/stats-semaine` exploitant l'index `jour_semaine` pour des requêtes performantes
+
 #### 📦 Catalogue
 - CRUD complet produits (nom, prix, coût, catégorie, emoji, allergènes)
 - Upload photos via Supabase Storage
@@ -255,6 +270,7 @@ sauve-mie/
 │   │   │   ├── airtable/route.ts          # Proxy Airtable (optionnel)
 │   │   │   ├── auth/route.ts              # Login / register
 │   │   │   ├── historique/route.ts        # Stats historiques
+│   │   │   ├── stats-semaine/route.ts    # Stats agrégées par jour de la semaine
 │   │   │   ├── journee/route.ts           # Journée (GET/POST/PUT)
 │   │   │   ├── produits/route.ts          # CRUD produits
 │   │   │   ├── produits/upload/route.ts   # Upload photos Storage
@@ -288,6 +304,7 @@ sauve-mie/
 │   │   ├── push-notification-toggle.tsx   # Activation push
 │   │   ├── tour-wizard.tsx                # Visite guidée Spotlight
 │   │   ├── vue-matin.tsx                  # Production matin
+│   │   ├── vue-semaine.tsx                # Récapitulatif hebdomadaire par jour
 │   │   ├── vue-snapshot.tsx               # Stocks 10h/14h
 │   │   └── vue-soir.tsx                   # Bilan & clôture
 │   ├── seo/json-ld.tsx                    # Schema.org
