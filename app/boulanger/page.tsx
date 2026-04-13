@@ -862,8 +862,8 @@ function AppShell() {
         }}>
         {/* 3 items fixes + 1 menu = 4 colonnes */}
         <div
-          className="grid w-full max-w-lg md:max-w-2xl lg:max-w-4xl mx-auto"
-          style={{ gridTemplateColumns: 'repeat(3, 1fr) 1fr', height: '56px' }}>
+          className="grid w-full mx-auto"
+          style={{ gridTemplateColumns: 'repeat(4, 1fr)', height: '56px' }}>
           {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;
             const isActive = localView === item.id;

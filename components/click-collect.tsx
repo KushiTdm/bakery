@@ -184,15 +184,15 @@ export default function ClickCollect() {
   const dernierCreneauFin = parseInt(dernierCreneau.split(':')[0], 10) + 4;
 
   return (
-    <div className="pt-16 sm:pt-20 min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+    <div className="pt-16 sm:pt-20 min-h-screen bg-[#FDFBF7] overflow-x-hidden">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-10">
 
-        <header className="mb-6 sm:mb-10">
+        <header className="mb-4 sm:mb-10">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
+            <h1 className="text-xl sm:text-3xl lg:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
               Click &amp; Collect
             </h1>
-            <p className="text-[#2C1810]/55 mt-1.5 sm:mt-2 text-xs sm:text-sm max-w-xl">
+            <p className="text-[#2C1810]/55 mt-1 sm:mt-2 text-xs sm:text-sm max-w-xl">
               Commandez en ligne nos pains artisanaux, viennoiseries et pâtisseries.
               Retrait en boutique — paiement sur place.
             </p>
@@ -206,7 +206,7 @@ export default function ClickCollect() {
         </header>
 
         {/* Layout responsive — colonne sur mobile, grille sur lg+ */}
-        <div className="grid lg:grid-cols-3 gap-5 sm:gap-8">
+        <div className="grid lg:grid-cols-3 gap-4 sm:gap-8">
 
           <main className="lg:col-span-2 order-2 lg:order-1">
             {/* Filtres catégories — scroll horizontal sur mobile */}
@@ -270,14 +270,14 @@ export default function ClickCollect() {
 
           {/* Sidebar — au-dessus des produits sur mobile */}
           <aside className="lg:col-span-1 order-1 lg:order-2">
-            <div className="lg:sticky lg:top-28 space-y-4 sm:space-y-5">
+            <div className="lg:sticky lg:top-28 space-y-3 sm:space-y-5">
               <FlashSection />
 
-              <section className="bg-white rounded-2xl p-4 sm:p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
-                <h2 className="text-[#2C1810] font-semibold text-sm mb-3 sm:mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
+              <section className="bg-white rounded-2xl p-3 sm:p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
+                <h2 className="text-[#2C1810] font-semibold text-sm mb-2 sm:mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
                   Informations retrait
                 </h2>
-                <ul className="space-y-2 sm:space-y-2.5 text-xs text-[#2C1810]/60">
+                <ul className="space-y-1.5 sm:space-y-2.5 text-xs text-[#2C1810]/60">
                   <li className="flex items-start gap-2">
                     <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
                     <span><strong>{adresseRetrait}</strong></span>

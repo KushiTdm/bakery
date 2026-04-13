@@ -380,20 +380,21 @@ export default function FlashSection() {
   // Flash inactif (hors horaire)
   if (!isLive) {
     return (
-      <div className="bg-[#2C1810] rounded-3xl p-8 text-center">
-        <div className="w-14 h-14 bg-[#C19A6B]/15 rounded-2xl flex items-center justify-center mx-auto mb-5">
-          <Clock size={26} className="text-[#C19A6B]" />
+      <div className="bg-[#2C1810] rounded-3xl p-5 sm:p-8 text-center overflow-hidden">
+        <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#C19A6B]/15 rounded-2xl flex items-center justify-center mx-auto mb-4 sm:mb-5">
+          <Clock size={22} className="text-[#C19A6B] sm:hidden" />
+          <Clock size={26} className="text-[#C19A6B] hidden sm:block" />
         </div>
-        <h2 className="text-white text-xl font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <h2 className="text-white text-base sm:text-xl font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           Invendus du jour — disponibles à {heureDebut}h
         </h2>
-        <p className="text-white/50 text-sm leading-relaxed max-w-sm mx-auto">
+        <p className="text-white/50 text-xs sm:text-sm leading-relaxed max-w-sm mx-auto">
           Chaque soir à {heureDebut}h, nos invendus sont proposés à −{remise}%
           jusqu'à {heureFin}h ou épuisement.
         </p>
-        <div className="mt-6 inline-flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-4 py-2">
+        <div className="mt-4 sm:mt-6 inline-flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-3 sm:px-4 py-2">
           <Info size={13} className="text-[#C19A6B]" />
-          <span className="text-white/50 text-xs">Pas de réservation · Paiement en boutique</span>
+          <span className="text-white/50 text-[10px] sm:text-xs">Pas de réservation · Paiement en boutique</span>
         </div>
       </div>
     );

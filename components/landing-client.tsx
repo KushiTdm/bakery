@@ -35,7 +35,7 @@ export default function LandingClient({
 
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} nom={nom} />
 
-      <main className="min-h-screen">
+      <main className="min-h-screen overflow-x-hidden">
         {activeTab === 'vitrine' ? (
           <>
             <Hero
