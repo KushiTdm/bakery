@@ -7,19 +7,12 @@
 // Après activation, redirection vers le sous-domaine de la boulangerie.
 
 import { useState, useEffect, useRef } from 'react'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'sauvemie.fr'
 
-function getSupabase(): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-}
-
 export default function ActiverPage() {
-  const supabaseRef = useRef<SupabaseClient>(getSupabase())
+  const supabaseRef = useRef(supabase)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [status, setStatus] = useState<'loading' | 'ready' | 'success' | 'error'>('loading')
