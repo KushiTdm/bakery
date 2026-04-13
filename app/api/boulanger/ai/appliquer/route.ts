@@ -48,10 +48,40 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Erreur chargement prévisions' }, { status: 500 });
     }
 
+    // ── Fallback historique : même jour de semaine ────────────
+    if (!previsions || previsions.length === 0) {
+      const jourSemaine = new Date(dateProd + 'T12:00:00').getDay();
+
+      const { data: fallback, error: fbError } = await admin
+        .rpc('get_fallback_production', {
+          p_boulangerie_id: boulangerieId,
+          p_jour_semaine:   jourSemaine,
+          p_date_avant:     dateProd,
+        });
+
+      if (!fbError && fallback && fallback.length > 0) {
+        const dateRef = (fallback[0] as { journee_date: string }).journee_date;
+        return NextResponse.json({
+          previsions: fallback.map((r: { produit_id: string; production: number; produit_nom: string }) => ({
+            produit_id:        r.produit_id,
+            quantite_suggeree: r.production,
+            quantite_base:     r.production,
+            variation_pct:     0,
+            raison:            `Basé sur la production du ${dateRef}`,
+          })),
+          date_production: dateProd,
+          count:           fallback.length,
+          source:          'historique',
+          date_reference:  dateRef,
+        });
+      }
+    }
+
     return NextResponse.json({
       previsions:      previsions ?? [],
       date_production: dateProd,
       count:           previsions?.length ?? 0,
+      source:          'levain',
     });
   } catch (err) {
     console.error('[GET /api/boulanger/ai/appliquer]', err);

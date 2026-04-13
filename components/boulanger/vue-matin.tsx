@@ -406,6 +406,7 @@ export default function VueMatin() {
   // ── Prévisions Levain IA ─────────────────────────────────
   const [levainForecasts, setLevainForecasts]   = useState<LevainForecast[] | null>(null);
   const [levainApplying,  setLevainApplying]    = useState(false);
+  const [forecastSource,  setForecastSource]    = useState<string>('levain');
 
   useEffect(() => { loadLevainForecasts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -418,8 +419,11 @@ export default function VueMatin() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) return;
-      const data = await res.json() as { previsions: LevainForecast[]; count: number };
-      if (data.previsions?.length > 0) setLevainForecasts(data.previsions);
+      const data = await res.json() as { previsions: LevainForecast[]; count: number; source?: string };
+      if (data.previsions?.length > 0) {
+        setLevainForecasts(data.previsions);
+        setForecastSource(data.source ?? 'levain');
+      }
     } catch (err) {
       console.warn('[VueMatin] loadLevainForecasts:', err);
     }
@@ -485,14 +489,18 @@ export default function VueMatin() {
       levainForecasts.forEach(f => updateProduction(f.produit_id, f.quantite_suggeree));
       setLevainForecasts(null);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          const today = new Date().toLocaleDateString('en-CA');
-          await fetch('/api/boulanger/ai/appliquer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-            body: JSON.stringify({ date_production: today }),
-          });
+        // Ne pas POST pour marquer les prévisions si c'est un fallback historique
+        // (pas de production_forecasts à marquer comme appliquées)
+        if (forecastSource !== 'historique') {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const today = new Date().toLocaleDateString('en-CA');
+            await fetch('/api/boulanger/ai/appliquer', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ date_production: today }),
+            });
+          }
         }
       } catch (err) {
         console.warn('[handleApplyAll]', err);
@@ -504,7 +512,7 @@ export default function VueMatin() {
         if (s.dataPoints > 0) updateProduction(s.id, s.suggestedQty);
       });
     }
-  }, [levainForecasts, aiSuggestionsMap, productionSuggestions, updateProduction]);
+  }, [levainForecasts, aiSuggestionsMap, productionSuggestions, updateProduction, forecastSource]);
 
   const handleValider = () => {
     setValidated(true);

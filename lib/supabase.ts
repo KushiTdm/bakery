@@ -115,6 +115,7 @@ export interface DbJournee {
   id:               string;
   boulangerie_id:   string;
   date:             string;
+  jour_semaine:     number;  // 0=dimanche..6=samedi (EXTRACT(DOW) / JS getDay())
   commandes_online: number;
   ca_estime:        number;
   taux_invendu:     number;

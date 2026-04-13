@@ -291,6 +291,31 @@ ALTER TABLE journees ADD COLUMN IF NOT EXISTS evenement_lendemain TEXT    DEFAUL
 CREATE INDEX IF NOT EXISTS idx_journees_boulangerie_date ON journees(boulangerie_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_journees_cloturee         ON journees(boulangerie_id, cloturee);
 
+-- [migration-jour-semaine] Jour de semaine pré-calculé (0=dimanche..6=samedi, match EXTRACT(DOW) et JS getDay())
+ALTER TABLE journees ADD COLUMN IF NOT EXISTS jour_semaine SMALLINT DEFAULT NULL;
+
+CREATE OR REPLACE FUNCTION set_jour_semaine()
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  NEW.jour_semaine := EXTRACT(DOW FROM NEW.date)::SMALLINT;
+  RETURN NEW;
+END; $$;
+
+DROP TRIGGER IF EXISTS trg_journees_jour_semaine ON journees;
+CREATE TRIGGER trg_journees_jour_semaine
+  BEFORE INSERT OR UPDATE OF date ON journees
+  FOR EACH ROW EXECUTE FUNCTION set_jour_semaine();
+
+-- Backfill des lignes existantes
+UPDATE journees SET jour_semaine = EXTRACT(DOW FROM date)::SMALLINT WHERE jour_semaine IS NULL;
+
+-- Contrainte NOT NULL après backfill
+ALTER TABLE journees ALTER COLUMN jour_semaine SET NOT NULL;
+ALTER TABLE journees ALTER COLUMN jour_semaine SET DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_journees_boulangerie_jour_semaine
+  ON journees(boulangerie_id, jour_semaine);
+
 DROP TRIGGER IF EXISTS trg_journees_updated_at ON journees;
 CREATE TRIGGER trg_journees_updated_at
   BEFORE UPDATE ON journees FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -1562,6 +1587,51 @@ REVOKE ALL ON FUNCTION get_levain_quota(UUID) FROM authenticated;
 GRANT  EXECUTE ON FUNCTION get_levain_quota(UUID) TO service_role;
 
 -- ────────────────────────────────────────────────────────────────────────
+-- 23b. FONCTION : get_fallback_production (prévisions fallback même jour de semaine)
+-- ────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION get_fallback_production(
+  p_boulangerie_id UUID,
+  p_jour_semaine   SMALLINT,
+  p_date_avant     DATE
+)
+RETURNS TABLE (
+  journee_id   UUID,
+  journee_date DATE,
+  produit_id   TEXT,
+  produit_nom  TEXT,
+  production   INT
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_journee_id   UUID;
+  v_journee_date DATE;
+BEGIN
+  -- Trouver la dernière journée clôturée du même jour de semaine
+  SELECT j.id, j.date INTO v_journee_id, v_journee_date
+  FROM journees j
+  WHERE j.boulangerie_id = p_boulangerie_id
+    AND j.jour_semaine   = p_jour_semaine
+    AND j.date           < p_date_avant
+    AND j.cloturee       = TRUE
+  ORDER BY j.date DESC
+  LIMIT 1;
+
+  IF v_journee_id IS NULL THEN RETURN; END IF;
+
+  RETURN QUERY
+    SELECT v_journee_id, v_journee_date, sj.produit_id, sj.produit_nom, sj.production
+    FROM stocks_journaliers sj
+    WHERE sj.journee_id = v_journee_id
+      AND sj.production > 0;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION get_fallback_production(UUID, SMALLINT, DATE) FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_fallback_production(UUID, SMALLINT, DATE) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION get_fallback_production(UUID, SMALLINT, DATE) TO service_role;
+
+-- ────────────────────────────────────────────────────────────────────────
 -- 24. FONCTION : cleanup_expired_invites (version P2 — avec audit log)
 -- ────────────────────────────────────────────────────────────────────────
 
@@ -1917,13 +1987,14 @@ BEGIN
   RAISE NOTICE '   Profil boulangerie     : ✅ % / 3 colonnes (jours, clientèle, spécialités)', n_profil;
   RAISE NOTICE '   Vitrine CMS            : ✅ % / 3 colonnes + bucket vitrine-images', n_vitrine;
   RAISE NOTICE '   Pré-commandes J+1      : ✅ % colonne date_retrait + verifier_stock_commande', n_precommande;
+  RAISE NOTICE '   Jour semaine           : ✅ jour_semaine + trigger + get_fallback_production RPC';
   RAISE NOTICE '';
   RAISE NOTICE '   ⚠️  Action manuelle :';
   RAISE NOTICE '   Supabase → Auth → Settings → Leaked Password Protection';
   RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
 
   IF n_tables    < 16 THEN RAISE EXCEPTION '❌ Tables manquantes : % / 16',    n_tables; END IF;
-  IF n_fonctions < 17 THEN RAISE EXCEPTION '❌ Fonctions manquantes : % / 17', n_fonctions; END IF;
+  IF n_fonctions < 18 THEN RAISE EXCEPTION '❌ Fonctions manquantes : % / 18', n_fonctions; END IF;
   IF n_search_path < 4 THEN RAISE EXCEPTION '❌ search_path manquant : % / 4', n_search_path; END IF;
   IF n_buckets   < 2  THEN RAISE WARNING '⚠️  Buckets manquants : % / 2', n_buckets; END IF;
   IF n_airtable  > 0  THEN RAISE WARNING '⚠️  % colonne(s) Airtable encore présentes', n_airtable; END IF;
