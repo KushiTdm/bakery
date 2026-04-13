@@ -72,6 +72,10 @@ export default async function Home() {
         <LandingClient
           vitrine={vitrine}
           nom={nom}
+          adresse={boulangerieInfo?.adresse ?? null}
+          ville={boulangerieInfo?.ville ?? null}
+          code_postal={boulangerieInfo?.code_postal ?? null}
+          telephone={boulangerieInfo?.telephone ?? null}
           savoirFaire={
             <SavoirFaire
               histoire={vitrine?.histoire}

@@ -185,7 +185,7 @@ export default function VueSnapshot() {
             <Camera size={18} className="text-[#C19A6B]/70" />
           </div>
         </div>
-        <p className="text-white/35 text-xs mt-2 leading-relaxed">
+        <p className="text-white/35 text-xs sm:text-sm mt-2 leading-relaxed">
           Saisissez ce qui <strong className="text-white/55">reste</strong> en vitrine.
           Partez de zéro — ajoutez uniquement les invendus.
         </p>
@@ -286,8 +286,8 @@ export default function VueSnapshot() {
               <div className="flex-1 flex items-center gap-2.5 min-w-0">
                 <span className="text-xl leading-none flex-shrink-0">{stock.emoji}</span>
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium line-clamp-2">{stock.name}</p>
-                  <p className="text-white/35 text-xs tabular-nums">
+                  <p className="text-white text-sm sm:text-base font-medium line-clamp-2">{stock.name}</p>
+                  <p className="text-white/35 text-xs sm:text-sm tabular-nums">
                     {refLabel}
                     {vendus > 0 && (
                       <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>

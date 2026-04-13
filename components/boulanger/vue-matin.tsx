@@ -99,26 +99,26 @@ function ReportVeilleBadge({
           <button
             onPointerDown={() => onAjuster(-1)}
             disabled={quantite <= 0}
-            className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center disabled:opacity-30 touch-manipulation"
+            className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center disabled:opacity-30 touch-manipulation"
           >
-            <Minus size={9} className="text-white" />
+            <Minus size={12} className="text-white" />
           </button>
           <motion.span
             key={quantite}
             initial={{ scale: 1.2 }}
             animate={{ scale: 1 }}
-            className="text-orange-300 text-[11px] font-bold font-mono w-5 text-center tabular-nums"
+            className="text-orange-300 text-sm font-bold font-mono w-6 text-center tabular-nums"
           >
             {quantite}
           </motion.span>
           <button
             onPointerDown={() => onAjuster(+1)}
-            className="w-5 h-5 rounded-md bg-white/10 flex items-center justify-center touch-manipulation"
+            className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center touch-manipulation"
           >
-            <Plus size={9} className="text-white" />
+            <Plus size={12} className="text-white" />
           </button>
         </div>
-        <span className="text-orange-300/60 text-[9px]">unité{quantite > 1 ? 's' : ''} de la veille</span>
+        <span className="text-orange-300/60 text-[10px]">unité{quantite > 1 ? 's' : ''} de la veille</span>
       </div>
     </div>
   );
@@ -168,8 +168,8 @@ function ProduitRow({
         <div className="flex items-center gap-2.5">
           <span className="text-2xl leading-none">{stock.emoji}</span>
           <div>
-            <p className="text-white text-sm font-semibold leading-tight">{stock.name}</p>
-            <p className="text-white/35 text-xs mt-0.5">{stock.prixVente.toFixed(2)} €/pièce</p>
+            <p className="text-white text-sm sm:text-base font-semibold leading-tight">{stock.name}</p>
+            <p className="text-white/35 text-xs sm:text-sm mt-0.5">{stock.prixVente.toFixed(2)} €/pièce</p>
           </div>
         </div>
 
@@ -200,16 +200,16 @@ function ProduitRow({
               ? <Brain size={10} className="text-purple-400/80" />
               : <Sparkles size={10} className="text-[#C19A6B]/70" />
             }
-            <span className={`text-[10px] font-medium ${isAISuggestion ? 'text-purple-300/80' : 'text-[#C19A6B]/80'}`}>
+            <span className={`text-[11px] sm:text-xs font-medium ${isAISuggestion ? 'text-purple-300/80' : 'text-[#C19A6B]/80'}`}>
               Suggéré : {suggestion.suggestedQty}
             </span>
             {!isAISuggestion && (
-              <span className={`text-[9px] ${CONFIDENCE_COLORS[suggestion.confidence]}`}>
+              <span className={`text-[10px] sm:text-[11px] ${CONFIDENCE_COLORS[suggestion.confidence]}`}>
                 · {CONFIDENCE_LABELS[suggestion.confidence]}
               </span>
             )}
             {suggestion.changePercent !== 0 && (
-              <span className={`text-[9px] font-mono ${suggestion.changePercent > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+              <span className={`text-[10px] sm:text-[11px] font-mono ${suggestion.changePercent > 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
                 {suggestion.changePercent > 0 ? '+' : ''}{suggestion.changePercent}%
               </span>
             )}
@@ -245,7 +245,7 @@ function ProduitRow({
           </motion.div>
           {/* Total disponible si report */}
           {hasReport && (
-            <p className="text-orange-400/60 text-[9px] leading-none mt-0.5 tabular-nums">
+            <p className="text-orange-400/60 text-[10px] sm:text-[11px] leading-none mt-0.5 tabular-nums">
               +{stock.reportVeille} = {stock.production + (stock.reportVeille ?? 0)}
             </p>
           )}

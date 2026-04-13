@@ -2,12 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MapPin, Clock, CalendarPlus } from 'lucide-react';
+import { Plus, MapPin, Clock, CalendarPlus, User, Search, X } from 'lucide-react';
 import { useCart } from '@/context/cart-context';
 import { useSlug } from '@/hooks/use-slug';
 import { categories } from '@/lib/products';
 import type { Product } from '@/lib/products';
 import FlashSection from '@/components/flash-section';
+
+const ALLERGENE_SHORT: Record<string, string> = {
+  gluten: 'Gluten', crustaces: 'Crustacés', oeufs: 'Œufs',
+  poisson: 'Poisson', arachides: 'Arachides', soja: 'Soja',
+  lait: 'Lait', fruits_a_coque: 'Fruits à coque', celeri: 'Céleri',
+  moutarde: 'Moutarde', sesame: 'Sésame', sulfites: 'Sulfites',
+  lupin: 'Lupin', mollusques: 'Mollusques',
+};
 
 interface BoulangeriePublicInfo {
   adresse:          string | null;
@@ -23,8 +31,9 @@ function heureToPlage(heure: string): string {
 }
 
 interface ProductWithStock extends Product {
-  stock?:    number;
-  en_stock?: boolean;
+  stock?:      number;
+  en_stock?:   boolean;
+  allergenes?: string[];
 }
 
 function useCatalogue(slug: string | null) {
@@ -130,7 +139,21 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
         <h3 className="font-semibold text-[#2C1810] text-xs sm:text-sm mb-0.5 sm:mb-1 leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
           {product.name}
         </h3>
-        <p className="text-[#2C1810]/50 text-[10px] sm:text-xs mb-2 sm:mb-3 line-clamp-1">{product.description}</p>
+        <p className="text-[#2C1810]/50 text-[10px] sm:text-xs mb-1.5 sm:mb-2 line-clamp-1">{product.description}</p>
+        {product.allergenes && product.allergenes.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 sm:gap-1 mb-2 sm:mb-3">
+            {product.allergenes.slice(0, 3).map(a => (
+              <span key={a} className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200/60 text-amber-700/80 font-medium">
+                {ALLERGENE_SHORT[a] ?? a}
+              </span>
+            ))}
+            {product.allergenes.length > 3 && (
+              <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600/60 font-medium">
+                +{product.allergenes.length - 3}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-1">
           <span className="text-base sm:text-lg font-bold text-[#C19A6B]">{product.price.toFixed(2)} €</span>
           {isOutOfStock ? (
@@ -161,14 +184,39 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
   );
 }
 
+function AuthHint() {
+  const { user, setIsAuthOpen } = useCart();
+  if (user) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-[#C19A6B]/8 border border-[#C19A6B]/20 rounded-xl sm:rounded-2xl px-3 sm:px-4 py-2 sm:py-2.5 flex items-center gap-2 sm:gap-3 mb-3 sm:mb-6"
+    >
+      <div className="w-7 h-7 sm:w-8 sm:h-8 bg-[#C19A6B]/15 rounded-full flex items-center justify-center flex-shrink-0">
+        <User size={13} className="text-[#C19A6B]" />
+      </div>
+      <p className="text-[#2C1810]/60 text-[11px] sm:text-xs flex-1">
+        <button onClick={() => setIsAuthOpen(true)} className="text-[#C19A6B] font-semibold hover:underline">
+          Connectez-vous
+        </button>{' '}
+        pour passer commande et suivre vos retraits
+      </p>
+    </motion.div>
+  );
+}
+
 export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const resolution = useSlug();
   const { products, boulangerie, loading, source, hasStock } = useCatalogue(resolution?.slug ?? null);
 
-  const filteredProducts = activeCategory === 'all'
-    ? products
-    : products.filter(p => p.category === activeCategory);
+  const filteredProducts = products.filter(p => {
+    const matchCategory = activeCategory === 'all' || p.category === activeCategory;
+    const matchSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchCategory && matchSearch;
+  });
 
   const adresseRetrait  = formatAdresseRetrait(boulangerie);
   const creneauxRetrait = boulangerie?.creneaux_retrait ?? ['08:00', '12:00', '16:00'];
@@ -204,6 +252,8 @@ export default function ClickCollect() {
             )}
           </motion.div>
         </header>
+
+        <AuthHint />
 
         {/* Layout responsive — colonne sur mobile, grille sur lg+ */}
         <div className="flex flex-col lg:grid lg:grid-cols-3 gap-3 sm:gap-8">
@@ -262,6 +312,26 @@ export default function ClickCollect() {
           </aside>
 
           <main className="lg:col-span-2 lg:order-1">
+            {/* Barre de recherche */}
+            <div className="relative mb-2.5 sm:mb-4">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#2C1810]/30" />
+              <input
+                type="text"
+                placeholder="Rechercher un produit…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-[#E8E0D5] rounded-xl pl-9 pr-8 py-2 sm:py-2.5 text-xs sm:text-sm text-[#2C1810] placeholder:text-[#2C1810]/30 outline-none focus:border-[#C19A6B]/50 focus:ring-1 focus:ring-[#C19A6B]/20 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#2C1810]/30 hover:text-[#2C1810]/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
             {/* Filtres catégories — scroll horizontal sur mobile */}
             <nav
               aria-label="Filtrer par catégorie"

@@ -562,9 +562,10 @@ function ViewBlocked() {
 
 type LocalView = 'accueil' | 'journee' | ViewType;
 
-const ALL_NAV_ITEMS: { id: LocalView; label: string; icon: React.ElementType }[] = [
-  { id: 'accueil', label: 'Accueil',    icon: Home },
-  { id: 'journee', label: 'Journée',    icon: CalendarDays },
+const ALL_NAV_ITEMS: { id: LocalView | 'commandes'; label: string; icon: React.ElementType }[] = [
+  { id: 'accueil',    label: 'Accueil',    icon: Home },
+  { id: 'journee',    label: 'Journée',    icon: CalendarDays },
+  { id: 'commandes',  label: 'Commandes',  icon: ShoppingBag },
 ];
 
 const SECONDARY_VIEWS: ViewType[] = ['catalogue', 'dashboard', 'parametres', 'equipe', 'ia', 'supervision', 'vitrine'];
@@ -862,31 +863,46 @@ function AppShell() {
         }}>
         <div
           className="grid w-full px-2 sm:px-4"
-          style={{ gridTemplateColumns: 'repeat(2, 1fr) 1fr', height: '56px' }}>
+          style={{ gridTemplateColumns: 'repeat(4, 1fr)', height: '56px' }}>
           {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;
-            const isActive = localView === item.id;
+            const isCommandes = item.id === 'commandes';
+            const isActive = isCommandes ? false : localView === item.id;
+            const activeColor = item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : isCommandes ? '#6FA8EA' : '#C19A6B';
             return (
               <motion.button
                 key={item.id}
-                onClick={() => handleNavClick(item.id as LocalView)}
+                onClick={() => {
+                  if (isCommandes) {
+                    router.push('/boulanger/commandes');
+                  } else {
+                    handleNavClick(item.id as LocalView);
+                  }
+                }}
                 whileTap={{ scale: 0.88 }}
-                className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1">
+                className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1 relative">
+                {isCommandes && pendingCount > 0 && (
+                  <span
+                    className="absolute top-1.5 right-2 sm:right-3 text-white font-black text-[8px] min-w-[14px] h-[14px] flex items-center justify-center rounded-full z-10"
+                    style={{ background: '#3A7BD5' }}>
+                    {pendingCount > 9 ? '9+' : pendingCount}
+                  </span>
+                )}
                 <Icon
                   size={20}
                   strokeWidth={isActive ? 2.3 : 1.6}
-                  style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }}
+                  style={{ color: isActive ? activeColor : 'rgba(255,255,255,0.4)' }}
                 />
                 <span
                   className="text-[9px] sm:text-[10px] font-bold leading-none"
-                  style={{ color: isActive ? (item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : '#C19A6B') : 'rgba(255,255,255,0.4)' }}>
+                  style={{ color: isActive ? activeColor : 'rgba(255,255,255,0.4)' }}>
                   {item.label}
                 </span>
                 {isActive && (
                   <motion.div
                     layoutId="nav-indicator"
                     className="absolute bottom-0 w-8 h-0.5 rounded-full"
-                    style={{ background: item.id === 'accueil' ? 'rgba(255,255,255,0.6)' : '#C19A6B' }}
+                    style={{ background: activeColor }}
                   />
                 )}
               </motion.button>
@@ -898,13 +914,6 @@ function AppShell() {
             onClick={() => setDrawerOpen(true)}
             whileTap={{ scale: 0.88 }}
             className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1 relative">
-            {pendingCount > 0 && (
-              <span
-                className="absolute top-1.5 right-3 text-white font-black text-[8px] min-w-[14px] h-[14px] flex items-center justify-center rounded-full"
-                style={{ background: '#3A7BD5' }}>
-                {pendingCount > 9 ? '9+' : pendingCount}
-              </span>
-            )}
             <Menu
               size={20}
               strokeWidth={isSecondaryActive ? 2.3 : 1.6}

@@ -17,6 +17,7 @@ interface ProduitPublic {
   emoji:       string;
   prix_vente:  number;
   image_url:   string | null;
+  allergenes:  string[] | null;
 }
 
 interface StockInfo {
@@ -37,6 +38,7 @@ function toProduct(p: ProduitPublic) {
     category:    p.categorie,
     price:       Number(p.prix_vente),
     image:       p.image_url ?? imageDefaults[p.categorie] ?? imageDefaults.boulangerie,
+    allergenes:  p.allergenes ?? [],
   };
 }
 

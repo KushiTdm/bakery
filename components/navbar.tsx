@@ -176,7 +176,7 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
           </div>
         </div>
 
-        {/* Menu mobile — plein écran sur petits appareils */}
+        {/* Menu mobile — actions utilisateur uniquement (les tabs sont dans la bottom bar) */}
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.div
@@ -190,30 +190,6 @@ export default function Navbar({ activeTab, setActiveTab, nom }: NavbarProps) {
                 className="px-4 pt-4 pb-6 space-y-2"
                 style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
               >
-                <button
-                  onClick={() => { setActiveTab('vitrine'); setIsMobileMenuOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition-all ${
-                    activeTab === 'vitrine'
-                      ? 'bg-[#2C1810] text-white'
-                      : 'text-[#2C1810] bg-[#F5F0E8] hover:bg-[#EDE8E0]'
-                  }`}
-                >
-                  <Store size={18} /> La Boulangerie
-                </button>
-                <button
-                  onClick={() => { setActiveTab('commander'); setIsMobileMenuOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition-all ${
-                    activeTab === 'commander'
-                      ? 'bg-[#C19A6B] text-white'
-                      : 'text-[#2C1810] bg-[#F5F0E8] hover:bg-[#EDE8E0]'
-                  }`}
-                >
-                  <UtensilsCrossed size={18} /> Click &amp; Collect
-                </button>
-
-                {/* Séparateur */}
-                <div className="h-px bg-[#E8E0D5] my-2" />
-
                 {user ? (
                   <>
                     <button
