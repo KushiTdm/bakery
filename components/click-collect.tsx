@@ -184,20 +184,20 @@ export default function ClickCollect() {
   const dernierCreneauFin = parseInt(dernierCreneau.split(':')[0], 10) + 4;
 
   return (
-    <div className="pt-16 sm:pt-20 min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+    <div className="pt-14 sm:pt-20 min-h-screen bg-[#FDFBF7]">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-10">
 
-        <header className="mb-6 sm:mb-10">
+        <header className="mb-3 sm:mb-10">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
+            <h1 className="text-lg sm:text-3xl lg:text-4xl font-bold text-[#2C1810]" style={{ fontFamily: 'Playfair Display, serif' }}>
               Click &amp; Collect
             </h1>
-            <p className="text-[#2C1810]/55 mt-1.5 sm:mt-2 text-xs sm:text-sm max-w-xl">
+            <p className="text-[#2C1810]/55 mt-1 sm:mt-2 text-[11px] sm:text-sm max-w-xl leading-relaxed">
               Commandez en ligne nos pains artisanaux, viennoiseries et pâtisseries.
               Retrait en boutique — paiement sur place.
             </p>
             {!loading && source === 'supabase' && (
-              <div className="flex items-center gap-1.5 mt-2 sm:mt-3">
+              <div className="flex items-center gap-1.5 mt-1.5 sm:mt-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
                 <span className="text-[10px] sm:text-xs text-[#2C1810]/35">Catalogue mis à jour</span>
               </div>
@@ -206,17 +206,74 @@ export default function ClickCollect() {
         </header>
 
         {/* Layout responsive — colonne sur mobile, grille sur lg+ */}
-        <div className="grid lg:grid-cols-3 gap-5 sm:gap-8">
+        <div className="flex flex-col lg:grid lg:grid-cols-3 gap-3 sm:gap-8">
 
-          <main className="lg:col-span-2 order-2 lg:order-1">
+          {/* Sidebar — compact sur mobile, sticky sur desktop */}
+          <aside className="lg:col-span-1 lg:order-2">
+            <div className="lg:sticky lg:top-28 space-y-3 sm:space-y-5">
+              <FlashSection />
+
+              <section className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
+                <h2 className="text-[#2C1810] font-semibold text-xs sm:text-sm mb-2 sm:mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
+                  Informations retrait
+                </h2>
+                {/* Mobile: horizontal compact — Desktop: vertical list */}
+                <div className="hidden sm:block">
+                  <ul className="space-y-2.5 text-xs text-[#2C1810]/60">
+                    <li className="flex items-start gap-2">
+                      <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                      <span><strong>{adresseRetrait}</strong></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
+                      <span>Créneaux : <strong>{plagesLabel}</strong></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
+                      <span>Paiement <strong>sur place</strong> — espèces ou carte</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
+                      <span>Commande conservée jusqu'à <strong>{dernierCreneauFin}h</strong></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500 mt-1 flex-shrink-0" />
+                      <span>Click &amp; Collect <strong className="text-green-600">100% gratuit</strong></span>
+                    </li>
+                  </ul>
+                </div>
+                {/* Mobile compact */}
+                <ul className="sm:hidden space-y-1.5 text-[11px] text-[#2C1810]/60">
+                  <li className="flex items-center gap-1.5">
+                    <MapPin size={10} className="text-[#C19A6B] flex-shrink-0" />
+                    <span className="truncate"><strong>{adresseRetrait}</strong></span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <Clock size={10} className="text-[#C19A6B] flex-shrink-0" />
+                    <span className="truncate">Créneaux : <strong>{plagesLabel}</strong></span>
+                  </li>
+                  <li className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C19A6B] flex-shrink-0" />
+                    <span>Paiement <strong>sur place</strong> · Conservé jusqu'à <strong>{dernierCreneauFin}h</strong></span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </aside>
+
+          <main className="lg:col-span-2 lg:order-1">
             {/* Filtres catégories — scroll horizontal sur mobile */}
-            <nav aria-label="Filtrer par catégorie" className="flex gap-2 mb-5 sm:mb-7 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+            <nav
+              aria-label="Filtrer par catégorie"
+              className="flex gap-1.5 sm:gap-2 mb-3 sm:mb-7 overflow-x-auto pb-1 scrollbar-none"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
               {categories.map(cat => (
                 <button
                   key={cat.id}
                   onClick={() => setActiveCategory(cat.id)}
                   aria-pressed={activeCategory === cat.id}
-                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-medium transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+                  className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-medium transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
                     activeCategory === cat.id
                       ? 'bg-[#2C1810] text-white'
                       : 'bg-white text-[#2C1810]/70 border border-[#E8E0D5] hover:border-[#C19A6B]/50'
@@ -228,8 +285,7 @@ export default function ClickCollect() {
             </nav>
 
             {loading ? (
-              // Skeleton — 2 colonnes sur mobile, 3 sur sm+
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4" aria-busy="true">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-4" aria-busy="true">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse border border-[#E8E0D5]/60">
                     <div className="aspect-[4/3] bg-[#E8E0D5]" />
@@ -251,11 +307,10 @@ export default function ClickCollect() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  // 2 colonnes sur mobile, 2 sur sm, 3 sur md+
-                  className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4"
+                  className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-4"
                 >
                   {filteredProducts.length === 0 ? (
-                    <div className="col-span-2 sm:col-span-3 text-center py-12">
+                    <div className="col-span-2 md:col-span-3 text-center py-12">
                       <p className="text-[#2C1810]/40 text-sm">Aucun produit dans cette catégorie</p>
                     </div>
                   ) : (
@@ -267,41 +322,6 @@ export default function ClickCollect() {
               </AnimatePresence>
             )}
           </main>
-
-          {/* Sidebar — au-dessus des produits sur mobile */}
-          <aside className="lg:col-span-1 order-1 lg:order-2">
-            <div className="lg:sticky lg:top-28 space-y-4 sm:space-y-5">
-              <FlashSection />
-
-              <section className="bg-white rounded-2xl p-4 sm:p-5 border border-[#E8E0D5]" aria-label="Informations de retrait">
-                <h2 className="text-[#2C1810] font-semibold text-sm mb-3 sm:mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
-                  Informations retrait
-                </h2>
-                <ul className="space-y-2 sm:space-y-2.5 text-xs text-[#2C1810]/60">
-                  <li className="flex items-start gap-2">
-                    <MapPin size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                    <span><strong>{adresseRetrait}</strong></span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Clock size={11} className="text-[#C19A6B] mt-0.5 flex-shrink-0" />
-                    <span>Créneaux : <strong>{plagesLabel}</strong></span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
-                    <span>Paiement <strong>sur place</strong> — espèces ou carte</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <div className="w-2 h-2 rounded-full bg-[#C19A6B] mt-1 flex-shrink-0" />
-                    <span>Commande conservée jusqu'à <strong>{dernierCreneauFin}h</strong></span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500 mt-1 flex-shrink-0" />
-                    <span>Click &amp; Collect <strong className="text-green-600">100% gratuit</strong></span>
-                  </li>
-                </ul>
-              </section>
-            </div>
-          </aside>
         </div>
       </div>
     </div>

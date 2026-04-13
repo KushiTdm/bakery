@@ -11,6 +11,11 @@
   --color-secondary: #8B4513;
 }
 
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
 body {
   @apply bg-[#FDFBF7] text-[#2C1810];
   font-family: 'Montserrat', sans-serif;
@@ -52,4 +57,13 @@ h1, h2, h3, h4, h5, h6 {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Hide scrollbar for category filters on mobile */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }

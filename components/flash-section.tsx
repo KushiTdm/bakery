@@ -370,8 +370,8 @@ export default function FlashSection() {
 
   if (loading) {
     return (
-      <div className="bg-[#2C1810] rounded-3xl p-8 animate-pulse">
-        <div className="h-6 bg-white/10 rounded w-3/4 mb-3" />
+      <div className="bg-[#2C1810] rounded-2xl sm:rounded-3xl p-5 sm:p-8 animate-pulse">
+        <div className="h-5 sm:h-6 bg-white/10 rounded w-3/4 mb-3" />
         <div className="h-4 bg-white/10 rounded w-1/2" />
       </div>
     );
@@ -380,20 +380,21 @@ export default function FlashSection() {
   // Flash inactif (hors horaire)
   if (!isLive) {
     return (
-      <div className="bg-[#2C1810] rounded-3xl p-8 text-center">
-        <div className="w-14 h-14 bg-[#C19A6B]/15 rounded-2xl flex items-center justify-center mx-auto mb-5">
-          <Clock size={26} className="text-[#C19A6B]" />
+      <div className="bg-[#2C1810] rounded-2xl sm:rounded-3xl p-4 sm:p-8 text-center overflow-hidden">
+        <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#C19A6B]/15 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-5">
+          <Clock size={20} className="text-[#C19A6B] sm:hidden" />
+          <Clock size={26} className="text-[#C19A6B] hidden sm:block" />
         </div>
-        <h2 className="text-white text-xl font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <h2 className="text-white text-sm sm:text-xl font-bold mb-1.5 sm:mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           Invendus du jour — disponibles à {heureDebut}h
         </h2>
-        <p className="text-white/50 text-sm leading-relaxed max-w-sm mx-auto">
+        <p className="text-white/50 text-[11px] sm:text-sm leading-relaxed max-w-sm mx-auto">
           Chaque soir à {heureDebut}h, nos invendus sont proposés à −{remise}%
           jusqu'à {heureFin}h ou épuisement.
         </p>
-        <div className="mt-6 inline-flex items-center gap-2 bg-white/8 border border-white/10 rounded-full px-4 py-2">
-          <Info size={13} className="text-[#C19A6B]" />
-          <span className="text-white/50 text-xs">Pas de réservation · Paiement en boutique</span>
+        <div className="mt-3 sm:mt-6 inline-flex items-center gap-1.5 sm:gap-2 bg-white/8 border border-white/10 rounded-full px-3 sm:px-4 py-1.5 sm:py-2">
+          <Info size={11} className="text-[#C19A6B]" />
+          <span className="text-white/50 text-[10px] sm:text-xs">Pas de réservation · Paiement en boutique</span>
         </div>
       </div>
     );
@@ -402,14 +403,15 @@ export default function FlashSection() {
   // Flash actif mais aucun produit disponible
   if (nbPaniers === 0 || invendus.length === 0) {
     return (
-      <div className="bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-8 text-center">
-        <div className="w-14 h-14 bg-green-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Zap size={26} className="text-green-400" />
+      <div className="bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-2xl sm:rounded-3xl p-4 sm:p-8 text-center">
+        <div className="w-10 h-10 sm:w-14 sm:h-14 bg-green-500/20 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+          <Zap size={20} className="text-green-400 sm:hidden" />
+          <Zap size={26} className="text-green-400 hidden sm:block" />
         </div>
-        <h2 className="text-white text-lg font-bold mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
+        <h2 className="text-white text-sm sm:text-lg font-bold mb-1.5 sm:mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           Flash actif · {timeLeft} restant
         </h2>
-        <p className="text-white/50 text-sm">Tous les produits ont été vendus aujourd'hui 🎉</p>
+        <p className="text-white/50 text-[11px] sm:text-sm">Tous les produits ont été vendus aujourd&apos;hui</p>
       </div>
     );
   }
@@ -423,7 +425,7 @@ export default function FlashSection() {
     <>
       <section
         aria-label="Flash Invendus — paniers anti-gaspi à prix réduit"
-        className="relative overflow-hidden bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-3xl p-6"
+        className="relative overflow-hidden bg-gradient-to-br from-[#2C1810] to-[#8B4513] rounded-2xl sm:rounded-3xl p-4 sm:p-6"
       >
         <motion.div
           className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent pointer-events-none"
