@@ -8,7 +8,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { isValidSlug } from '@/lib/sanitize';
 import { isAuthRateLimited, resetAuthRateLimit } from '@/lib/rate-limit';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY ?? '');
 
 // ── Schémas Zod ───────────────────────────────────────────────
 
