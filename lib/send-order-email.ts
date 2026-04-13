@@ -4,7 +4,9 @@
 
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY ?? '');
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY ?? '');
+}
 
 interface Ligne {
   produit_nom:   string;
@@ -377,7 +379,7 @@ Propulsé par Sauve Mie · Moins de pain gaspillé, plus de clients.
   try {
     console.log(`[send-order-email] Envoi à ${client_email} depuis ${fromAddress}...`);
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from:    fromAddress,
       to:      client_email,
       subject,

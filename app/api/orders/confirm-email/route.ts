@@ -6,7 +6,9 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 
 // ── Initialisation Resend ──────────────────────────────────────
 
-const resend = new Resend(process.env.RESEND_API_KEY ?? '');
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY ?? '');
+}
 
 // ── Schéma Zod ────────────────────────────────────────────────
 
@@ -422,6 +424,7 @@ Propulsé par Sauve Mie · Moins de pain gaspillé, plus de clients.
     let emailResult: { id?: string } | null = null;
     let emailError: { name: string; message: string } | null = null;
 
+    const resend = getResend();
     const firstAttempt = await resend.emails.send(emailPayload);
     if (firstAttempt.error) {
       console.warn('[orders/confirm-email] 1ère tentative échouée, retry dans 1s :', firstAttempt.error);
