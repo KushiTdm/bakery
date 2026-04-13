@@ -26,14 +26,16 @@ jobs:
 
     env:
       # Variables d'environnement pour les tests
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      PLAYWRIGHT_BASE_URL: http://localhost:3000
-      # Supabase test credentials (à configurer dans GitHub Secrets)
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_TEST_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_KEY }}
-      # Clé API z.ai pour les tests (ou mock)
-      ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+      # ⚠️ Utiliser 127.0.0.1 (pas localhost) pour éviter ECONNREFUSED ::1 sur Ubuntu
+      # Node.js DNS résout localhost → ::1 (IPv6) mais Next.js écoute sur IPv4 uniquement
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+      # Supabase test credentials (noms des secrets GitHub)
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SERVICE_ROLE_KEY }}
+      # Clé API IA pour les tests
+      ZHIPU_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       INTERNAL_API_SECRET: test-secret-internal
 
     steps:
@@ -55,13 +57,10 @@ jobs:
       - name: 🔨 Build application
         run: npm run build
         env:
-          # Désactiver les optimisations pour accélérer le build de test
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: 🧪 Run Playwright tests
         run: npx playwright test --reporter=html
-        env:
-          CI: true
 
       - name: 📊 Upload Playwright report
         uses: actions/upload-artifact@v4

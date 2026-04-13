@@ -2,7 +2,11 @@
 import { defineConfig, devices } from '@playwright/test';
 import 'dotenv/config';
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || process.env.TEST_BASE_URL || 'http://localhost:3000';
+// En CI (Ubuntu), localhost résout vers ::1 (IPv6) mais Next.js écoute sur 127.0.0.1 (IPv4)
+// → forcer 127.0.0.1 en CI pour éviter ECONNREFUSED ::1
+const RAW_URL = process.env.PLAYWRIGHT_BASE_URL || process.env.TEST_BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.CI ? RAW_URL.replace('://localhost:', '://127.0.0.1:') : RAW_URL;
+const isRemoteTarget = BASE_URL.includes('sauvemie.fr') || BASE_URL.includes('vercel.app');
 
 export default defineConfig({
   testDir: './tests',
@@ -79,8 +83,11 @@ export default defineConfig({
     },
   ],
 
-  webServer: process.env.CI ? undefined : {
-    command: 'npm run dev',
+  // URL distante (sauvemie.fr, vercel.app) → pas de serveur local
+  // CI → démarre le build prod avec `npm start`
+  // Local → démarre le dev server avec `npm run dev`
+  webServer: isRemoteTarget ? undefined : {
+    command: process.env.CI ? 'npm start' : 'npm run dev',
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
