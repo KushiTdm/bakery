@@ -2,23 +2,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  const missing =
-    (!supabaseUrl     ? '  → NEXT_PUBLIC_SUPABASE_URL\n'     : '') +
-    (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '');
-
-  console.warn(
-    '[Supabase] Variables d\'environnement manquantes :\n' +
-    missing +
-    'Vérifiez votre fichier .env.local'
-  );
-}
-
-const resolvedUrl = supabaseUrl ?? 'http://localhost:54321';
-const resolvedKey = supabaseAnonKey ?? 'anon-key-missing';
+// Placeholder utilisé uniquement pendant le build Next.js (collecte des pages).
+// Au runtime, les vraies variables sont toujours présentes.
+const resolvedUrl = supabaseUrl || 'http://placeholder.invalid';
+const resolvedKey = supabaseAnonKey || 'placeholder';
 
 export const supabase = createClient(resolvedUrl, resolvedKey, {
   auth: {
