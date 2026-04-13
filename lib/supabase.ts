@@ -5,20 +5,16 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 if (!supabaseUrl || !supabaseAnonKey) {
   const missing =
     (!supabaseUrl     ? '  → NEXT_PUBLIC_SUPABASE_URL\n'     : '') +
     (!supabaseAnonKey ? '  → NEXT_PUBLIC_SUPABASE_ANON_KEY\n' : '');
 
-  const msg =
+  console.warn(
     '[Supabase] Variables d\'environnement manquantes :\n' +
     missing +
-    'Vérifiez votre fichier .env.local';
-
-  if (isProduction) throw new Error(msg);
-  console.warn(msg + '\n→ Utilisation des valeurs de développement (localhost:54321)');
+    'Vérifiez votre fichier .env.local'
+  );
 }
 
 const resolvedUrl = supabaseUrl ?? 'http://localhost:54321';
@@ -31,7 +27,7 @@ export const supabase = createClient(resolvedUrl, resolvedKey, {
     detectSessionInUrl: true,
   },
   realtime: {
-    worker: typeof window !== 'undefined', // Web Worker pour heartbeat anti-throttle navigateur
+    worker: typeof window !== 'undefined',
   },
 });
 
