@@ -86,6 +86,13 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
+  // Bloquer le scroll du body pendant que la modale est ouverte
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Auto-sélection emoji selon catégorie + durée de conservation par défaut
   useEffect(() => {
     if (!isEdit) {
@@ -190,19 +197,20 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]"
       />
 
-      {/* Conteneur de positionnement — bas sur mobile, centré sur desktop */}
-      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:px-4 pointer-events-none">
-
-      {/* Panneau */}
+      {/* Panneau — occupe tout l'écran au-dessus de la navbar (56px + safe-area) */}
       <motion.div
-        initial={{ y: '100%', opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: '100%', opacity: 0 }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="w-full sm:max-w-lg bg-[#1A0F0A] border border-white/10 rounded-t-3xl sm:rounded-3xl max-h-[92vh] sm:max-h-[88vh] flex flex-col pointer-events-auto"
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+        className="fixed left-0 right-0 top-0 z-[61] flex flex-col bg-[#1A0F0A] border-t border-white/10 rounded-t-3xl"
+        style={{
+          top: 0,
+          bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))',
+        }}
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
@@ -221,7 +229,7 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
         </div>
 
         {/* Formulaire scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-6 space-y-5">
 
           {/* ── Photo ──────────────────────────────────────── */}
           <div>
@@ -616,7 +624,6 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
           </motion.button>
         </div>
       </motion.div>
-      </div>
     </>
   );
 }
