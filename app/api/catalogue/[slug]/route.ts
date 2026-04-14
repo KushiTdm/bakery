@@ -13,7 +13,7 @@ interface ProduitPublic {
   id:          string;
   nom:         string;
   description: string | null;
-  categorie:   'boulangerie' | 'viennoiserie' | 'patisserie';
+  categorie:   'boulangerie' | 'viennoiserie' | 'patisserie' | 'sandwich';
   emoji:       string;
   prix_vente:  number;
   image_url:   string | null;
@@ -25,19 +25,55 @@ interface StockInfo {
   disponible: number;
 }
 
+const IMAGE_BY_NAME: Record<string, string> = {
+  'baguette tradition':    '/products/BaguetteTradition.jpg',
+  'brioche dorée':         '/products/Brioche_doree.png',
+  'cake':                  '/products/Cake.png',
+  'chausson aux pommes':   '/products/Chausson_pommes.png',
+  'croissant aux amandes': '/products/Croissant_aux_amandes.png',
+  'croissant':             '/products/Croissant.png',
+  'éclair au chocolat':    '/products/Eclair.png',
+  'flan pâtissier':        '/products/Flan_patissier.png',
+  'fougasse provençale':   '/products/fougasse_provencale.png',
+  'fraisier':              '/products/fraisier.png',
+  'galette des rois':      '/products/Galette_des_rois.png',
+  'millefeuille':          '/products/Millefeuille.png',
+  'opéra':                 '/products/Opera.png',
+  'pain aux céréales':     '/products/Pain_au_cereales.png',
+  'pain au chocolat':      '/products/Pain_au_chocolat.png',
+  'pain au raisin':        '/products/Pain_au_raisin.png',
+  'pain complet':          '/products/pain_complet.png',
+  'pain de campagne':      '/products/Pain_de_campagne.png',
+  'pain de mie':           '/products/Pain_de_mie.png',
+  'panini':                '/products/Panini.png',
+  'paris-brest':           '/products/Paris_Brest.png',
+  'pizza':                 '/products/Pizza.png',
+  'religieuse':            '/products/Religieuse.png',
+  'saint-honoré':          '/products/Saint-Honore.png',
+  'sandwich':              '/products/Sandwich.png',
+  'tarte au citron':       '/products/Tarte_au_citron.png',
+  'tarte aux fraises':     '/products/Tarte_au_fraises.png',
+  'tarte normande':        '/products/tarte_normande.png',
+};
+
+const IMAGE_FALLBACK: Record<string, string> = {
+  boulangerie:  '/products/BaguetteTradition.jpg',
+  viennoiserie: '/products/Croissant.png',
+  patisserie:   '/products/Tarte_au_citron.png',
+  sandwich:     '/products/Sandwich.png',
+};
+
 function toProduct(p: ProduitPublic) {
-  const imageDefaults: Record<string, string> = {
-    boulangerie:  '/products/BaguetteTradition.jpg',
-    viennoiserie: '/products/Croissant.png',
-    patisserie:   '/products/Tarte_au_citron.png',
-  };
   return {
     id:          p.id,
     name:        p.nom,
     description: p.description ?? '',
     category:    p.categorie,
     price:       Number(p.prix_vente),
-    image:       p.image_url ?? imageDefaults[p.categorie] ?? imageDefaults.boulangerie,
+    image:       p.image_url
+                   ?? IMAGE_BY_NAME[p.nom.toLowerCase()]
+                   ?? IMAGE_FALLBACK[p.categorie]
+                   ?? IMAGE_FALLBACK.boulangerie,
     allergenes:  p.allergenes ?? [],
   };
 }
