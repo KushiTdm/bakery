@@ -1,45 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Check, Loader2, ChevronRight, Sparkles } from 'lucide-react';
 import { type ProduitDraft } from '@/hooks/use-produits-boulanger';
-
-// ── Produits types suggérés ───────────────────────────────────
-
-interface ProduitTemplate {
-  id:              string;
-  nom:             string;
-  categorie:       ProduitDraft['categorie'];
-  emoji:           string;
-  prix_vente:      number;
-  cout_production: number;
-  allergenes:      string[];
-  coché:           boolean; // sélectionné par défaut
-}
-
-const TEMPLATES: ProduitTemplate[] = [
-  // Boulangerie
-  { id: 't-b1', nom: 'Baguette Tradition',  categorie: 'boulangerie',  emoji: '🥖', prix_vente: 1.30, cout_production: 0.35, allergenes: ['gluten'], coché: true },
-  { id: 't-b2', nom: 'Pain au Levain',      categorie: 'boulangerie',  emoji: '🍞', prix_vente: 4.50, cout_production: 1.20, allergenes: ['gluten'], coché: true },
-  { id: 't-b3', nom: 'Pain aux Céréales',   categorie: 'boulangerie',  emoji: '🌾', prix_vente: 3.80, cout_production: 1.00, allergenes: ['gluten', 'sesame'], coché: false },
-  { id: 't-b4', nom: 'Fougasse Provençale', categorie: 'boulangerie',  emoji: '🫓', prix_vente: 3.50, cout_production: 0.90, allergenes: ['gluten'], coché: false },
-  // Viennoiserie
-  { id: 't-v1', nom: 'Croissant',           categorie: 'viennoiserie', emoji: '🥐', prix_vente: 1.50, cout_production: 0.45, allergenes: ['gluten', 'lait', 'oeufs'], coché: true },
-  { id: 't-v2', nom: 'Pain au Chocolat',    categorie: 'viennoiserie', emoji: '🍫', prix_vente: 1.60, cout_production: 0.50, allergenes: ['gluten', 'lait', 'oeufs'], coché: true },
-  { id: 't-v3', nom: 'Brioche',             categorie: 'viennoiserie', emoji: '🧁', prix_vente: 3.20, cout_production: 0.90, allergenes: ['gluten', 'lait', 'oeufs'], coché: false },
-  { id: 't-v4', nom: 'Chausson aux Pommes', categorie: 'viennoiserie', emoji: '🥧', prix_vente: 1.80, cout_production: 0.55, allergenes: ['gluten', 'lait', 'oeufs'], coché: false },
-  // Pâtisserie
-  { id: 't-p1', nom: 'Tarte au Citron',     categorie: 'patisserie',   emoji: '🍋', prix_vente: 4.80, cout_production: 1.50, allergenes: ['gluten', 'lait', 'oeufs'], coché: true },
-  { id: 't-p2', nom: 'Éclair au Café',      categorie: 'patisserie',   emoji: '☕', prix_vente: 3.90, cout_production: 1.20, allergenes: ['gluten', 'lait', 'oeufs'], coché: false },
-  { id: 't-p3', nom: 'Millefeuille',        categorie: 'patisserie',   emoji: '🎂', prix_vente: 4.50, cout_production: 1.40, allergenes: ['gluten', 'lait', 'oeufs'], coché: false },
-  { id: 't-p4', nom: 'Paris-Brest',         categorie: 'patisserie',   emoji: '🎪', prix_vente: 4.20, cout_production: 1.30, allergenes: ['gluten', 'lait', 'oeufs', 'fruits_a_coque'], coché: false },
-];
+import { PRODUCT_TEMPLATES } from '@/lib/product-templates';
 
 const CAT_LABELS: Record<string, string> = {
   boulangerie:  '🥖 Boulangerie',
   viennoiserie: '🥐 Viennoiserie',
   patisserie:   '🎂 Pâtisserie',
+  sandwich:     '🥪 Snacking',
 };
 
 // ── Composant ─────────────────────────────────────────────────
@@ -50,7 +21,9 @@ interface Props {
 }
 
 export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
-  const [items, setItems] = useState<ProduitTemplate[]>(TEMPLATES.map(t => ({ ...t })));
+  const [items, setItems] = useState(() =>
+    PRODUCT_TEMPLATES.map(t => ({ ...t, coché: t.cochéParDéfaut }))
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -74,21 +47,21 @@ export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
     setSaving(true);
     try {
       const drafts: ProduitDraft[] = sélectionnés.map((p, i) => ({
-        nom:                  p.nom,
-        description:          null,
-        categorie:            p.categorie,
-        emoji:                p.emoji,
-        prix_vente:           p.prix_vente,
-        cout_production:      p.cout_production,
-        actif_catalogue:      true,
-        actif_flash:          true,
-        ordre:                i,
-        prix_flash_override:  null,
-        allergenes:           p.allergenes,
-        disponible_du:        null,
-        disponible_au:        null,
-        stock_alerte:         null,
-        note_interne:         null,
+        nom:                      p.nom,
+        description:              null,
+        categorie:                p.categorie,
+        emoji:                    p.emoji,
+        prix_vente:               p.prix_vente,
+        cout_production:          p.cout_production,
+        actif_catalogue:          true,
+        actif_flash:              true,
+        ordre:                    i,
+        prix_flash_override:      null,
+        allergenes:               p.allergenes,
+        disponible_du:            null,
+        disponible_au:            null,
+        stock_alerte:             null,
+        note_interne:             null,
         image_url:                null,
         image_storage_path:       null,
         duree_conservation_jours: 1,
@@ -100,8 +73,7 @@ export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
     }
   };
 
-  // Groupement par catégorie
-  const grouped = ['boulangerie', 'viennoiserie', 'patisserie'] as const;
+  const grouped = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwich'] as const;
 
   return (
     <div className="pb-24">
@@ -134,6 +106,7 @@ export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
       {/* Liste produits par catégorie */}
       {grouped.map((cat, catIdx) => {
         const catItems = items.filter(p => p.categorie === cat);
+        if (catItems.length === 0) return null;
         const nbCochés = catItems.filter(p => p.coché).length;
 
         return (
@@ -174,8 +147,19 @@ export default function CatalogueStarter({ onValider, onIgnorer }: Props) {
                     {produit.coché && <Check size={12} className="text-[#1A0F0A]" />}
                   </div>
 
-                  {/* Emoji */}
-                  <span className="text-xl flex-shrink-0">{produit.emoji}</span>
+                  {/* Image ou emoji */}
+                  <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
+                    <img
+                      src={produit.image}
+                      alt={produit.nom}
+                      className="w-full h-full object-cover"
+                      onError={e => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        (e.target as HTMLImageElement).nextElementSibling?.removeAttribute('style');
+                      }}
+                    />
+                    <span className="text-xl hidden">{produit.emoji}</span>
+                  </div>
 
                   {/* Nom */}
                   <p className={`flex-1 text-sm font-medium ${produit.coché ? 'text-white' : 'text-white/50'}`}>

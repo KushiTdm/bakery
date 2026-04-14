@@ -34,6 +34,8 @@ const EMOJIS_PAR_CATEGORIE: Record<string, string[]> = {
 
 interface Props {
   produit:         Produit | null;
+  /** Valeurs pré-remplies depuis un template (uniquement en mode création) */
+  initialValues?:  Partial<ProduitDraft>;
   onSave:          (draft: ProduitDraft) => Promise<void>;
   onClose:         () => void;
   onUploadPhoto:   (produitId: string, file: File) => Promise<string | null>;
@@ -41,20 +43,20 @@ interface Props {
   existingNames?:  string[];
 }
 
-export default function ProduitFormModal({ produit, onSave, onClose, onUploadPhoto, existingNames = [] }: Props) {
+export default function ProduitFormModal({ produit, initialValues, onSave, onClose, onUploadPhoto, existingNames = [] }: Props) {
   const isEdit = !!produit;
 
   // ── État du formulaire ────────────────────────────────────
-  const [nom,               setNom]              = useState(produit?.nom ?? '');
-  const [description,       setDescription]      = useState(produit?.description ?? '');
-  const [categorie,         setCategorie]        = useState<Produit['categorie']>(produit?.categorie ?? 'boulangerie');
-  const [emoji,             setEmoji]            = useState(produit?.emoji ?? '🥖');
-  const [prixVente,         setPrixVente]        = useState(String(produit?.prix_vente ?? ''));
-  const [coutProd,          setCoutProd]         = useState(String(produit?.cout_production ?? ''));
+  const [nom,               setNom]              = useState(produit?.nom ?? initialValues?.nom ?? '');
+  const [description,       setDescription]      = useState(produit?.description ?? initialValues?.description ?? '');
+  const [categorie,         setCategorie]        = useState<Produit['categorie']>(produit?.categorie ?? initialValues?.categorie ?? 'boulangerie');
+  const [emoji,             setEmoji]            = useState(produit?.emoji ?? initialValues?.emoji ?? '🥖');
+  const [prixVente,         setPrixVente]        = useState(String(produit?.prix_vente ?? initialValues?.prix_vente ?? ''));
+  const [coutProd,          setCoutProd]         = useState(String(produit?.cout_production ?? initialValues?.cout_production ?? ''));
   const [actifCatalogue,    setActifCatalogue]   = useState(produit?.actif_catalogue ?? true);
   const [actifFlash,        setActifFlash]       = useState(produit?.actif_flash ?? true);
   const [prixFlashOverride, setPrixFlashOverride] = useState(produit?.prix_flash_override ? String(produit.prix_flash_override) : '');
-  const [allergenes,        setAllergenes]       = useState<string[]>(produit?.allergenes ?? []);
+  const [allergenes,        setAllergenes]       = useState<string[]>(produit?.allergenes ?? initialValues?.allergenes ?? []);
   const [disponibleDu,      setDisponibleDu]     = useState(produit?.disponible_du ?? '');
   const [disponibleAu,      setDisponibleAu]     = useState(produit?.disponible_au ?? '');
   const [stockAlerte,       setStockAlerte]      = useState(produit?.stock_alerte ? String(produit.stock_alerte) : '');
@@ -68,8 +70,10 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
       ?? 1
   );
 
-  // Photo preview
-  const [photoPreview,   setPhotoPreview]   = useState<string | null>(produit?.image_public_url ?? null);
+  // Photo preview — en création depuis template, on affiche l'image du template en aperçu
+  const [photoPreview,   setPhotoPreview]   = useState<string | null>(
+    produit?.image_public_url ?? initialValues?.image_url ?? null
+  );
   const [photoFile,      setPhotoFile]      = useState<File | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -206,7 +210,7 @@ export default function ProduitFormModal({ produit, onSave, onClose, onUploadPho
         {/* Header */}
         <div className="flex items-center justify-between px-5 pb-4 flex-shrink-0">
           <h2 className="text-white font-bold text-lg" style={{ fontFamily: 'Playfair Display, serif' }}>
-            {isEdit ? 'Modifier le produit' : 'Nouveau produit'}
+            {isEdit ? 'Modifier le produit' : initialValues?.nom ? `Nouveau : ${initialValues.nom}` : 'Nouveau produit'}
           </h2>
           <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
             <X size={20} />

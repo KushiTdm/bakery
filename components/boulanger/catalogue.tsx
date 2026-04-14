@@ -16,6 +16,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import ProduitFormModal from './produit-form-modal';
 import CatalogueStarter from './catalogue-starter';
+import TemplatePickerModal from './template-picker-modal';
 import RecetteModal from './recette-modal';
 import type { RecipeStatus, ProduitAvecRecette } from '@/app/api/boulanger/recettes/route';
 
@@ -302,6 +303,9 @@ export default function Catalogue() {
   const [filterFlash, setFilterFlash]           = useState(false);
   const [modalOpen, setModalOpen]               = useState(false);
   const [editingProduit, setEditingProduit]     = useState<Produit | null>(null);
+  const [templateInitialValues, setTemplateInitialValues] = useState<Partial<ProduitDraft> | null>(null);
+  // Template picker (catalogue non vide)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   // État wizard onboarding
   const [showStarter, setShowStarter]           = useState(false);
   const [starterDismissed, setStarterDismissed] = useState(false);
@@ -347,11 +351,12 @@ export default function Catalogue() {
     return true;
   });
 
-  const categories = ['boulangerie', 'viennoiserie', 'patisserie'] as const;
+  const categories = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwich'] as const;
   const grouped = {
     boulangerie:  filtered.filter(p => p.categorie === 'boulangerie'),
     viennoiserie: filtered.filter(p => p.categorie === 'viennoiserie'),
     patisserie:   filtered.filter(p => p.categorie === 'patisserie'),
+    sandwich:     filtered.filter(p => p.categorie === 'sandwich'),
   };
 
   const { overIndex, handleDragStart, handleDragEnter, handleDragEnd } = useDragDrop(filtered, reordonner);
@@ -360,11 +365,26 @@ export default function Catalogue() {
     boulangerie:  0,
     viennoiserie: grouped.boulangerie.length,
     patisserie:   grouped.boulangerie.length + grouped.viennoiserie.length,
+    sandwich:     grouped.boulangerie.length + grouped.viennoiserie.length + grouped.patisserie.length,
   };
 
-  const handleEdit  = (p: Produit) => { setEditingProduit(p); setModalOpen(true); };
-  const handleNew   = ()           => { setEditingProduit(null); setModalOpen(true); };
-  const handleClose = ()           => { setModalOpen(false); setEditingProduit(null); };
+  const handleEdit  = (p: Produit) => { setEditingProduit(p); setTemplateInitialValues(null); setModalOpen(true); };
+  // Ouvre le picker de templates avant le formulaire (catalogue non vide)
+  const handleNew   = ()           => { setEditingProduit(null); setShowTemplatePicker(true); };
+  const handleClose = ()           => { setModalOpen(false); setEditingProduit(null); setTemplateInitialValues(null); };
+
+  // Sélection d'un template → pré-remplit le formulaire
+  const handleTemplateSelect = (draft: Partial<ProduitDraft>) => {
+    setShowTemplatePicker(false);
+    setTemplateInitialValues(draft);
+    setModalOpen(true);
+  };
+  // Créer depuis zéro
+  const handleScratch = () => {
+    setShowTemplatePicker(false);
+    setTemplateInitialValues(null);
+    setModalOpen(true);
+  };
 
   const handleSave = async (draft: ProduitDraft) => {
     if (editingProduit) await modifier(editingProduit.id, draft);
@@ -567,11 +587,24 @@ export default function Catalogue() {
         </div>
       )}
 
+      {/* Picker de templates (avant le formulaire, en mode création) */}
+      <AnimatePresence>
+        {showTemplatePicker && (
+          <TemplatePickerModal
+            existingNames={produits.map(p => p.nom)}
+            onSelect={handleTemplateSelect}
+            onScratch={handleScratch}
+            onClose={() => setShowTemplatePicker(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Modal produit */}
       <AnimatePresence>
         {modalOpen && (
           <ProduitFormModal
             produit={editingProduit}
+            initialValues={templateInitialValues ?? undefined}
             onSave={handleSave}
             onClose={handleClose}
             onUploadPhoto={uploaderPhoto}
