@@ -23,6 +23,9 @@ import {
   type CommandeRaw,
   type PanierFlashRaw,
   type ClientProfilRaw,
+  type RecipeMap,
+  type RecetteProduit,
+  findBestTemplateMatch,
 } from '@/lib/ai-anonymize';
 import { fetchMeteo } from '@/lib/weather';
 
@@ -539,6 +542,59 @@ export async function POST(req: NextRequest) {
       total_depense: Math.round(data.total * 100) / 100,
     }));
 
+    // ── 7b. Recettes matières premières ────────────────────────
+    // Priorité : (1) recette spécifique boulangerie+produit
+    //            (2) template global nommé (fuzzy match JS)
+    //            (3) fallback catégorie en DB
+    //            (4) COEFFS_MP hardcodé (géré dans resolveRecipe)
+    const recipeMap: RecipeMap = new Map<string, RecetteProduit>();
+    const produitIds = (produits ?? []).map((p) => (p as ProduitRaw).id);
+
+    if (produitIds.length > 0) {
+      // Niveau 1 : recettes propres à cette boulangerie
+      const { data: specificRecipes } = await admin
+        .from('recettes_produits')
+        .select('*')
+        .eq('boulangerie_id', boulangerieId)
+        .in('produit_id', produitIds);
+
+      const coveredIds = new Set<string>();
+      for (const r of specificRecipes ?? []) {
+        recipeMap.set(r.produit_id, r as unknown as RecetteProduit);
+        coveredIds.add(r.produit_id);
+      }
+
+      // Niveaux 2+3 : templates globaux pour les produits non couverts
+      const uncovered = (produits ?? []).filter((p) => !coveredIds.has((p as ProduitRaw).id));
+      if (uncovered.length > 0) {
+        const { data: globalRecipes } = await admin
+          .from('recettes_produits')
+          .select('*')
+          .is('boulangerie_id', null);
+
+        const byName     = new Map<string, RecetteProduit>();
+        const byCategory = new Map<string, RecetteProduit>();
+        for (const r of globalRecipes ?? []) {
+          if (r.nom_recette) byName.set(r.nom_recette.toLowerCase(), r as unknown as RecetteProduit);
+          if (!r.nom_recette && r.categorie) byCategory.set(r.categorie, r as unknown as RecetteProduit);
+        }
+
+        for (const p of uncovered) {
+          const prod = p as ProduitRaw;
+          // Exact match
+          const exact = byName.get(prod.nom.toLowerCase());
+          if (exact) { recipeMap.set(prod.id, exact); continue; }
+          // Fuzzy match (dice coefficient ≥ 0.80)
+          const fuzzy = findBestTemplateMatch(prod.nom, byName, 0.80);
+          if (fuzzy) { recipeMap.set(prod.id, { ...fuzzy, source: 'auto' }); continue; }
+          // Fallback catégorie
+          const cat = byCategory.get(prod.categorie);
+          if (cat) { recipeMap.set(prod.id, cat); }
+          // Sinon : COEFFS_MP géré dans resolveRecipe() côté ai-anonymize.ts
+        }
+      }
+    }
+
     // ── 8. Enrichissement & prompt ─────────────────────────────
     const payload = anonymiserDonnees(
       journee as JourneeRaw,
@@ -549,6 +605,7 @@ export async function POST(req: NextRequest) {
       commandes,
       paniersFlash,
       clients,
+      recipeMap,
     );
 
     const systemPrompt = buildSystemPrompt();

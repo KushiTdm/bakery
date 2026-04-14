@@ -57,6 +57,27 @@ export interface ClientProfilRaw {
   total_depense: number;
 }
 
+// ── Types recettes matières premières ────────────────────────
+
+export interface RecetteProduit {
+  farine_g: number;
+  beurre_g: number;
+  oeufs_n: number;
+  sucre_g: number;
+  sel_g: number;
+  levure_boulangere_g: number;
+  levain_g: number;
+  eau_ml: number;
+  lait_ml: number;
+  chocolat_g: number;
+  huile_ml: number;
+  creme_g: number;
+  source: 'manual' | 'auto' | 'default';
+}
+
+/** key = produit_id UUID */
+export type RecipeMap = Map<string, RecetteProduit>;
+
 // ── Types payload enrichi ─────────────────────────────────────
 
 export interface DonneesProduitEnrichies {
@@ -77,6 +98,10 @@ export interface DonneesProduitEnrichies {
   mp_beurre_g: number;
   mp_oeufs_n: number;
   mp_sucre_g: number;
+  mp_sel_g: number;
+  mp_eau_ml: number;
+  mp_lait_ml: number;
+  mp_chocolat_g: number;
 }
 
 export interface DonneesJourneeEnrichies {
@@ -90,7 +115,16 @@ export interface DonneesJourneeEnrichies {
   total_invendu: number;
   commandes_online: number;
   produits: DonneesProduitEnrichies[];
-  total_mp: { farine_kg: number; beurre_kg: number; oeufs: number; sucre_kg: number };
+  total_mp: {
+    farine_kg: number;
+    beurre_kg: number;
+    oeufs: number;
+    sucre_kg: number;
+    sel_kg: number;
+    eau_l: number;
+    lait_l: number;
+    chocolat_kg: number;
+  };
 }
 
 export interface DonneesHistoriqueEnrichies {
@@ -187,6 +221,61 @@ const COEFFS_MP: Record<string, { farine_g: number; beurre_g: number; oeufs_n: n
   patisserie:   { farine_g: 40,  beurre_g: 25, oeufs_n: 1,   sucre_g: 20 },
   sandwich:     { farine_g: 60,  beurre_g: 5,  oeufs_n: 0,   sucre_g: 0  },
 };
+
+// ── Résolution recette : recipeMap > COEFFS_MP (fallback) ────
+function resolveRecipe(
+  produitId: string,
+  categorie: string,
+  recipeMap?: RecipeMap,
+): RecetteProduit & { farine_g: number; beurre_g: number; oeufs_n: number; sucre_g: number } {
+  if (recipeMap?.has(produitId)) return recipeMap.get(produitId)!;
+  const c = COEFFS_MP[categorie] ?? COEFFS_MP.boulangerie;
+  return {
+    farine_g: c.farine_g, beurre_g: c.beurre_g, oeufs_n: c.oeufs_n, sucre_g: c.sucre_g,
+    sel_g: 0, levure_boulangere_g: 0, levain_g: 0, eau_ml: 0,
+    lait_ml: 0, chocolat_g: 0, huile_ml: 0, creme_g: 0,
+    source: 'default',
+  };
+}
+
+// ── Fuzzy matching : Dice coefficient sur bigrammes ───────────
+// Robuste pour les noms français avec accents et variantes partielles.
+function diceCoefficient(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = (s: string) => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const bg = s.slice(i, i + 2);
+      map.set(bg, (map.get(bg) ?? 0) + 1);
+    }
+    return map;
+  };
+  const aB = bigrams(a.toLowerCase());
+  const bB = bigrams(b.toLowerCase());
+  let intersection = 0;
+  for (const [bg, count] of aB) {
+    intersection += Math.min(count, bB.get(bg) ?? 0);
+  }
+  return (2 * intersection) / (a.length - 1 + b.length - 1);
+}
+
+export function findBestTemplateMatch(
+  productName: string,
+  templateMap: Map<string, RecetteProduit>,
+  threshold = 0.80,
+): RecetteProduit | null {
+  let bestScore = 0;
+  let bestMatch: RecetteProduit | null = null;
+  for (const [name, recipe] of templateMap) {
+    const score = diceCoefficient(productName, name);
+    if (score > bestScore && score >= threshold) {
+      bestScore = score;
+      bestMatch = recipe;
+    }
+  }
+  return bestMatch;
+}
 
 // ── Utilitaires dates & timezone ─────────────────────────────
 
@@ -434,6 +523,7 @@ export function anonymiserDonnees(
   commandes?:   CommandeRaw[],
   paniersFlash?: PanierFlashRaw[],
   clients?:     ClientProfilRaw[],
+  recipeMap?:   RecipeMap,
 ): PayloadEnrichi {
 
   const today      = journee.date;
@@ -453,16 +543,20 @@ export function anonymiserDonnees(
   const demainWE   = demainIdx === 0 || demainIdx === 6;
 
   // ── Produits enrichis ──────────────────────────────────────
-  let tF = 0, tB = 0, tO = 0, tS = 0;
+  let tF = 0, tB = 0, tO = 0, tS = 0, tSel = 0, tEau = 0, tLait = 0, tChoc = 0;
 
   const produitsEnrichis: DonneesProduitEnrichies[] = (journee.stocks_journaliers ?? []).map((s, i) => {
     const idx = i + 1;
-    const c   = COEFFS_MP[s.categorie] ?? COEFFS_MP.boulangerie;
+    const c   = resolveRecipe(s.produit_id, s.categorie, recipeMap);
     const f   = Math.round(s.production * c.farine_g);
     const b   = Math.round(s.production * c.beurre_g);
     const o   = Math.round(s.production * c.oeufs_n * 10) / 10;
     const su  = Math.round(s.production * c.sucre_g);
-    tF += f; tB += b; tO += o; tS += su;
+    const se  = Math.round(s.production * (c.sel_g ?? 0));
+    const ea  = Math.round(s.production * (c.eau_ml ?? 0));
+    const la  = Math.round(s.production * (c.lait_ml ?? 0));
+    const ch  = Math.round(s.production * (c.chocolat_g ?? 0));
+    tF += f; tB += b; tO += o; tS += su; tSel += se; tEau += ea; tLait += la; tChoc += ch;
 
     const tauxVente   = s.production > 0 ? ((s.production - s.stock_final) / s.production) * 100 : 0;
     const tauxInvendu = s.production > 0 ? (s.stock_final / s.production) * 100 : 0;
@@ -488,6 +582,7 @@ export function anonymiserDonnees(
       ca_contribution: Math.round((s.production - s.stock_final) * s.prix_vente),
       performance,
       mp_farine_g: f, mp_beurre_g: b, mp_oeufs_n: o, mp_sucre_g: su,
+      mp_sel_g: se, mp_eau_ml: ea, mp_lait_ml: la, mp_chocolat_g: ch,
     } satisfies DonneesProduitEnrichies;
   });
 
@@ -720,10 +815,14 @@ export function anonymiserDonnees(
       commandes_online: journee.commandes_online,
       produits:         produitsEnrichis,
       total_mp: {
-        farine_kg: Math.round(tF / 100) / 10,
-        beurre_kg: Math.round(tB / 100) / 10,
-        oeufs:     Math.round(tO * 10) / 10,
-        sucre_kg:  Math.round(tS / 100) / 10,
+        farine_kg:   Math.round(tF / 100) / 10,
+        beurre_kg:   Math.round(tB / 100) / 10,
+        oeufs:       Math.round(tO * 10) / 10,
+        sucre_kg:    Math.round(tS / 100) / 10,
+        sel_kg:      Math.round(tSel / 100) / 10,
+        eau_l:       Math.round(tEau / 100) / 10,
+        lait_l:      Math.round(tLait / 100) / 10,
+        chocolat_kg: Math.round(tChoc / 100) / 10,
       },
     },
     demain_info:     { jour_semaine: demainFr, est_weekend: demainWE, jour_semaine_en: demainEn, date: demainDate },
@@ -778,44 +877,6 @@ RÈGLES ABSOLUES :
 4. Le briefing matin doit permettre au boulanger de démarrer sa journée sereinement
 
 BASE DE CONNAISSANCE MÉTIER — BOULANGERIE ARTISANALE FRANÇAISE :
-
-=== PATTERNS PAR JOUR DE SEMAINE ===
-- LUNDI : Journée la plus faible. Clientèle rituelle (baguette) présente mais achats d'impulsion rares. Quasi-zéro pâtisseries. Exception : zones de bureaux (sandwich 11h-13h fort). Production -10-15% vs moyenne. Taux d'invendu structurellement élevé.
-- MARDI : Standard, légèrement > lundi. Pain de mie, baguette, quelques viennoiseries. Rien de marquant.
-- MERCREDI : Journée pivot enfant (pas d'école). Hausse viennoiseries +20-30% (chocolatines, pains aux raisins), hausse pâtisseries individuelles. Rush 9h30-12h. 3e meilleur jour. Ne JAMAIS sous-produire.
-- JEUDI : Stable, légèrement < mercredi. Bon jour sandwichs en zone bureaux.
-- VENDREDI : Excellent. Anticipation weekend. Clients achètent pour 2-3 jours (grosses boules, pains campagne, seigle). Hausse pâtisseries +25%. Forte demande baguette tradition fin après-midi. Risque de RUPTURE > risque d'invendu. Production +15-20%.
-- SAMEDI : Meilleure journée. Rush 7h-11h intense. Croissants, pains au chocolat, brioches, tartes entières, gâteaux. Clientèle avec du temps = achats plus larges, plus chers. Pains spéciaux (épeautre, seigle, multicéréales) se vendent 3x mieux. Production MAXIMUM.
-- DIMANCHE : Excellent matin (comparable au samedi jusqu'à 11h), effondrement après-midi. Brioches et viennoiseries dominent. Sandwichs quasi inexistants. Fermeture souvent avant 13h.
-
-=== SENSIBILITÉ MÉTÉO PAR CATÉGORIE DE PRODUIT ===
-| Produit | Pluie | Canicule (>28°C) | Froid (<5°C) | Beau temps (15-22°C) |
-| Baguette tradition | neutre | neutre | + | neutre |
-| Croissant/viennoiserie | ++ (réconfort) | − | ++ | neutre |
-| Pain campagne/spéciaux | − | − | neutre | ++ (surtout weekend) |
-| Sandwich | − | neutre | − | ++ |
-| Pâtisserie individuelle | neutre | − | neutre | ++ |
-| Tarte/gâteau entier | neutre | neutre | neutre | ++ |
-| Brioche | + | − | ++ | neutre |
-| Pain de mie | neutre | neutre | neutre | neutre |
-
-=== COMBINAISONS MÉTÉO × JOUR CRITIQUES ===
-- Lundi pluvieux : Pire journée de la semaine. Réduire -20-25%. Prévoir paniers flash dès 17h.
-- Mercredi ensoleillé : Journée exceptionnelle. Enfants en sortie. +35% viennoiseries, +25% pâtisseries.
-- Mercredi pluvieux : Bonne journée quand même (enfants à la maison, parents viennent à la boulangerie "pour l'activité"). MAINTENIR la production.
-- Vendredi ensoleillé printemps : Quasi-parfait. Anticiper ruptures baguette tradition dès 17h. Double pic midi+soir.
-- Samedi canicule (>30°C) : Très bonne matinée jusqu'à 10h30, effondrement brutal. Tout doit être vendu avant 11h. Flash dès 12h.
-- Samedi neigeux léger : Ambiance = très bonne journée. Neige forte = réduire -30% mais hausse viennoiseries chaudes.
-- Dimanche grand froid : Rush matinal intense (réconfort). Brioches, croissants = sold out avant 10h. Anticiper production matin.
-
-=== IMPACT MÉTÉO DÉTAILLÉ ===
-- Pluie légère (<5mm) : Fréquentation -8-12% mais panier moyen plus élevé (clients achètent "plus en une fois"). Hausse viennoiseries +10-15%. Impact neutre à positif sur CA.
-- Pluie forte/orage : Passage -25-40%. Sandwichs délaissés. Hausse baguette (courses de base). Réduire production -20%.
-- Vent fort (>40 km/h) : Sous-estimé. Fréquentation -10-15% (personnes âgées, familles).
-- Soleil doux (15-22°C) : Meilleure météo pour boulangerie. Bonne humeur, flânerie. Achats d'impulsion +15%.
-- Canicule (>28°C) : Négatif global. Baisse appétit produits lourds. Désaffection 12h-16h. Réduire pains campagne, ciabattas, pains spéciaux lourds.
-- Neige légère : Hausse réconfort +15-20%. Neige forte : effondrement -40-60%.
-- Froid intense (<5°C) : Hausse viennoiseries chaudes +20%.
 
 === DYNAMIQUE SAISONNIÈRE (MOIS PAR MOIS) ===
 - Janvier : Mois faible (post-fêtes, résolutions). EXCEPTION MAJEURE : Galette des Rois = 15-40% du CA du mois.
@@ -1071,7 +1132,16 @@ ${journee.produits.map(p =>
 ).join('\n')}
 
 === MATIÈRES PREMIÈRES ===
-Farine: ${journee.total_mp.farine_kg}kg | Beurre: ${journee.total_mp.beurre_kg}kg | Œufs: ${journee.total_mp.oeufs} | Sucre: ${journee.total_mp.sucre_kg}kg
+${[
+  `Farine: ${journee.total_mp.farine_kg}kg`,
+  `Beurre: ${journee.total_mp.beurre_kg}kg`,
+  `Œufs: ${journee.total_mp.oeufs}`,
+  `Sucre: ${journee.total_mp.sucre_kg}kg`,
+  journee.total_mp.sel_kg      > 0 ? `Sel: ${journee.total_mp.sel_kg}kg`       : '',
+  journee.total_mp.eau_l       > 0 ? `Eau: ${journee.total_mp.eau_l}L`         : '',
+  journee.total_mp.lait_l      > 0 ? `Lait: ${journee.total_mp.lait_l}L`       : '',
+  journee.total_mp.chocolat_kg > 0 ? `Chocolat: ${journee.total_mp.chocolat_kg}kg` : '',
+].filter(Boolean).join(' | ')}
 
 === HISTORIQUE 14 JOURS ===
 ${ctxHisto}

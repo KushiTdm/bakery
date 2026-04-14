@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Search, GripVertical,
   Eye, EyeOff, Zap, ZapOff, Pencil, Trash2,
-  AlertTriangle, ChevronDown, Package, Sparkles,
+  AlertTriangle, ChevronDown, Package, Sparkles, FlaskConical, Info,
 } from 'lucide-react';
 import {
   useProduitsBoulanger,
@@ -13,14 +13,80 @@ import {
   type ProduitDraft,
   CATEGORIE_LABELS,
 } from '@/hooks/use-produits-boulanger';
+import { supabase } from '@/lib/supabase';
 import ProduitFormModal from './produit-form-modal';
 import CatalogueStarter from './catalogue-starter';
+import RecetteModal from './recette-modal';
+import type { RecipeStatus, ProduitAvecRecette } from '@/app/api/boulanger/recettes/route';
+
+// ── Badge recette ─────────────────────────────────────────────
+
+function RecetteBadge({ status }: { status: RecipeStatus | null }) {
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+
+  if (status === 'specific') {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
+        style={{ background: 'rgba(34,197,94,0.12)', color: 'rgba(74,222,128,0.80)' }}>
+        <FlaskConical size={8} />
+        recette perso
+      </span>
+    );
+  }
+
+  if (status === 'categorie') {
+    return (
+      <div className="relative flex-shrink-0">
+        <button
+          onClick={() => setTooltipOpen(v => !v)}
+          onMouseEnter={() => setTooltipOpen(true)}
+          onMouseLeave={() => setTooltipOpen(false)}
+          className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-help"
+          style={{ background: 'rgba(249,115,22,0.12)', color: 'rgba(251,146,60,0.80)' }}
+        >
+          <Info size={8} />
+          sans recette
+        </button>
+        <AnimatePresence>
+          {tooltipOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 4, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.12 }}
+              className="absolute left-0 top-full mt-1.5 z-20 w-56 rounded-xl shadow-2xl pointer-events-none"
+              style={{
+                background:  '#1A0F08',
+                border:      '1px solid rgba(249,115,22,0.25)',
+                padding:     '10px 12px',
+              }}
+            >
+              <p className="text-orange-300/90 text-[10px] font-semibold mb-1">
+                Pas de recette enregistrée
+              </p>
+              <p className="text-white/45 text-[10px] leading-relaxed">
+                Ce produit utilise une estimation générique par catégorie.
+                Pour un calcul précis des matières premières, cliquez sur
+                l'icône <FlaskConical className="inline" size={9} /> pour
+                saisir sa recette.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // template — pas de badge particulier, mais on pourrait en ajouter un
+  return null;
+}
 
 // ── Carte produit ─────────────────────────────────────────────
 
 function ProduitCard({
   produit, index, onEdit, onDelete, onToggle,
   onDragStart, onDragEnter, onDragEnd, isDraggingOver,
+  recipeStatus, onEditRecette,
 }: {
   produit:        Produit;
   index:          number;
@@ -31,6 +97,8 @@ function ProduitCard({
   onDragEnter:    (index: number) => void;
   onDragEnd:      () => void;
   isDraggingOver: boolean;
+  recipeStatus:   RecipeStatus | null;
+  onEditRecette:  () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dragging, setDragging]           = useState(false);
@@ -50,7 +118,7 @@ function ProduitCard({
       onDragEnd={() => { setDragging(false); onDragEnd(); }}
       onDragOver={(e: React.DragEvent<HTMLDivElement>) => e.preventDefault()}
       className={[
-        'border rounded-2xl overflow-hidden transition-all select-none',
+        'border rounded-2xl overflow-visible transition-all select-none',
         dragging        ? 'opacity-40 scale-[0.98]' : '',
         isDraggingOver  ? 'border-[#C19A6B]/60 bg-[#C19A6B]/5' : 'bg-white/5 border-white/8',
         !produit.actif_catalogue ? 'opacity-50' : '',
@@ -68,10 +136,13 @@ function ProduitCard({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <p className="text-white font-medium text-sm truncate">{produit.nom}</p>
             {produit.allergenes.length > 0 && (
               <span className="text-[10px] text-amber-400/60 flex-shrink-0">⚠ {produit.allergenes.length}</span>
+            )}
+            {recipeStatus !== null && (
+              <RecetteBadge status={recipeStatus} />
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
@@ -92,6 +163,20 @@ function ProduitCard({
             className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
           >
             {produit.actif_flash ? <Zap size={14} /> : <ZapOff size={14} />}
+          </button>
+          {/* Bouton édition recette */}
+          <button
+            onClick={onEditRecette}
+            title="Modifier la recette MP"
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+              recipeStatus === 'specific'
+                ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25'
+                : recipeStatus === 'categorie'
+                  ? 'bg-orange-500/12 text-orange-400/70 hover:bg-orange-500/20 hover:text-orange-400'
+                  : 'bg-white/5 text-white/30 hover:bg-[#C19A6B]/12 hover:text-[#C19A6B]'
+            }`}
+          >
+            <FlaskConical size={13} />
           </button>
           <button
             onClick={onEdit}
@@ -148,17 +233,20 @@ function useDragDrop(items: Produit[], onReorder: (ids: string[]) => Promise<voi
 function CategorieSection({
   categorie, produits, globalOffset, overIndex,
   onEdit, onDelete, onToggle, onDragStart, onDragEnter, onDragEnd,
+  recipeStatusMap, onEditRecette,
 }: {
-  categorie:    Produit['categorie'];
-  produits:     Produit[];
-  globalOffset: number;
-  overIndex:    number | null;
-  onEdit:       (p: Produit) => void;
-  onDelete:     (id: string) => void;
-  onToggle:     (id: string, champ: 'actif_catalogue' | 'actif_flash') => void;
-  onDragStart:  (index: number) => void;
-  onDragEnter:  (index: number) => void;
-  onDragEnd:    () => void;
+  categorie:       Produit['categorie'];
+  produits:        Produit[];
+  globalOffset:    number;
+  overIndex:       number | null;
+  onEdit:          (p: Produit) => void;
+  onDelete:        (id: string) => void;
+  onToggle:        (id: string, champ: 'actif_catalogue' | 'actif_flash') => void;
+  onDragStart:     (index: number) => void;
+  onDragEnter:     (index: number) => void;
+  onDragEnd:       () => void;
+  recipeStatusMap: Map<string, RecipeStatus>;
+  onEditRecette:   (p: Produit) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const actifs = produits.filter(p => p.actif_catalogue).length;
@@ -177,7 +265,7 @@ function CategorieSection({
       </button>
       <AnimatePresence>
         {!collapsed && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden">
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-visible">
             {produits.map((p, localIdx) => {
               const globalIdx = globalOffset + localIdx;
               return (
@@ -192,6 +280,8 @@ function CategorieSection({
                   onDragEnter={onDragEnter}
                   onDragEnd={onDragEnd}
                   isDraggingOver={overIndex === globalIdx}
+                  recipeStatus={recipeStatusMap.get(p.id) ?? null}
+                  onEditRecette={() => onEditRecette(p)}
                 />
               );
             })}
@@ -212,9 +302,39 @@ export default function Catalogue() {
   const [filterFlash, setFilterFlash]           = useState(false);
   const [modalOpen, setModalOpen]               = useState(false);
   const [editingProduit, setEditingProduit]     = useState<Produit | null>(null);
-  // 🆕 État wizard onboarding
+  // État wizard onboarding
   const [showStarter, setShowStarter]           = useState(false);
   const [starterDismissed, setStarterDismissed] = useState(false);
+
+  // ── Recettes MP ────────────────────────────────────────────
+  const [recipeStatusMap,  setRecipeStatusMap]  = useState<Map<string, RecipeStatus>>(new Map());
+  const [recipeDataMap,    setRecipeDataMap]     = useState<Map<string, ProduitAvecRecette>>(new Map());
+  const [recetteModal,     setRecetteModal]      = useState<Produit | null>(null);
+
+  const loadRecipes = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const res = await fetch('/api/boulanger/recettes', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const { produits: data } = await res.json() as { produits: ProduitAvecRecette[] };
+      const statusMap = new Map<string, RecipeStatus>();
+      const dataMap   = new Map<string, ProduitAvecRecette>();
+      for (const p of data ?? []) {
+        statusMap.set(p.produit_id, p.status);
+        dataMap.set(p.produit_id, p);
+      }
+      setRecipeStatusMap(statusMap);
+      setRecipeDataMap(dataMap);
+    } catch { /* silent — non-bloquant */ }
+  }, []);
+
+  useEffect(() => {
+    if (!loading && produits.length > 0) loadRecipes();
+  }, [loading, produits.length, loadRecipes]);
 
   // 🆕 Déclenche CatalogueStarter si catalogue vide et non ignoré
   const shouldShowStarter = !loading && produits.length === 0 && !starterDismissed && !showStarter;
@@ -419,6 +539,8 @@ export default function Catalogue() {
                 onDragStart={handleDragStart}
                 onDragEnter={handleDragEnter}
                 onDragEnd={handleDragEnd}
+                recipeStatusMap={recipeStatusMap}
+                onEditRecette={p => setRecetteModal(p)}
               />
             ) : null
           )}
@@ -439,11 +561,13 @@ export default function Catalogue() {
             <div className="flex items-center gap-2"><EyeOff size={12} className="text-white/25" /> Masqué catalogue</div>
             <div className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" /> Inclus flash soir</div>
             <div className="flex items-center gap-2"><ZapOff size={12} className="text-white/25" /> Exclu flash soir</div>
+            <div className="flex items-center gap-2"><FlaskConical size={12} className="text-green-400" /> Recette personnalisée</div>
+            <div className="flex items-center gap-2"><FlaskConical size={12} className="text-orange-400/70" /> Estimation générique</div>
           </div>
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modal produit */}
       <AnimatePresence>
         {modalOpen && (
           <ProduitFormModal
@@ -452,6 +576,21 @@ export default function Catalogue() {
             onClose={handleClose}
             onUploadPhoto={uploaderPhoto}
             existingNames={produits.map(p => p.nom)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Modal recette MP */}
+      <AnimatePresence>
+        {recetteModal && (
+          <RecetteModal
+            produitId={recetteModal.id}
+            produitNom={recetteModal.nom}
+            produitEmoji={recetteModal.emoji}
+            status={recipeStatusMap.get(recetteModal.id) ?? 'categorie'}
+            recette={recipeDataMap.get(recetteModal.id)?.recette ?? null}
+            onClose={() => setRecetteModal(null)}
+            onSaved={() => { setRecetteModal(null); loadRecipes(); }}
           />
         )}
       </AnimatePresence>

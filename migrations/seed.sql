@@ -57,3 +57,46 @@ BEGIN
   RAISE NOTICE '✅ % produits insérés (ou déjà présents)', 13;
 
 END $seed$;
+
+
+-- ── Seed recettes_produits ────────────────────────────────────────────────
+-- Niveau 3 : fallbacks par catégorie (remplacent COEFFS_MP)
+-- Valeurs en g/ml par unité
+INSERT INTO recettes_produits
+  (categorie, nom_recette, farine_g, beurre_g, oeufs_n, sucre_g, sel_g, levure_boulangere_g, eau_ml, source)
+VALUES
+  ('boulangerie',  NULL, 180, 0,  0,   3,  3.5, 2,   110, 'default'),
+  ('viennoiserie', NULL, 50,  28, 0.3, 8,  1,   1,   15,  'default'),
+  ('patisserie',   NULL, 40,  25, 1,   20, 0.5, 0,   10,  'default'),
+  ('sandwich',     NULL, 60,  5,  0,   0,  2,   1,   35,  'default')
+ON CONFLICT DO NOTHING;
+
+-- Niveau 2 : templates globaux nommés (20 produits courants)
+-- Valeurs moyennes par unité produite, pertes ~15% incluses
+INSERT INTO recettes_produits
+  (nom_recette, categorie,
+   farine_g, beurre_g, oeufs_n, sucre_g, sel_g,
+   levure_boulangere_g, levain_g, eau_ml, lait_ml, chocolat_g, huile_ml, creme_g,
+   source)
+VALUES
+  ('Baguette Tradition',    'boulangerie',  450, 5,   0,   5,  10,  15, 0,   300, 0,   0,  0,  0,  'default'),
+  ('Baguette Classique',    'boulangerie',  400, 5,   0,   5,  9,   12, 0,   270, 0,   0,  0,  0,  'default'),
+  ('Pain au Levain',        'boulangerie',  600, 10,  0,   10, 12,  5,  80,  400, 0,   0,  0,  0,  'default'),
+  ('Pain de Campagne',      'boulangerie',  550, 10,  0,   8,  11,  10, 40,  380, 0,   0,  0,  0,  'default'),
+  ('Pain aux Céréales',     'boulangerie',  500, 15,  0,   15, 10,  12, 0,   350, 0,   0,  0,  0,  'default'),
+  ('Pain Complet',          'boulangerie',  550, 10,  0,   10, 11,  10, 0,   400, 0,   0,  0,  0,  'default'),
+  ('Pain de Mie',           'boulangerie',  350, 50,  0.2, 30, 7,   10, 0,   220, 150, 0,  0,  0,  'default'),
+  ('Fougasse Provençale',   'boulangerie',  400, 0,   0,   20, 8,   10, 0,   250, 0,   0,  50, 0,  'default'),
+  ('Croissant',             'viennoiserie', 250, 150, 0.1, 40, 5,   8,  0,   120, 50,  0,  0,  0,  'default'),
+  ('Pain au Chocolat',      'viennoiserie', 280, 160, 0.1, 50, 5,   9,  0,   130, 50,  40, 0,  0,  'default'),
+  ('Brioche',               'viennoiserie', 300, 200, 0.3, 80, 5,   12, 0,   100, 100, 0,  0,  0,  'default'),
+  ('Chausson aux Pommes',   'viennoiserie', 220, 120, 0.2, 60, 3,   6,  0,   100, 50,  0,  0,  0,  'default'),
+  ('Viennoiserie Diverse',  'viennoiserie', 260, 140, 0.2, 50, 4,   8,  0,   120, 50,  0,  0,  0,  'default'),
+  ('Flan Pâtissier',        'patisserie',   200, 80,  1.5, 100, 3,  0,  0,   0,   300, 0,  0,  0,  'default'),
+  ('Éclair au Café',        'patisserie',   180, 100, 1,   70,  2,  0,  0,   150, 60,  0,  0,  200,'default'),
+  ('Millefeuille',          'patisserie',   200, 150, 1,   80,  2,  0,  0,   120, 30,  0,  0,  250,'default'),
+  ('Paris-Brest',           'patisserie',   250, 180, 2,   100, 3,  0,  0,   150, 10,  0,  0,  150,'default'),
+  ('Tarte aux Fraises',     'patisserie',   220, 120, 1,   60,  2,  0,  0,   100, 30,  0,  0,  80, 'default'),
+  ('Pâtisserie Fine',       'patisserie',   200, 120, 1,   70,  2,  0,  0,   120, 20,  0,  0,  100,'default'),
+  ('Sandwich Jambon-Beurre','sandwich',     150, 30,  0,   5,   4,  5,  0,   100, 0,   0,  0,  0,  'default')
+ON CONFLICT DO NOTHING;
