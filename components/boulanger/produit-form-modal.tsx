@@ -193,13 +193,16 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
       />
 
+      {/* Conteneur de positionnement — bas sur mobile, centré sur desktop */}
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:px-4 pointer-events-none">
+
       {/* Panneau */}
       <motion.div
         initial={{ y: '100%', opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: '100%', opacity: 0 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 max-w-lg mx-auto bg-[#1A0F0A] border border-white/10 rounded-t-3xl max-h-[92vh] flex flex-col"
+        className="w-full sm:max-w-lg bg-[#1A0F0A] border border-white/10 rounded-t-3xl sm:rounded-3xl max-h-[92vh] sm:max-h-[88vh] flex flex-col pointer-events-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
@@ -218,7 +221,7 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
         </div>
 
         {/* Formulaire scrollable */}
-        <div className="flex-1 overflow-y-auto px-5 pb-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-6 space-y-5">
 
           {/* ── Photo ──────────────────────────────────────── */}
           <div>
@@ -591,7 +594,7 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t border-white/8 flex gap-3 flex-shrink-0">
+        <div className="px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-white/8 flex gap-3 flex-shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -613,6 +616,7 @@ export default function ProduitFormModal({ produit, initialValues, onSave, onClo
           </motion.button>
         </div>
       </motion.div>
+      </div>
     </>
   );
 }
