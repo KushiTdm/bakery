@@ -101,8 +101,16 @@ function ProduitCard({
   recipeStatus:   RecipeStatus | null;
   onEditRecette:  () => void;
 }) {
+  const [expanded,      setExpanded]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [dragging, setDragging]           = useState(false);
+  const [dragging,      setDragging]      = useState(false);
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Ne pas toggler si on clique sur un bouton ou le drag handle
+    if ((e.target as HTMLElement).closest('button, [data-drag]')) return;
+    setExpanded(v => !v);
+    if (confirmDelete) setConfirmDelete(false);
+  };
 
   return (
     <div
@@ -118,88 +126,130 @@ function ProduitCard({
       }}
       onDragEnd={() => { setDragging(false); onDragEnd(); }}
       onDragOver={(e: React.DragEvent<HTMLDivElement>) => e.preventDefault()}
+      onClick={handleCardClick}
       className={[
-        'border rounded-2xl overflow-visible transition-all select-none',
+        'border rounded-2xl overflow-visible transition-all select-none cursor-pointer',
         dragging        ? 'opacity-40 scale-[0.98]' : '',
-        isDraggingOver  ? 'border-[#C19A6B]/60 bg-[#C19A6B]/5' : 'bg-white/5 border-white/8',
+        isDraggingOver  ? 'border-[#C19A6B]/60 bg-[#C19A6B]/5' : expanded ? 'bg-white/7 border-white/14' : 'bg-white/5 border-white/8',
         !produit.actif_catalogue ? 'opacity-50' : '',
       ].join(' ')}
     >
-      <div className="flex items-center gap-3 p-3">
-        <div className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 px-1 touch-none">
+      {/* Ligne principale — toujours visible */}
+      <div className="flex items-center gap-3 px-3 py-3">
+        <div data-drag className="text-white/20 hover:text-white/50 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none">
           <GripVertical size={16} />
         </div>
-        <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-white/8 flex items-center justify-center">
           {produit.image_public_url ? (
             <img src={produit.image_public_url} alt={produit.nom} className="w-full h-full object-cover" draggable={false} />
           ) : (
-            <span className="text-2xl">{produit.emoji}</span>
+            <span className="text-xl">{produit.emoji}</span>
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-white font-medium text-sm truncate">{produit.nom}</p>
-            {produit.allergenes.length > 0 && (
-              <span className="text-[10px] text-amber-400/60 flex-shrink-0">⚠ {produit.allergenes.length}</span>
-            )}
-            {recipeStatus !== null && (
-              <RecetteBadge status={recipeStatus} />
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-white font-medium text-sm truncate">{produit.nom}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-[#C19A6B] text-xs font-bold font-mono">{produit.prix_vente.toFixed(2)}€</span>
             <span className="text-white/20 text-xs">·</span>
             <span className="text-white/30 text-xs capitalize">{produit.categorie}</span>
           </div>
         </div>
+        {/* Indicateurs d'état compacts */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={() => onToggle('actif_catalogue')}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_catalogue ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
-          >
-            {produit.actif_catalogue ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
-          <button
-            onClick={() => onToggle('actif_flash')}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400 hover:bg-yellow-400/25' : 'bg-white/5 text-white/25 hover:bg-white/10'}`}
-          >
-            {produit.actif_flash ? <Zap size={14} /> : <ZapOff size={14} />}
-          </button>
-          {/* Bouton édition recette */}
-          <button
-            onClick={onEditRecette}
-            title="Modifier la recette MP"
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-              recipeStatus === 'specific'
-                ? 'bg-green-500/15 text-green-400 hover:bg-green-500/25'
-                : recipeStatus === 'categorie'
-                  ? 'bg-orange-500/12 text-orange-400/70 hover:bg-orange-500/20 hover:text-orange-400'
-                  : 'bg-white/5 text-white/30 hover:bg-[#C19A6B]/12 hover:text-[#C19A6B]'
-            }`}
-          >
-            <FlaskConical size={13} />
-          </button>
-          <button
-            onClick={onEdit}
-            className="w-8 h-8 rounded-lg bg-white/5 text-white/40 hover:bg-[#C19A6B]/15 hover:text-[#C19A6B] flex items-center justify-center transition-all"
-          >
-            <Pencil size={14} />
-          </button>
-          {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button onClick={onDelete} className="px-2 py-1 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">Confirmer</button>
-              <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 text-[10px] text-white/30 hover:text-white/60 transition-colors">Annuler</button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="w-8 h-8 rounded-lg bg-white/5 text-white/25 hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-all"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
+          {produit.actif_catalogue
+            ? <Eye size={13} className="text-green-400/70" />
+            : <EyeOff size={13} className="text-white/20" />}
+          {produit.actif_flash
+            ? <Zap size={13} className="text-yellow-400/70" />
+            : <ZapOff size={13} className="text-white/15" />}
+          <ChevronDown
+            size={14}
+            className={`text-white/25 transition-transform duration-200 ml-0.5 ${expanded ? 'rotate-180' : ''}`}
+          />
         </div>
       </div>
+
+      {/* Panneau d'actions — déroulé au tap */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3">
+              {/* Séparateur */}
+              <div className="border-t border-white/8 mb-3" />
+
+              {/* Badges info */}
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                {produit.allergenes.length > 0 && (
+                  <span className="text-[10px] text-amber-400/70 bg-amber-400/10 px-2 py-0.5 rounded-full">
+                    ⚠ {produit.allergenes.length} allergène{produit.allergenes.length > 1 ? 's' : ''}
+                  </span>
+                )}
+                {recipeStatus !== null && <RecetteBadge status={recipeStatus} />}
+              </div>
+
+              {/* Boutons d'action */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => onToggle('actif_catalogue')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${produit.actif_catalogue ? 'bg-green-500/15 text-green-400' : 'bg-white/5 text-white/35'}`}
+                >
+                  {produit.actif_catalogue ? <Eye size={12} /> : <EyeOff size={12} />}
+                  {produit.actif_catalogue ? 'Visible' : 'Masqué'}
+                </button>
+                <button
+                  onClick={() => onToggle('actif_flash')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${produit.actif_flash ? 'bg-yellow-400/15 text-yellow-400' : 'bg-white/5 text-white/35'}`}
+                >
+                  {produit.actif_flash ? <Zap size={12} /> : <ZapOff size={12} />}
+                  Flash
+                </button>
+                <button
+                  onClick={onEditRecette}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    recipeStatus === 'specific'
+                      ? 'bg-green-500/15 text-green-400'
+                      : 'bg-white/5 text-white/35 hover:bg-[#C19A6B]/12 hover:text-[#C19A6B]'
+                  }`}
+                >
+                  <FlaskConical size={12} />
+                  Recette
+                </button>
+                <button
+                  onClick={onEdit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#C19A6B]/15 text-[#C19A6B] hover:bg-[#C19A6B]/25 transition-all"
+                >
+                  <Pencil size={12} />
+                  Modifier
+                </button>
+                {confirmDelete ? (
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button onClick={onDelete} className="px-3 py-1.5 text-xs font-bold bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">
+                      Confirmer
+                    </button>
+                    <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs text-white/30 hover:text-white/60 transition-colors">
+                      Annuler
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-white/25 hover:bg-red-500/15 hover:text-red-400 transition-all ml-auto"
+                  >
+                    <Trash2 size={12} />
+                    Supprimer
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
