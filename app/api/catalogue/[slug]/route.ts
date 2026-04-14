@@ -173,7 +173,7 @@ export async function GET(
       if (boul) {
         const { data: journee } = await admin
           .from('journees')
-          .select('id')
+          .select('id, cloturee')
           .eq('boulangerie_id', boul.id)
           .eq('date', todayLocal)
           .single();
@@ -247,7 +247,7 @@ export async function GET(
     }));
 
     return NextResponse.json(
-      { success: true, source: 'supabase', products: productsWithStock, boulangerie: boulangeriePublic, hasStock },
+      { success: true, source: 'supabase', products: productsWithStock, boulangerie: boulangeriePublic, hasStock, journeeCloturee: journee?.cloturee ?? false },
       { headers: NO_CACHE_HEADERS }
     );
   } catch (err) {

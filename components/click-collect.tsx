@@ -42,6 +42,7 @@ function useCatalogue(slug: string | null) {
   const [loading,     setLoading]     = useState(true);
   const [source,      setSource]      = useState<'supabase' | 'local'>('local');
   const [hasStock,    setHasStock]    = useState(false);
+  const [cloturee,    setCloturee]    = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -53,15 +54,17 @@ function useCatalogue(slug: string | null) {
         const res = await fetch(`/api/catalogue/${slug}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as {
-          products:     ProductWithStock[];
-          source:       string;
-          boulangerie?: BoulangeriePublicInfo;
-          hasStock?:    boolean;
+          products:          ProductWithStock[];
+          source:            string;
+          boulangerie?:      BoulangeriePublicInfo;
+          hasStock?:         boolean;
+          journeeCloturee?:  boolean;
         };
         if (!cancelled) {
           setProducts(data.products ?? []);
           setSource(data.source === 'supabase' ? 'supabase' : 'local');
           setHasStock(data.hasStock === true);
+          setCloturee(data.journeeCloturee === true);
           if (data.boulangerie) setBoulangerie(data.boulangerie);
         }
       } catch {
@@ -79,7 +82,7 @@ function useCatalogue(slug: string | null) {
     return () => { cancelled = true; };
   }, [slug]);
 
-  return { products, boulangerie, loading, source, hasStock };
+  return { products, boulangerie, loading, source, hasStock, cloturee };
 }
 
 function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
@@ -91,9 +94,10 @@ function formatAdresseRetrait(info: BoulangeriePublicInfo | null): string {
   return parts.length > 0 ? parts.join(', ') : '42 Rue de la Boulangerie, 75001 Paris';
 }
 
-function ProductCard({ product, index, hasStockInfo }: { product: ProductWithStock; index: number; hasStockInfo: boolean }) {
+function ProductCard({ product, index, hasStockInfo, isClosed }: { product: ProductWithStock; index: number; hasStockInfo: boolean; isClosed: boolean }) {
   const { addItem, setRetraitDate } = useCart();
   const isOutOfStock = hasStockInfo && product.en_stock === false;
+  const showPreOrderBtn = isOutOfStock || isClosed;
 
   const handleAdd = () => {
     if (isOutOfStock) setRetraitDate('tomorrow');
@@ -156,7 +160,7 @@ function ProductCard({ product, index, hasStockInfo }: { product: ProductWithSto
         )}
         <div className="flex items-center justify-between gap-1">
           <span className="text-base sm:text-lg font-bold text-[#C19A6B]">{product.price.toFixed(2)} €</span>
-          {isOutOfStock ? (
+          {showPreOrderBtn ? (
             <motion.button
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.93 }}
@@ -210,7 +214,12 @@ export default function ClickCollect() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const resolution = useSlug();
-  const { products, boulangerie, loading, source, hasStock } = useCatalogue(resolution?.slug ?? null);
+  const { products, boulangerie, loading, source, hasStock, cloturee } = useCatalogue(resolution?.slug ?? null);
+  const { setIsBakeryClosed } = useCart();
+
+  useEffect(() => {
+    setIsBakeryClosed(cloturee);
+  }, [cloturee, setIsBakeryClosed]);
 
   const filteredProducts = products.filter(p => {
     const matchCategory = activeCategory === 'all' || p.category === activeCategory;
@@ -385,7 +394,7 @@ export default function ClickCollect() {
                     </div>
                   ) : (
                     filteredProducts.map((product, index) => (
-                      <ProductCard key={product.id} product={product} index={index} hasStockInfo={hasStock} />
+                      <ProductCard key={product.id} product={product} index={index} hasStockInfo={hasStock} isClosed={cloturee} />
                     ))
                   )}
                 </motion.div>

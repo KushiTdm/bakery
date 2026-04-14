@@ -196,6 +196,7 @@ export default function CartSidebar() {
     user, setIsAuthOpen,
     boulangerieSlug,
     retraitDate, setRetraitDate, isPreOrder,
+    isBakeryClosed,
   } = useCart();
 
   const resolution      = useSlug();
@@ -214,6 +215,12 @@ export default function CartSidebar() {
   const submittingRef = useRef(false);
 
   const plages = creneauxToPlages(boulangerieInfo.creneaux_retrait);
+
+  useEffect(() => {
+    if (isBakeryClosed && retraitDate === 'today') {
+      setRetraitDate('tomorrow');
+    }
+  }, [isBakeryClosed, retraitDate, setRetraitDate]);
 
   useEffect(() => {
     if (plages.length > 0 && !selectedHeure) {
@@ -458,16 +465,18 @@ export default function CartSidebar() {
                         <Calendar size={11} /> Date de retrait
                       </label>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => setRetraitDate('today')}
-                          className={`flex-1 px-3 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all border ${
-                            retraitDate === 'today'
-                              ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
-                              : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
-                          }`}
-                        >
-                          Aujourd&apos;hui
-                        </button>
+                        {!isBakeryClosed && (
+                          <button
+                            onClick={() => setRetraitDate('today')}
+                            className={`flex-1 px-3 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all border ${
+                              retraitDate === 'today'
+                                ? 'bg-[#C19A6B] text-white border-[#C19A6B]'
+                                : 'bg-[#F5F0E8] text-[#2C1810]/70 border-[#E8E0D5] hover:border-[#C19A6B]/50'
+                            }`}
+                          >
+                            Aujourd&apos;hui
+                          </button>
+                        )}
                         <button
                           onClick={() => setRetraitDate('tomorrow')}
                           className={`flex-1 px-3 py-1.5 sm:py-2 rounded-xl text-xs font-semibold transition-all border flex items-center justify-center gap-1 ${

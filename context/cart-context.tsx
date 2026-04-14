@@ -46,6 +46,8 @@ interface CartContextType {
   retraitDate:       RetraitDate;
   setRetraitDate:    (d: RetraitDate) => void;
   isPreOrder:        boolean;
+  isBakeryClosed:    boolean;
+  setIsBakeryClosed: (v: boolean) => void;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -64,6 +66,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [boulangerieSlug]                   = useState(resolveBoulangerieSlug);
   const [retraitDate, setRetraitDate]       = useState<RetraitDate>('today');
   const isPreOrder = retraitDate === 'tomorrow';
+  const [isBakeryClosed, setIsBakeryClosed] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(
@@ -151,6 +154,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       logout,
       boulangerieSlug,
       retraitDate, setRetraitDate, isPreOrder,
+      isBakeryClosed, setIsBakeryClosed,
     }}>
       {children}
     </CartContext.Provider>
