@@ -163,13 +163,28 @@ export default function VueSoir() {
     }
   };
 
-  // Clôture + passe au wizard ou rapport
+  // Clôture + résolution défis + passe au wizard ou rapport
   const handleCloturer = async () => {
     if (cloture || cloturing) return;
     setCloturing(true);
     try {
       await closeDayAndSave(commandesOnline);
       setCloture(true);
+
+      // Résolution des défis du jour (non-bloquant)
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          fetch('/api/boulanger/defis/resolve', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({}),
+          }).catch(() => {});
+        }
+      } catch { /* non-bloquant */ }
     } finally {
       setCloturing(false);
     }

@@ -20,7 +20,7 @@ import VueSnapshot   from '@/components/boulanger/vue-snapshot';
 import VueSoir       from '@/components/boulanger/vue-soir';
 import VueFlash      from '@/components/boulanger/vue-flash';
 import VueRapportIA  from '@/components/boulanger/vue-rapport-ia';
-import Dashboard     from '@/components/boulanger/dashboard';
+import Dashboard     from '@/components/boulanger/dashboard-v2';
 import DashboardSupervision from '@/components/boulanger/dashboard-supervision';
 import Catalogue     from '@/components/boulanger/catalogue';
 import Parametres    from '@/components/boulanger/parametres';

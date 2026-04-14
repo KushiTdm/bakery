@@ -162,6 +162,58 @@ export function mergePermissions(
   return base;
 }
 
+// ── Gamification ─────────────────────────────────────────────
+
+export type ChallengeCategory =
+  | 'reduce_waste'
+  | 'revenue_target'
+  | 'perfect_day'
+  | 'streak'
+  | 'anti_gaspi'
+  | 'click_collect'
+  | 'production_accuracy'
+  | 'improvement';
+
+export type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
+export type ChallengeStatus     = 'actif' | 'reussi' | 'echoue' | 'expire';
+export type ChallengeComparison = 'lte' | 'gte' | 'eq' | 'lt' | 'gt';
+
+export interface Defi {
+  id:               string;
+  boulangerie_id:   string;
+  rapport_id:       string | null;
+  date_defi:        string;
+  categorie:        ChallengeCategory;
+  difficulte:       ChallengeDifficulty;
+  titre:            string;
+  description:      string;
+  emoji:            string;
+  metric_cible:     string;
+  produit_id:       string | null;
+  valeur_cible:     number;
+  comparaison:      ChallengeComparison;
+  valeur_actuelle:  number | null;
+  statut:           ChallengeStatus;
+  xp_reward:        number;
+  resolved_at:      string | null;
+  created_at:       string;
+}
+
+export interface GamificationProfil {
+  id:               string;
+  boulangerie_id:   string;
+  xp_total:         number;
+  niveau:           number;
+  streak_actuel:    number;
+  streak_max:       number;
+  derniere_cloture: string | null;
+  badges:           string[];
+  created_at:       string;
+  updated_at:       string;
+}
+
+// ── Équipe ───────────────────────────────────────────────────
+
 export interface MembreEquipe {
   id:               string;
   userId:           string | null;
