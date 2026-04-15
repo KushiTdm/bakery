@@ -193,14 +193,12 @@ export function useWorkflowJournee({
       ? 'Saisissez d\'abord la production du matin'
       : null;
 
-    // Flash : seulement si snapshot 14h fait OU si l'heure est >= 17h
-    // (en fin de journée, on peut préparer le flash sans avoir fait tous les snapshots)
-    const canAccessFlash = productionSaisie && (snapshot14hFait || localHour >= 17);
+    // Flash : accessible dès que la production est saisie
+    // (on peut anticiper l'antigaspi à tout moment de la journée)
+    const canAccessFlash = productionSaisie;
     const flashBlockReason = !productionSaisie
       ? 'Saisissez d\'abord la production du matin'
-      : !snapshot14hFait && localHour < 17
-        ? 'Effectuez d\'abord les snapshots 10h et 14h'
-        : null;
+      : null;
 
     // Soir/Clôture : seulement si production saisie (snapshots conseillés mais pas obligatoires)
     // On bloque si pas de production du tout

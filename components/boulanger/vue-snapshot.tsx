@@ -225,6 +225,17 @@ function SnapshotCellSlider({
   );
 }
 
+// ─── Constantes catégories ────────────────────────────────────
+
+const CATEGORY_ORDER = ['boulangerie', 'viennoiserie', 'patisserie', 'sandwich'] as const;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  boulangerie:  'Boulangerie',
+  viennoiserie: 'Viennoiserie',
+  patisserie:   'Pâtisserie',
+  sandwich:     'Sandwichs',
+};
+
 // ─── Vue Snapshot ─────────────────────────────────────────────
 
 export default function VueSnapshot() {
@@ -376,77 +387,101 @@ export default function VueSnapshot() {
         </div>
       )}
 
-      {/* ── Liste produits ── */}
-      <div
-        className="rounded-2xl border overflow-hidden"
-        style={{
-          background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
-          borderColor: 'rgba(255,255,255,0.07)',
-        }}
-      >
-        {/* En-tête colonnes */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5">
-          <p className="flex-1 text-white/30 text-[10px] uppercase tracking-widest">Produit</p>
-          <p className="text-white/30 text-[10px] uppercase tracking-widest text-right pr-1">
-            Produit / Reste
-          </p>
-        </div>
+      {/* ── Liste produits groupée par catégorie ── */}
+      {(() => {
+        // Tri : stock le plus élevé d'abord, stock vide en dernier, production=0 tout en bas
+        const sortByStock = (a: StockEntry, b: StockEntry) => {
+          const aReste = slotActif === '10h' ? a.snapshot10h : a.snapshot14h;
+          const bReste = slotActif === '10h' ? b.snapshot10h : b.snapshot14h;
+          if ((a.production === 0) !== (b.production === 0)) return a.production === 0 ? 1 : -1;
+          if ((aReste === 0) !== (bReste === 0)) return aReste === 0 ? 1 : -1;
+          return bReste - aReste;
+        };
 
-        {/* Lignes */}
-        {todayStocks.map(stock => {
-          const isDone    = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
-          const reste     = slotActif === '10h' ? stock.snapshot10h    : stock.snapshot14h;
-          const base      = slotActif === '10h'
-            ? stock.production
-            : (stock.snapshot10hDone ? stock.snapshot10h : stock.production);
-          const vendus    = base - reste;
-          const isBlocked = slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0;
+        const grouped = CATEGORY_ORDER
+          .map(cat => ({
+            category: cat,
+            items: todayStocks.filter(s => s.category === cat).sort(sortByStock),
+          }))
+          .filter(g => g.items.length > 0);
 
-          const refLabel = slotActif === '14h' && stock.snapshot10hDone
-            ? `Snapshot 10h : ${stock.snapshot10h} restants`
-            : `${stock.production} produits`;
-
-          return (
-            <div
-              key={stock.id}
-              className={`
-                px-4 py-3 border-b border-white/4 last:border-0
-                ${isDone || isBlocked ? 'opacity-45' : ''}
-              `}
-            >
-              {/* Ligne info produit */}
-              <div className="flex items-center gap-2.5 mb-2.5">
-                <span className="text-xl leading-none flex-shrink-0">{stock.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium line-clamp-1">{stock.name}</p>
-                  <p className="text-white/35 text-xs tabular-nums">
-                    {refLabel}
-                    {vendus > 0 && (
-                      <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>
-                    )}
-                    {(reservedByProduct[stock.name] ?? 0) > 0 && (
-                      <span className="text-amber-400/80 ml-2 font-medium">
-                        · {reservedByProduct[stock.name]} réservé{reservedByProduct[stock.name] > 1 ? 's' : ''} C&C
-                      </span>
-                    )}
-                    {isBlocked && (
-                      <span className="text-white/30 ml-2 italic">· tout vendu à 10h</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* Curseur / barre désactivée */}
-              <SnapshotCellSlider
-                value={reste}
-                max={base}
-                onChange={val => handleChange(stock, slotActif, val)}
-                disabled={isDone || isBlocked}
-              />
+        return grouped.map(({ category, items }, groupIdx) => (
+          <div
+            key={category}
+            className="rounded-2xl border overflow-hidden"
+            style={{
+              background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+              borderColor: 'rgba(255,255,255,0.07)',
+              marginTop: groupIdx === 0 ? 0 : undefined,
+            }}
+          >
+            {/* En-tête catégorie */}
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-white/2">
+              <p className="flex-1 text-[#C19A6B]/70 text-[10px] uppercase tracking-widest font-semibold">
+                {CATEGORY_LABELS[category]}
+              </p>
+              <p className="text-white/20 text-[10px] uppercase tracking-widest text-right pr-1">
+                Produit / Reste
+              </p>
             </div>
-          );
-        })}
-      </div>
+
+            {/* Lignes */}
+            {items.map(stock => {
+              const isDone    = slotActif === '10h' ? stock.snapshot10hDone : stock.snapshot14hDone;
+              const reste     = slotActif === '10h' ? stock.snapshot10h    : stock.snapshot14h;
+              const base      = slotActif === '10h'
+                ? stock.production
+                : (stock.snapshot10hDone ? stock.snapshot10h : stock.production);
+              const vendus    = base - reste;
+              const isBlocked = slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0;
+
+              const refLabel = slotActif === '14h' && stock.snapshot10hDone
+                ? `Snapshot 10h : ${stock.snapshot10h} restants`
+                : `${stock.production} produits`;
+
+              return (
+                <div
+                  key={stock.id}
+                  className={`
+                    px-4 py-3 border-b border-white/4 last:border-0
+                    ${isDone || isBlocked ? 'opacity-45' : ''}
+                  `}
+                >
+                  {/* Ligne info produit */}
+                  <div className="flex items-center gap-2.5 mb-2.5">
+                    <span className="text-xl leading-none flex-shrink-0">{stock.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium line-clamp-1">{stock.name}</p>
+                      <p className="text-white/35 text-xs tabular-nums">
+                        {refLabel}
+                        {vendus > 0 && (
+                          <span className="text-green-400/60 ml-2">→ {vendus} vendus</span>
+                        )}
+                        {(reservedByProduct[stock.name] ?? 0) > 0 && (
+                          <span className="text-amber-400/80 ml-2 font-medium">
+                            · {reservedByProduct[stock.name]} réservé{reservedByProduct[stock.name] > 1 ? 's' : ''} C&C
+                          </span>
+                        )}
+                        {isBlocked && (
+                          <span className="text-white/30 ml-2 italic">· tout vendu à 10h</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Curseur / barre désactivée */}
+                  <SnapshotCellSlider
+                    value={reste}
+                    max={base}
+                    onChange={val => handleChange(stock, slotActif, val)}
+                    disabled={isDone || isBlocked}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ));
+      })()}
 
       {/* ── Bouton valider snapshot ── */}
       <motion.button
