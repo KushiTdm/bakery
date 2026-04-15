@@ -150,6 +150,7 @@ export async function GET(
     // ── Enrichir avec la disponibilité stock du jour ──────────
     const stockMap: Record<string, number> = {};
     let hasStock = false;
+    let journee: { id: string; cloturee: boolean } | null = null;
 
     if (d) {
       const tz = (boulangerieResult.data as Record<string, unknown>)?.timezone as string ?? 'Europe/Paris';
@@ -171,12 +172,13 @@ export async function GET(
         .single();
 
       if (boul) {
-        const { data: journee } = await admin
+        const { data: journeeData } = await admin
           .from('journees')
           .select('id, cloturee')
           .eq('boulangerie_id', boul.id)
           .eq('date', todayLocal)
           .single();
+        journee = journeeData ?? null;
 
         if (journee) {
           // Production du jour
