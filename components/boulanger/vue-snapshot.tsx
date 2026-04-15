@@ -433,7 +433,9 @@ export default function VueSnapshot() {
                 ? stock.production
                 : (stock.snapshot10hDone ? stock.snapshot10h : stock.production);
               const vendus    = base - reste;
-              const isBlocked = slotActif === '14h' && stock.snapshot10hDone && stock.snapshot10h === 0;
+              // Bloqué uniquement si production = 0 (rien à compter)
+              // Note : snapshot10h = 0 validé par erreur → user peut re-corriger le 10h
+              const isBlocked = stock.production === 0;
 
               const refLabel = slotActif === '14h' && stock.snapshot10hDone
                 ? `Snapshot 10h : ${stock.snapshot10h} restants`
@@ -444,7 +446,7 @@ export default function VueSnapshot() {
                   key={stock.id}
                   className={`
                     px-4 py-3 border-b border-white/4 last:border-0
-                    ${isDone || isBlocked ? 'opacity-45' : ''}
+                    ${isBlocked ? 'opacity-45' : ''}
                   `}
                 >
                   {/* Ligne info produit */}
@@ -462,19 +464,19 @@ export default function VueSnapshot() {
                             · {reservedByProduct[stock.name]} réservé{reservedByProduct[stock.name] > 1 ? 's' : ''} C&C
                           </span>
                         )}
-                        {isBlocked && (
-                          <span className="text-white/30 ml-2 italic">· tout vendu à 10h</span>
+                        {isDone && !isBlocked && (
+                          <span className="text-[#C19A6B]/50 ml-2 italic">· modifiable</span>
                         )}
                       </p>
                     </div>
                   </div>
 
-                  {/* Curseur / barre désactivée */}
+                  {/* Curseur — toujours éditable même si slot validé */}
                   <SnapshotCellSlider
                     value={reste}
                     max={base}
                     onChange={val => handleChange(stock, slotActif, val)}
-                    disabled={isDone || isBlocked}
+                    disabled={isBlocked}
                   />
                 </div>
               );
