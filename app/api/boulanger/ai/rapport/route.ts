@@ -802,8 +802,22 @@ export async function POST(req: NextRequest) {
 
     const allPrevisions = [...previsionsRows, ...manquants].filter(Boolean);
     if (allPrevisions.length > 0) {
-      await admin.from('production_forecasts')
+      const { error: upsertError } = await admin
+        .from('production_forecasts')
         .upsert(allPrevisions, { onConflict: 'boulangerie_id,date_production,produit_id' });
+
+      if (upsertError) {
+        console.error('[Prévisions] Erreur upsert production_forecasts:', JSON.stringify(upsertError));
+        // Fallback : insert individuel pour identifier le produit fautif
+        for (const row of allPrevisions) {
+          const { error: e } = await admin
+            .from('production_forecasts')
+            .upsert(row, { onConflict: 'boulangerie_id,date_production,produit_id' });
+          if (e) console.error('[Prévisions] Échec ligne produit_id:', row?.produit_id, e.message);
+        }
+      } else {
+        console.log(`[Prévisions] ${allPrevisions.length} prévisions insérées pour ${demainDate}`);
+      }
     }
 
     // ── 13. Notification push ──────────────────────────────────
