@@ -58,8 +58,9 @@ function getCoeffMeteo(categorie: string, meteo: MeteoComplet | null): number {
 
   // Parse overall traffic factor (e.g. "-25 à -40% fréquentation" → 0.70)
   const parseTrafic = (label: string): number => {
-    if (label.includes('-40') || label.includes('-60')) return 0.65;
-    if (label.includes('-25') || label.includes('-40')) return 0.72;
+    if (label.includes('-60')) return 0.55;
+    if (label.includes('-40')) return 0.65;
+    if (label.includes('-25')) return 0.72;
     if (label.includes('-20')) return 0.80;
     if (label.includes('-15')) return 0.85;
     if (label.includes('-10')) return 0.90;
