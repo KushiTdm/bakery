@@ -920,6 +920,7 @@ Structure \`previsions_production\` :
 **\`defis\`** : défis gamification — section OBLIGATOIRE, minimum 2 défis
 Un défi boulanger + un défi vendeuse. Basés sur les données réelles du jour.
 Objectifs progressifs réalistes (+5% à +15% max). Atteignables demain, pas utopiques.
+⚠ Métriques physiques d'une boulangerie : panier moyen boutique = 3-12€/transaction, taux invendu cible < 5%, CA par pièce = CA_jour / total_produits. Ne jamais calculer de panier moyen à partir de CLIENTS_APP (ce sont des utilisateurs inscrits, pas le nombre de transactions physiques).
 \`\`\`json
 [{
   "cible": "boulanger",
@@ -1026,7 +1027,7 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
   // Clients
   let clientsStr = '';
   if (clients) {
-    clientsStr = `\n# CLIENTS\ntotal=${clients.total_clients} actifs=${clients.clients_actifs} rétention=${clients.retention_30j}%\nnouveaux: jour=${clients.nouveaux_clients_jour} sem=${clients.nouveaux_clients_semaine} mois=${clients.nouveaux_clients_mois}`;
+    clientsStr = `\n# CLIENTS_APP (utilisateurs inscrits app — ≠ clients physiques boutique)\ntotal=${clients.total_clients} actifs=${clients.clients_actifs} rétention=${clients.retention_30j}%\nnouveaux: jour=${clients.nouveaux_clients_jour} sem=${clients.nouveaux_clients_semaine} mois=${clients.nouveaux_clients_mois}\n⚠ Ne pas utiliser total_clients pour calculer un panier moyen physique.`;
   }
 
   // Matières premières
