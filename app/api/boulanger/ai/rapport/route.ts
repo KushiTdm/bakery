@@ -664,7 +664,6 @@ export async function POST(req: NextRequest) {
     });
 
     const systemPrompt = buildSystemPrompt();
-    // @ts-ignore – suggestions_algo et histo_meme_jour_raw seront ajoutés à PayloadEnrichi en Task 6
     const userPrompt   = buildUserPromptEnrichi({ ...payload, suggestions_algo: suggestionsAlgo, histo_meme_jour_raw: histoMemeJour }, feedbackVendeuse, wizardData, {
       preCommandesTotal,
       preCommandesCA,

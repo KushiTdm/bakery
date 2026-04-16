@@ -212,6 +212,9 @@ export interface PayloadEnrichi {
     top_succes: { nom: string; emoji: string; taux_vente: number }[];
     flops: { nom: string; emoji: string; taux_invendu: number }[];
   };
+  // New fields for pre-computed production suggestions (Task 4/5)
+  suggestions_algo?:    import('./ai-production-compute').ProductionSuggestion[];
+  histo_meme_jour_raw?: { date: string; stocks_journaliers: { produit_id: string; production: number; stock_final: number }[] }[];
 }
 
 // ── Coefficients matières premières ──────────────────────────
@@ -853,310 +856,167 @@ export function deanonymiserRapport(rapport: Record<string, unknown>): Record<st
 // ── Prompts ───────────────────────────────────────────────────
 
 export function buildSystemPrompt(): string {
-  return `Tu es Levain, l'assistant IA du boulanger artisanal de Sauve Mie.
+  return `Tu es Levain, l'assistant IA d'un boulanger artisanal. Comme le levain naturel, tu t'améliores chaque jour grâce aux données.
 
-TON IDENTITÉ :
-Tu es comme un levain naturel qui s'améliore chaque jour. Tu deviens plus précis et pertinent au fil des analyses. Tu connais intimement le rythme, les habitudes et les spécificités de cette boulangerie.
+## Tes 3 audiences
+- **Boulanger** : production, fournées, matières premières
+- **Vendeuse** : accueil client, mise en avant produits, fin de journée
+- **Gérant** : CA, tendances, stratégie, rentabilité
 
-TON RÔLE — ANALYSE COMPLÈTE ET INDISPENSABLE :
-Chaque soir, tu génères un rapport exhaustif que le boulanger, la vendeuse ET le gérant attendent avec impatience. Ton analyse doit être :
-- ACTIONNABLE : chaque insight débouche sur une recommandation concrète
-- CONTEXTUALISÉ : tu relies les données entre elles (météo, événements, historique)
-- MOTIVANTE : tu valorises les succès et encourage sur les points d'amélioration
-- PRÉCISE : tu utilises les VRAIS NOMS des produits, jamais de codes abstraits
+## Règles absolues
+1. Dans \`previsions_production\`, utilise TOUJOURS le \`produit_id\` UUID exact fourni dans les suggestions.
+2. \`quantite_suggeree\` est un ENTIER ABSOLU (pièces), jamais un pourcentage.
+3. Fournis \`quantite_min\` et \`quantite_max\` pour chaque produit.
+4. Les suggestions sont pré-calculées par algorithme serveur. Valide-les ou ajuste-les avec une justification contextuelle courte.
+5. Utilise toujours les vrais noms de produits (jamais "Produit A").
+6. Arrondis : pains → multiples de 5 | viennoiseries/pâtisseries → multiples de 2.
 
-POINTS D'ATTENTION POUR CHAQUE LECTEUR :
-- **BOULANGER** : technique, production, matières premières, optimisation fourneaux
-- **VENDEUSE** : relation client, produits à valoriser, gestion fin de journée
-- **GÉRANT** : tendances CA, rentabilité, investissements, stratégie
+## Format de réponse
+JSON strict avec les sections :
+\`score\`, \`verdict\`, \`synthese_journee\`, \`analyse_produits\`, \`analyse_contextuelle\`,
+\`analyse_commandes\`, \`analyse_clients\`, \`previsions_production\`, \`matieres_premieres\`,
+\`briefing_matin\`, \`briefing_vendeuse\`, \`briefing_gerant\`, \`consignes_transmises\`, \`message_levain\`
 
-RÈGLES ABSOLUES :
-1. UTILISE TOUJOURS LES VRAIS NOMS des produits (ex: "🥖 Baguette Tradition", "🥐 Croissant")
-2. Sois chaleureux mais professionnel — tu parles à des artisans passionnés
-3. Chaque section doit apporter de la valeur — pas de remplissage
-4. Le briefing matin doit permettre au boulanger de démarrer sa journée sereinement
-
-BASE DE CONNAISSANCE MÉTIER — BOULANGERIE ARTISANALE FRANÇAISE :
-
-=== DYNAMIQUE SAISONNIÈRE (MOIS PAR MOIS) ===
-- Janvier : Mois faible (post-fêtes, résolutions). EXCEPTION MAJEURE : Galette des Rois = 15-40% du CA du mois.
-- Février : Transition. Chandeleur le 2, Saint-Valentin le 14 (gâteaux perso si bien préparé).
-- Mars : Reprise progressive.
-- Avril : Bon mois. Pâques : hausse brioches, pains tressés +15-25% semaine pascale.
-- Mai : Excellent. Nombreux fériés = sorties familiales, pique-niques. Hausse pâtisseries + sandwichs.
-- Juin : Bon. Soleil, fin d'année scolaire. Sandwichs et produits frais dominent. Baisse viennoiseries grasses.
-- Juillet-Août : Dépend localisation. Touristique: +50-100%. Résidentiel/bureaux: -20-35%.
-- Septembre : Forte reprise rentrée. Goûters 16h30, snacking bureau. Excellent mois.
-- Octobre : Stable et bon.
-- Novembre : Difficile psychologiquement. Temps gris. Légère hausse ventes réconfort.
-- Décembre : MEILLEUR MOIS. 2 dernières semaines avant Noël : +30-60%. Bûches, pains d'épices, sablés.
-
-=== FACTEURS COMPORTEMENTAUX ===
-- Cycle salarial : Hausse achats plaisir début de mois (1-5) vs fin de mois (20-31). Impact +5-8% pâtisseries/produits premium en début de mois.
-- Télétravail : Zones bureaux = creux lundi et vendredi. Zones résidentielles = flux plus homogène en semaine.
-- Humeur collective : Mauvaises nouvelles = repli achats plaisir, hausse pain de base. Événements sportifs positifs = +20-30%.
-- Anti-gaspi : Communication active sur paniers flash crée une clientèle dédiée "fin de journée", fidèle.
-- Achat d'impulsion : 52% des clients sont réceptifs. Produits phares à hauteur des yeux, articles faible coût près de la caisse.
-
-=== CRÉNEAUX HORAIRES ===
-- 6h30-9h00 : Baguettes, croissants, sandwichs matinaux (+++++)
-- 9h00-11h00 : Pâtisseries, viennoiseries, retraités (++)
-- 11h30-13h30 : Sandwichs, quiches, snacking déjeuner (++++)
-- 13h30-16h30 : Creux absolu — moment de comptage stock (+)
-- 16h30-18h30 : Goûter (éclairs, chocolatines, pains raisins), baguette retour (+++)
-- 18h30-fermeture : Ventes très faibles → paniers flash anti-gaspi
-
-RÈGLES CRITIQUES POUR LES PRÉVISIONS DE PRODUCTION :
-- Tu reçois pour chaque produit : son produit_id (UUID), son nom, la quantité produite aujourd'hui, le taux de vente, les invendus, et la moyenne historique sur les mêmes jours de semaine
-- Tu DOIS retourner des quantités ABSOLUES (nombre entier de pièces), pas des pourcentages
-- Base tes calculs sur : (1) la moyenne des mêmes jours de semaine si disponible, (2) sinon la quantité d'aujourd'hui ajustée selon le taux de vente
-- Si taux_vente_hier = 100% → augmenter légèrement (demande non satisfaite possible)
-- Si invendu_hier > 20% → réduire significativement
-- Si invendu_hier entre 5-20% → réduire modérément
-- Si invendu_hier < 5% → maintenir ou ajuster légèrement
-- Prends en compte la météo de demain et le type de jour (week-end vs semaine)
-- Arrondis TOUJOURS à des multiples de 5 pour les pains (ex: 85, 90, 95) et de 2 pour les pâtisseries
-- UTILISE le champ produit_id fourni dans le catalogue pour identifier chaque produit dans ta réponse
-
-FORMAT JSON OBLIGATOIRE :
-{
-  "score": <0-100>,
-  "verdict": "<phrase percutante de 15 mots max>",
-  
-  "synthese_journee": {
-    "resume": "<2-3 phrases : performance globale du jour>",
-    "points_forts": ["<succès concret avec nom produit>"],
-    "points_amelioration": ["<point à travailler avec solution>"],
-    "message_equipe": "<message court pour toute l'équipe>"
-  },
-  
-  "analyse_produits": {
-    "top_ventes": [
-      { "nom": "<vrai nom>", "emoji": "<emoji>", "taux_vente": <nb>, "commentaire": "<pourquoi ça marche>" }
-    ],
-    "invendus_critiques": [
-      { "nom": "<vrai nom>", "emoji": "<emoji>", "taux_invendu": <nb>, "cause_probable": "<analyse>", "action": "<suggestion>" }
-    ],
-    "opportunites": ["<string : opportunité produit identifiée, ex: 'Proposer des galettes individuelles pour les enfants le mercredi'>"]
-  },
-  
-  "analyse_contextuelle": {
-    "impact_meteo": "<comment la météo a affecté les ventes>",
-    "impact_evenements": "<impact vacances/fêtes/événements locaux>",
-    "correlation_historique": "<comparaison avec historique et tendances>"
-  },
-  
-  "analyse_commandes": {
-    "click_collect": {
-      "resume": "<synthèse en 1 phrase>",
-      "performance": "<nb> commandes, <ca>€, panier moyen <pm>€",
-      "conseil": "<comment optimiser>"
-    },
-    "anti_gaspi": {
-      "resume": "<synthèse en 1 phrase>",
-      "impact": "<nb> invendus sauvés, <ca>€ générés",
-      "conseil": "<comment améliorer>"
-    }
-  },
-  
-  "analyse_clients": {
-    "nouveaux": "<nb> nouveaux clients aujourd'hui, <nb> cette semaine",
-    "tendances": "<analyse de la base clients>",
-    "recommendation": "<action pour fidéliser>"
-  },
-  
-  "previsions_production": [
-    {
-      "produit_id": "<UUID exact du produit>",
-      "produit_nom": "<nom exact du produit>",
-      "quantite_suggeree": <nombre entier absolu de pièces à produire>,
-      "quantite_min": <fourchette basse — entier>,
-      "quantite_max": <fourchette haute — entier>,
-      "variation_pct": <variation en % par rapport à aujourd'hui, entier signé>,
-      "raison": "<justification courte et concrète basée sur les données>"
-    }
-  ],
-  
-  "matieres_premieres": {
-    "resume": "<phrase de résumé>",
-    "alertes": ["<alerte stock si pertinente>"],
-    "details": [
-      { "ingredient": "<farine/beurre/oeufs/sucre>", "quantite": "<valeur + unité>", "observation": "<note>" }
-    ]
-  },
-  
-  "briefing_matin": {
-    "titre": "<titre accrocheur pour demain>",
-    "contexte_jour": "<type de journée attendue>",
-    "meteo_resume": "<météo demain avec emoji>",
-    "impact_meteo_vente": "<impact concret sur les ventes>",
-    "top3_a_produire": ["<🥖 Baguette Tradition : 90 pièces>", "<produit 2 : X pièces>", "<produit 3 : X pièces>"],
-    "point_vigilance": "<1 chose critique à surveiller>",
-    "fiabilite_previsions": "<indication fiabilité>",
-    "conseil_ouverture": "<conseil pratique pour bien démarrer>"
-  },
-  
-  "briefing_vendeuse": {
-    "titre": "<titre pour la vendeuse>",
-    "accueil_client": "<conseil relation client pour demain>",
-    "produits_a_mettre_en_avant": ["<produit à valoriser au comptoir>"],
-    "gestion_fin_journee": "<conseil pour gérer les invendus>",
-    "message_encouragement": "<message chaleureux>"
-  },
-  
-  "briefing_gerant": {
-    "titre": "<titre pour le gérant>",
-    "tendances_ca": "<évolution du chiffre d'affaires>",
-    "points_attention": ["<point stratégique à surveiller>"],
-    "opportunites_business": ["<opportunité identifiée>"],
-    "recommendation": "<action stratégique recommandée>"
-  },
-  
-  "consignes_transmises": {
-    "au_boulanger": "<consignes de l'owner ou vide>",
-    "a_la_vendeuse": "<consignes de l'owner ou vide>"
-  },
-  
-  "message_levain": "<message personnel court et chaleureux au boulanger>"
-}`;
+Structure \`previsions_production\` :
+\`\`\`json
+[{
+  "produit_id": "<UUID exact>",
+  "produit_nom": "<nom exact>",
+  "quantite_suggeree": <entier>,
+  "quantite_min": <entier>,
+  "quantite_max": <entier>,
+  "variation_pct": <entier signé>,
+  "raison": "<justification courte>"
+}]
+\`\`\``;
 }
 
 export function buildUserPrompt(payload: PayloadEnrichi): string {
   const {
     journee, demain_info, historique_14j, histo_meme_jour,
     nb_jours_histo, catalogue, meteo, commandes, clients,
-    evenements, performance_globale,
+    evenements, performance_globale, suggestions_algo,
   } = payload;
 
-  // Contexte cycle salarial (début vs fin de mois)
-  const demainDate2 = new Date(demain_info.date + 'T12:00:00');
-  const jourDuMois = demainDate2.getDate();
-  let ctxSalarial = '';
-  if (jourDuMois >= 1 && jourDuMois <= 5) {
-    ctxSalarial = '\n💰 DÉBUT DE MOIS (post-paie) — Hausse attendue achats plaisir +5-8% : pâtisseries premium, viennoiseries, produits spéciaux. Les clients se font plaisir.';
-  } else if (jourDuMois >= 25) {
-    ctxSalarial = '\n💸 FIN DE MOIS — Resserrement budgétaire. Recentrage sur produits de base (baguette, pain de mie). Baisse pâtisseries premium -5-8%. Miser sur les prix accessibles.';
-  }
+  // Cycle salarial
+  const jourDuMois = new Date(demain_info.date + 'T12:00:00').getDate();
+  const cycle = jourDuMois <= 5 ? 'debut_mois' : jourDuMois >= 25 ? 'fin_mois' : 'milieu_mois';
 
-  const ctxHisto = nb_jours_histo === 0
-    ? '🌱 Première journée — Levain établit sa base. Prévisions prudentes basées uniquement sur aujourd\'hui.'
-    : nb_jours_histo < 7
-      ? `🌱 ${nb_jours_histo} jour(s) d'historique — Levain apprend encore.`
-      : nb_jours_histo < 14
-        ? `🌿 ${nb_jours_histo} jours — bonnes tendances visibles.`
-        : `🌳 ${nb_jours_histo} jours — analyse fiable, Levain connaît cette boulangerie.`;
+  // Météo compacte
+  const meteoStr = meteo
+    ? `${meteo.demain.icone}${meteo.demain.temp_max}°C/${meteo.demain.temp_min}°C précip:${meteo.demain.precipitations}mm`
+    : 'inconnue';
+  const impactTrafic = meteo ? meteo.impact.facteur_trafic : 'neutre';
 
-  const ctxJour = demain_info.est_weekend
-    ? `⚠️ IMPORTANT : Demain est ${demain_info.jour_semaine.toUpperCase()} (WEEK-END). Fréquentation généralement +20-40%. Adapter les quantités en conséquence.`
-    : `Demain est ${demain_info.jour_semaine} (semaine).`;
-
-  let ctxMeteo = '';
-  if (meteo) {
-    const cat = meteo.impact.par_categorie;
-    ctxMeteo = `
-=== MÉTÉO ===
-Aujourd'hui : ${meteo.actuelle.icone} ${meteo.actuelle.description} | ${meteo.actuelle.temperature}°C (ressenti ${meteo.actuelle.ressenti}°C) | Humidité ${meteo.actuelle.humidite}%
-Demain      : ${meteo.demain.icone} ${meteo.demain.description} | Max ${meteo.demain.temp_max}°C / Min ${meteo.demain.temp_min}°C | Précip: ${meteo.demain.precipitations}mm
-Impact      : ${meteo.impact.global} (${meteo.impact.facteur_trafic})
-Impact par catégorie : Boulangerie: ${cat.boulangerie} | Viennoiserie: ${cat.viennoiserie} | Pâtisserie: ${cat.patisserie} | Sandwich: ${cat.sandwich}
-Conseils    : ${meteo.impact.conseils.join(' · ')}`;
-  }
-
-  let ctxEvenements = '';
+  // Événement
+  let eventStr = 'null';
   if (evenements) {
-    ctxEvenements = `\n=== ÉVÉNEMENTS & CONTEXTE DEMAIN ===`;
-    if (evenements.jour_ferie)          ctxEvenements += `\n🗓️ JOUR FÉRIÉ : ${evenements.fete_nom}`;
-    if (evenements.vacances_scolaires)  ctxEvenements += `\n📚 VACANCES SCOLAIRES en cours`;
-    if (evenements.evenements_locaux.length > 0) {
-      ctxEvenements += `\n📍 ${evenements.evenements_locaux.join(' · ')}`;
-    }
+    const parts: string[] = [];
+    if (evenements.jour_ferie) parts.push(`FERIÉ:${evenements.fete_nom}`);
+    if (evenements.vacances_scolaires) parts.push('VACANCES');
+    if (evenements.evenements_locaux.length > 0) parts.push(evenements.evenements_locaux.join(','));
+    if (parts.length > 0) eventStr = parts.join('|');
   }
 
-  let ctxCommandes = '';
-  if (commandes) {
-    ctxCommandes = `
-=== COMMANDES EN LIGNE ===
-📱 Click & Collect : ${commandes.click_collect.nb_commandes} commandes | ${commandes.click_collect.ca_total}€ | Panier moyen ${commandes.click_collect.panier_moyen}€
-   Top produits : ${commandes.click_collect.top_produits.map(p => `${p.nom} (${p.quantite})`).join(', ') || 'N/A'}
-   Heures pointe : ${commandes.click_collect.heures_pointe.join(', ') || 'N/A'}
-   Taux récupération : ${commandes.click_collect.taux_recupere}%
-
-♻️ Anti-Gaspi : ${commandes.anti_gaspi.nb_paniers} paniers | ${commandes.anti_gaspi.ca_genere}€ générés
-   Invendus sauvés : ${commandes.anti_gaspi.invendus_ecartes} produits
-   Taux de vente : ${Math.round(commandes.anti_gaspi.taux_vente)}%`;
-  }
-
-  let ctxClients = '';
-  if (clients) {
-    ctxClients = `
-=== CLIENTS EN LIGNE ===
-👥 Total clients : ${clients.total_clients} | Actifs : ${clients.clients_actifs} (${clients.retention_30j}% rétention 30j)
-📈 Nouveaux : ${clients.nouveaux_clients_jour} aujourd'hui | ${clients.nouveaux_clients_semaine} cette semaine | ${clients.nouveaux_clients_mois} ce mois`;
-  }
-
-  let ctxMemeJour = '';
-  if (histo_meme_jour.length > 0) {
-    ctxMemeJour = `
-=== HISTORIQUE DES ${demain_info.jour_semaine.toUpperCase()}S PRÉCÉDENTS ===
-${histo_meme_jour.map(h => `${h.jour_semaine}: CA ${h.ca}€ · Invendu ${h.taux_invendu}% · ${h.total_produit} pcs · ${h.commandes_online} cmd online`).join('\n')}`;
-  }
-
-  // Catalogue enrichi avec toutes les données nécessaires aux prévisions
-  const catalogueLines = catalogue.map(p => {
-    const moyInfo = p.moy_meme_jour !== null
-      ? ` | moy_${demain_info.jour_semaine}: ${p.moy_meme_jour} pcs`
-      : ' | pas d\'historique pour ce jour';
-    return `produit_id="${p.produit_id}" ${p.emoji} ${p.nom} (${p.categorie}) | prix: ${p.prix_vente}€ | produit_hier: ${p.quantite_produite_hier} pcs | vendu: ${p.taux_vente_hier}% | invendu: ${p.invendu_hier} pcs${moyInfo}`;
+  // Produits aujourd'hui — format pipe
+  const produitsLignes = journee.produits.map(p => {
+    const flag = p.performance === 'excellent' ? '*' : p.performance === 'faible' ? '!' : '';
+    return `${p.produit_id ?? ''}|${p.nom}${flag}|${p.production}|${p.taux_vente}%|${p.invendu}`;
   }).join('\n');
 
-  const ctxPerformance = `
-=== PERFORMANCE DU JOUR ===
-Score : ${performance_globale.score_jour}/100
-Tendance vs hier : ${performance_globale.tendance_vs_hier >= 0 ? '+' : ''}${performance_globale.tendance_vs_hier}%
-Tendance vs même jour semaine : ${performance_globale.tendance_vs_meme_jour >= 0 ? '+' : ''}${performance_globale.tendance_vs_meme_jour}%
-Top succès : ${performance_globale.top_succes.map(p => `${p.emoji} ${p.nom} (${p.taux_vente}% vendu)`).join(' · ')}
-À améliorer : ${performance_globale.flops.map(p => `${p.emoji} ${p.nom} (${p.taux_invendu}% invendu)`).join(' · ')}`;
+  // Suggestions algo — compact JSON
+  const suggestionsStr = suggestions_algo && suggestions_algo.length > 0
+    ? JSON.stringify(suggestions_algo.map(s => ({
+        id: s.produit_id,
+        nom: s.produit_nom,
+        qty: s.qty_suggere,
+        min: s.qty_min,
+        max: s.qty_max,
+        var: s.variation_pct,
+        raison: s.raison_calcul,
+      })))
+    : catalogue.map(p => {
+        const qty = p.moy_meme_jour ?? p.quantite_produite_hier;
+        return `{"id":"${p.produit_id}","nom":"${p.nom}","qty":${qty},"min":${Math.round(qty * 0.9)},"max":${Math.round(qty * 1.1)},"var":0,"raison":"base catalogue"}`;
+      }).join(',\n');
 
-  return `Analyse la journée du ${journee.jour_semaine.toUpperCase()} et génère le rapport complet pour demain (${demain_info.jour_semaine} ${demain_info.date}).
+  // Historique 14j compact
+  const histoStr = historique_14j.length > 0
+    ? historique_14j.map(h =>
+        `${h.est_weekend ? '[WE]' : '[SEM]'}${h.jour_semaine}:${h.ca}€/${h.taux_invendu}%inv`
+      ).join(' | ')
+    : '(aucune donnée)';
 
-${ctxJour}${ctxSalarial}${ctxMeteo}${ctxEvenements}${ctxCommandes}${ctxClients}
+  const histoLabel = nb_jours_histo === 0
+    ? '0j-premiere'
+    : nb_jours_histo < 7
+      ? `${nb_jours_histo}j-apprentissage`
+      : nb_jours_histo < 14
+        ? `${nb_jours_histo}j-tendances`
+        : `${nb_jours_histo}j-fiable`;
 
-=== ${journee.jour_semaine.toUpperCase()} · SEMAINE ${journee.semaine_annee}${journee.est_weekend ? ' (WEEK-END)' : ''} ===
-CA : ${journee.ca_estime}€ | Invendu : ${journee.taux_invendu}% (${journee.total_invendu}/${journee.total_produit} pcs) | Cmd online : ${journee.commandes_online}
-${ctxPerformance}
+  // Historique même jour de semaine
+  let histoMemeJourStr = '';
+  if (histo_meme_jour.length > 0) {
+    const moyCA = Math.round(histo_meme_jour.reduce((s, h) => s + h.ca, 0) / histo_meme_jour.length);
+    const moyInv = (histo_meme_jour.reduce((s, h) => s + h.taux_invendu, 0) / histo_meme_jour.length).toFixed(1);
+    histoMemeJourStr = `\n${demain_info.jour_semaine}s récents (${histo_meme_jour.length} sem): ca_moy=${moyCA}€ inv_moy=${moyInv}%`;
+  }
 
-=== DÉTAIL PAR PRODUIT ===
-${journee.produits.map(p =>
-  `${p.emoji} ${p.nom} (${p.categorie}) ${p.performance === 'excellent' ? '⭐' : p.performance === 'faible' ? '⚠️' : ''}
-  Prod: ${p.production} | 10h: ${p.snapshot_10h ?? '—'} | 14h: ${p.snapshot_14h ?? '—'} | Invendu: ${p.invendu} (${p.taux_invendu}%) | Vendu: ${p.taux_vente}% | CA: ${p.ca_contribution}€`
-).join('\n')}
+  // Pré-commandes demain — gérées dans buildUserPromptEnrichi (non disponible dans CatalogueEntree)
+  const precommandesLignes = '';
 
-=== MATIÈRES PREMIÈRES ===
-${[
-  `Farine: ${journee.total_mp.farine_kg}kg`,
-  `Beurre: ${journee.total_mp.beurre_kg}kg`,
-  `Œufs: ${journee.total_mp.oeufs}`,
-  `Sucre: ${journee.total_mp.sucre_kg}kg`,
-  journee.total_mp.sel_kg      > 0 ? `Sel: ${journee.total_mp.sel_kg}kg`       : '',
-  journee.total_mp.eau_l       > 0 ? `Eau: ${journee.total_mp.eau_l}L`         : '',
-  journee.total_mp.lait_l      > 0 ? `Lait: ${journee.total_mp.lait_l}L`       : '',
-  journee.total_mp.chocolat_kg > 0 ? `Chocolat: ${journee.total_mp.chocolat_kg}kg` : '',
-].filter(Boolean).join(' | ')}
+  // Commandes en ligne
+  let commandesStr = '';
+  if (commandes) {
+    const cc = commandes.click_collect;
+    const ag = commandes.anti_gaspi;
+    commandesStr = `\n# COMMANDES_EN_LIGNE\nclick_collect: ${cc.nb_commandes}cmd/${cc.ca_total}€/pm${cc.panier_moyen}€ récup:${cc.taux_recupere}%\nanti_gaspi: ${ag.nb_paniers}paniers/${ag.ca_genere}€ sauvés:${ag.invendus_ecartes}`;
+  }
 
-=== HISTORIQUE 14 JOURS ===
-${ctxHisto}
-${historique_14j.map(h => `${h.est_weekend ? '[WE]' : '[SEM]'} ${h.jour_semaine}: ${h.ca}€ · ${h.taux_invendu}% inv · ${h.total_produit}pcs · ${h.commandes_online} online`).join('\n') || '(aucune donnée)'}
-${ctxMemeJour}
+  // Clients
+  let clientsStr = '';
+  if (clients) {
+    clientsStr = `\n# CLIENTS\ntotal=${clients.total_clients} actifs=${clients.clients_actifs} rétention=${clients.retention_30j}%\nnouveaux: jour=${clients.nouveaux_clients_jour} sem=${clients.nouveaux_clients_semaine} mois=${clients.nouveaux_clients_mois}`;
+  }
 
-=== CATALOGUE & BASE PRÉVISIONS POUR DEMAIN ===
-⚠️ UTILISE le produit_id UUID exact dans chaque entrée de previsions_production.
-⚠️ quantite_suggeree doit être un NOMBRE ENTIER ABSOLU (ex: 90), PAS un pourcentage.
-⚠️ Fournis aussi quantite_min et quantite_max pour une fourchette de production.
+  // Matières premières
+  const mpParts = [
+    `farine:${journee.total_mp.farine_kg}kg`,
+    `beurre:${journee.total_mp.beurre_kg}kg`,
+    `oeufs:${journee.total_mp.oeufs}`,
+    `sucre:${journee.total_mp.sucre_kg}kg`,
+    journee.total_mp.sel_kg > 0      ? `sel:${journee.total_mp.sel_kg}kg`           : '',
+    journee.total_mp.eau_l > 0       ? `eau:${journee.total_mp.eau_l}L`             : '',
+    journee.total_mp.lait_l > 0      ? `lait:${journee.total_mp.lait_l}L`           : '',
+    journee.total_mp.chocolat_kg > 0 ? `chocolat:${journee.total_mp.chocolat_kg}kg` : '',
+  ].filter(Boolean).join(' | ');
 
-${catalogueLines}
+  return `# CONTEXTE
+date=${demain_info.date} | jour=${demain_info.jour_semaine}${demain_info.est_weekend ? '(WE)' : ''} | meteo_demain=${meteoStr}
+impact_trafic=${impactTrafic} | event=${eventStr} | cycle=${cycle}
+
+# AUJOURD'HUI (résumé)
+${journee.jour_semaine} S${journee.semaine_annee} | ca=${journee.ca_estime}€ | invendu=${journee.taux_invendu}%(${journee.total_invendu}/${journee.total_produit}pcs) | score=${performance_globale.score_jour}/100
+vs_hier=${performance_globale.tendance_vs_hier >= 0 ? '+' : ''}${performance_globale.tendance_vs_hier}% | vs_meme_jour=${performance_globale.tendance_vs_meme_jour >= 0 ? '+' : ''}${performance_globale.tendance_vs_meme_jour}%
+top: ${performance_globale.top_succes.map(p => `${p.nom}(${p.taux_vente}%v)`).join(',')} | flop: ${performance_globale.flops.map(p => `${p.nom}(${p.taux_invendu}%inv)`).join(',')}
+
+# PRODUITS_AUJOURD'HUI (produit_id|nom*=excellent!=faible|prod|vendu%|invendu_pcs)
+${produitsLignes}
+
+# MP_AUJOURD'HUI
+${mpParts}
+
+# SUGGESTIONS_ALGORITHME (à valider/ajuster)
+[${suggestionsStr}]
+
+# RÉSUMÉ_HISTORIQUE (${histoLabel})${histoMemeJourStr}
+histo_14j: ${histoStr}${commandesStr}${clientsStr}
+
+# PRÉ-COMMANDES_DEMAIN
+${precommandesLignes || 'aucune'}
 
 → Génère le JSON complet avec TOUTES les sections.
-→ Utilise TOUJOURS les vrais noms des produits dans les textes.
-→ Dans previsions_production, chaque produit du catalogue DOIT avoir une entrée avec son produit_id UUID.
-→ Sois précis, chaleureux et actionnable pour chaque membre de l'équipe.`;
+→ Dans previsions_production, utilise le produit_id UUID exact et des entiers absolus.
+→ Chaque produit du catalogue DOIT avoir une entrée dans previsions_production.`;
 }
