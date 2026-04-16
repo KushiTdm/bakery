@@ -28,6 +28,8 @@ import {
   findBestTemplateMatch,
 } from '@/lib/ai-anonymize';
 import { fetchMeteo } from '@/lib/weather';
+import { computeProductionSuggestions } from '@/lib/ai-production-compute';
+import type { ProduitMinimal, StockRow as StockRowCompute, JourneeHistoRow } from '@/lib/ai-production-compute';
 
 // ── Config z.ai ───────────────────────────────────────────────
 
@@ -515,6 +517,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 5c. Historique du même jour de semaine (jusqu'à 8 semaines) ──
+    // Calcul du jour de semaine ISO de demain (1=lundi…7=dimanche)
+    const jourSemaineDemain = (() => {
+      const d = new Date(demainDatePreco + 'T12:00:00Z');
+      const dow = d.getUTCDay(); // 0=dimanche
+      return dow === 0 ? 7 : dow;
+    })();
+
+    const { data: histoMemeJourRaw } = await admin
+      .from('journees')
+      .select('date, stocks_journaliers(produit_id, production, stock_final)')
+      .eq('boulangerie_id', boulangerieId)
+      .eq('jour_semaine', jourSemaineDemain)
+      .eq('cloturee', true)
+      .lt('date', today)
+      .order('date', { ascending: false })
+      .limit(8);
+
+    const histoMemeJour = (histoMemeJourRaw ?? []) as {
+      date: string;
+      stocks_journaliers: { produit_id: string; production: number; stock_final: number }[];
+    }[];
+
     // ── 6. Paniers flash du jour ───────────────────────────────
     interface PanierDB {
       id: string; produit_nom: string; categorie: string;
@@ -614,6 +639,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 8. Enrichissement & prompt ─────────────────────────────
+    const produitsList = produits ?? [];
+    const stocksList   = (journee.stocks_journaliers ?? []) as StockRow[];
+
     const payload = anonymiserDonnees(
       journee as JourneeRaw,
       (historique ?? []) as JourneeRaw[],
@@ -626,8 +654,18 @@ export async function POST(req: NextRequest) {
       recipeMap,
     );
 
+    // ── Pré-calcul suggestions de production ─────────────────────
+    const suggestionsAlgo = computeProductionSuggestions({
+      produits:      produitsList as ProduitMinimal[],
+      stocksAujourd: stocksList as StockRowCompute[],
+      histoMemeJour: histoMemeJour as JourneeHistoRow[],
+      meteo:         meteoComplet,
+      preCommandes:  preCommandesProduits,
+    });
+
     const systemPrompt = buildSystemPrompt();
-    const userPrompt   = buildUserPromptEnrichi(payload, feedbackVendeuse, wizardData, {
+    // @ts-ignore – suggestions_algo et histo_meme_jour_raw seront ajoutés à PayloadEnrichi en Task 6
+    const userPrompt   = buildUserPromptEnrichi({ ...payload, suggestions_algo: suggestionsAlgo, histo_meme_jour_raw: histoMemeJour }, feedbackVendeuse, wizardData, {
       preCommandesTotal,
       preCommandesCA,
       preCommandesProduits,
@@ -741,9 +779,6 @@ export async function POST(req: NextRequest) {
     const previsions = Array.isArray(rapportFinal.previsions_production)
       ? rapportFinal.previsions_production as Record<string, unknown>[]
       : [];
-
-    const produitsList = produits ?? [];
-    const stocksList   = (journee.stocks_journaliers ?? []) as StockRow[];
 
     // ── MAPPING AMÉLIORÉ : produit_id UUID en priorité, fallback produit_index ──
     const previsionsRows = previsions
