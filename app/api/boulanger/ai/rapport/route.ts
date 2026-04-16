@@ -32,9 +32,27 @@ import { fetchMeteo } from '@/lib/weather';
 // ── Config z.ai ───────────────────────────────────────────────
 
 const ZHIPU_API_URL = 'https://api.z.ai/api/paas/v4/chat/completions';
-const ZHIPU_MODEL   = process.env.ZHIPU_MODEL ?? 'glm-4.5-air';
+const ZHIPU_MODEL_DAILY  = process.env.ZHIPU_MODEL_DAILY  ?? 'glm-4.5-air';
+const ZHIPU_MODEL_WEEKLY = process.env.ZHIPU_MODEL_WEEKLY ?? 'glm-4.5-air';
+// Pour l'instant tous les rapports utilisent DAILY ; WEEKLY sera utilisé pour les rapports hebdo/mensuel futurs
+const ZHIPU_MODEL = ZHIPU_MODEL_DAILY;
 const ZHIPU_MAX_TOK = 4000;
 const ZHIPU_TIMEOUT = 90_000;
+
+/** Calcule le coût USD selon le modèle et les tokens utilisés */
+function calculerCoutUsd(model: string, tokensInput: number, tokensOutput: number): number {
+  // Tarifs z.ai en USD per 1M tokens (avril 2026)
+  const tarifs: Record<string, { input: number; output: number }> = {
+    'glm-4.7-flashx': { input: 0.07,  output: 0.4  },
+    'glm-4.5-air':    { input: 0.2,   output: 1.1  },
+    'glm-4.5-flash':  { input: 0,     output: 0    },
+    'glm-4.7-flash':  { input: 0,     output: 0    },
+    'glm-4-32b-0414-128k': { input: 0.1, output: 0.1 },
+    'glm-4.7':        { input: 0.6,   output: 2.2  },
+  };
+  const t = tarifs[model.toLowerCase()] ?? { input: 0.2, output: 1.1 };
+  return (tokensInput * t.input + tokensOutput * t.output) / 1_000_000;
+}
 
 function extractJSON(raw: string): string {
   if (!raw || !raw.trim()) throw new Error('Réponse IA vide');
@@ -620,6 +638,8 @@ export async function POST(req: NextRequest) {
     const timeoutId  = setTimeout(() => controller.abort(), ZHIPU_TIMEOUT);
     let aiResponse: string;
     let tokensUtilises: number | null = null;
+    let tokensInput  = 0;
+    let tokensOutput = 0;
 
     try {
       const response = await fetch(ZHIPU_API_URL, {
@@ -647,13 +667,18 @@ export async function POST(req: NextRequest) {
       }
       const data = await response.json() as {
         choices: { message: { content: string } }[];
-        usage?:  { total_tokens: number };
+        usage?:  { prompt_tokens: number; completion_tokens: number; total_tokens: number };
       };
       aiResponse     = data.choices?.[0]?.message?.content ?? '';
+      tokensInput    = data.usage?.prompt_tokens     ?? 0;
+      tokensOutput   = data.usage?.completion_tokens  ?? 0;
       tokensUtilises = data.usage?.total_tokens ?? null;
     } finally {
       clearTimeout(timeoutId);
     }
+
+    const totalTokens = tokensInput + tokensOutput;
+    const coutUsd     = calculerCoutUsd(ZHIPU_MODEL, tokensInput, tokensOutput);
 
     // ── 10. Parse JSON ─────────────────────────────────────────
     // Avertir si la réponse est proche de la limite de tokens (JSON potentiellement tronqué)
@@ -694,6 +719,8 @@ export async function POST(req: NextRequest) {
       rapport_json:      rapportFinal,
       modele_ia:         ZHIPU_MODEL,
       tokens_utilises:   tokensUtilises,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...({ tokens_input: tokensInput, tokens_output: tokensOutput, cout_usd: coutUsd } as any),
       erreur_msg:        null,
       feedback_vendeuse: feedbackVendeuse ? JSON.stringify({
         rating:           feedbackVendeuse.rating_journee,
