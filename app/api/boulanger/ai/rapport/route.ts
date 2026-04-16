@@ -38,7 +38,7 @@ const ZHIPU_MODEL_DAILY  = process.env.ZHIPU_MODEL_DAILY  ?? 'glm-4.5-air';
 const ZHIPU_MODEL_WEEKLY = process.env.ZHIPU_MODEL_WEEKLY ?? 'glm-4.5-air';
 // Pour l'instant tous les rapports utilisent DAILY ; WEEKLY sera utilisé pour les rapports hebdo/mensuel futurs
 const ZHIPU_MODEL = ZHIPU_MODEL_DAILY;
-const ZHIPU_MAX_TOK = 4000;
+const ZHIPU_MAX_TOK = 6000;
 const ZHIPU_TIMEOUT = 90_000;
 
 /** Calcule le coût USD selon le modèle et les tokens utilisés */
