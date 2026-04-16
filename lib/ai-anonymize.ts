@@ -1027,7 +1027,7 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
   // Clients
   let clientsStr = '';
   if (clients) {
-    clientsStr = `\n# CLIENTS_APP (utilisateurs inscrits app — ≠ clients physiques boutique)\ntotal=${clients.total_clients} actifs=${clients.clients_actifs} rétention=${clients.retention_30j}%\nnouveaux: jour=${clients.nouveaux_clients_jour} sem=${clients.nouveaux_clients_semaine} mois=${clients.nouveaux_clients_mois}\n⚠ Ne pas utiliser total_clients pour calculer un panier moyen physique.`;
+    clientsStr = `\n# CLIENTS_APP (commandes click&collect + anti-gaspi du jour — ≠ clients boutique physique)\ntotal_commandes_app=${clients.total_clients} actifs=${clients.clients_actifs} rétention=${clients.retention_30j}%\nnouveaux: jour=${clients.nouveaux_clients_jour} sem=${clients.nouveaux_clients_semaine} mois=${clients.nouveaux_clients_mois}`;
   }
 
   // Matières premières

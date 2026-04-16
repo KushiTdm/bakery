@@ -159,6 +159,21 @@ interface ProductionForecast {
 
 // ── Helpers ───────────────────────────────────────────────────
 
+/** Convertit n'importe quelle valeur IA en string affichable (l'IA retourne parfois des objets au lieu de strings) */
+function toStr(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (!v || typeof v !== 'object') return String(v ?? '');
+  const o = v as Record<string, unknown>;
+  if (o.produit && o.argumentaire) return `${o.produit} : ${o.argumentaire}`;
+  if (o.produit && o.description)  return `${o.produit} : ${o.description}`;
+  if (o.titre && o.contenu)        return `${o.titre} : ${o.contenu}`;
+  if (o.texte)                     return String(o.texte);
+  if (o.contenu)                   return String(o.contenu);
+  if (o.description)               return String(o.description);
+  if (o.nom)                       return String(o.nom);
+  return JSON.stringify(v);
+}
+
 function getAnalyseContextuelle(rj: RapportJSON): string {
   const ac = rj.analyse_contextuelle;
   if (!ac) return '';
@@ -254,7 +269,7 @@ function BriefingMatinCard({ bm, previsions, onApply, applying, applied, isToday
             {bm.top3_a_produire.map((item, i) => (
               <div key={i} className="flex items-start gap-2.5">
                 <span className="text-[#C19A6B] font-black text-xs mt-0.5 w-4 flex-shrink-0">{i + 1}.</span>
-                <p className="text-white/75 text-sm leading-snug">{item}</p>
+                <p className="text-white/75 text-sm leading-snug">{toStr(item)}</p>
               </div>
             ))}
           </div>
@@ -773,7 +788,7 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                         {briefingVendeuse.produits_a_mettre_en_avant.map((p, i) => (
                           <div key={i} className="flex items-start gap-2">
                             <Star size={11} className="text-pink-400/60 mt-0.5 flex-shrink-0" />
-                            <p className="text-white/60 text-xs">{p}</p>
+                            <p className="text-white/60 text-xs">{toStr(p)}</p>
                           </div>
                         ))}
                       </div>
@@ -816,7 +831,7 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                         {briefingGerant.points_attention.map((p, i) => (
                           <div key={i} className="flex items-start gap-2">
                             <AlertTriangle size={10} className="text-amber-400/60 mt-0.5 flex-shrink-0" />
-                            <p className="text-white/60 text-xs">{p}</p>
+                            <p className="text-white/60 text-xs">{toStr(p)}</p>
                           </div>
                         ))}
                       </div>
@@ -899,7 +914,7 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                     {succes.map((s, i) => (
                       <div key={i} className="flex items-start gap-2.5">
                         <Check size={13} className="text-green-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-white/70 text-sm leading-relaxed">{s}</p>
+                        <p className="text-white/70 text-sm leading-relaxed">{toStr(s)}</p>
                       </div>
                     ))}
                   </div>
@@ -916,7 +931,7 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                     {flops.map((f, i) => (
                       <div key={i} className="flex items-start gap-2.5">
                         <AlertTriangle size={13} className="text-amber-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-white/70 text-sm leading-relaxed">{f}</p>
+                        <p className="text-white/70 text-sm leading-relaxed">{toStr(f)}</p>
                       </div>
                     ))}
                   </div>
@@ -962,7 +977,7 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                     <AlertTriangle size={13} className="text-red-400" />
                     <p className="text-red-400 text-xs font-semibold uppercase tracking-wider">Alertes ingrédients</p>
                   </div>
-                  {alertes.map((a, i) => <p key={i} className="text-red-300/80 text-sm">{a}</p>)}
+                  {alertes.map((a, i) => <p key={i} className="text-red-300/80 text-sm">{toStr(a)}</p>)}
                 </div>
               )}
             </div>
