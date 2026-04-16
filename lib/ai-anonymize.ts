@@ -875,7 +875,7 @@ export function buildSystemPrompt(): string {
 JSON strict avec les sections :
 \`score\`, \`verdict\`, \`synthese_journee\`, \`analyse_produits\`, \`analyse_contextuelle\`,
 \`analyse_commandes\`, \`analyse_clients\`, \`previsions_production\`, \`matieres_premieres\`,
-\`briefing_matin\`, \`briefing_vendeuse\`, \`briefing_gerant\`, \`consignes_transmises\`, \`message_levain\`
+\`briefing_matin\`, \`briefing_vendeuse\`, \`briefing_gerant\`, \`consignes_transmises\`, \`message_levain\`, \`defis\`
 
 Structure \`previsions_production\` :
 \`\`\`json
@@ -886,7 +886,54 @@ Structure \`previsions_production\` :
   "quantite_min": <entier>,
   "quantite_max": <entier>,
   "variation_pct": <entier signé>,
-  "raison": "<justification courte>"
+  "raison": "<justification courte mentionnant le même jour semaine précédente si dispo>"
+}]
+\`\`\`
+
+## Instructions par section (OBLIGATOIRES — ne pas laisser vide)
+
+**\`synthese_journee\`** : bilan du jour
+- \`resume\`: 2-3 phrases résumant la journée (CA réalisé, invendu, fait marquant) — compare avec le même jour semaine précédente si \`vs_meme_jour\` disponible
+- \`points_forts\`[]: 3-5 succès concrets avec chiffres (ex: "Croissants : 97% vendus, record semaine")
+- \`points_amelioration\`[]: 3-5 axes d'amélioration actionnables et précis
+- \`message_equipe\`: phrase courte d'encouragement pour toute l'équipe
+
+**\`briefing_vendeuse\`** : instructions pour l'équipe comptoir demain
+- \`titre\`: "Briefing Vendeuse"
+- \`accueil_client\`: conseil précis adapté à la météo et au contexte de demain
+- \`produits_a_mettre_en_avant\`[]: 3-4 produits à valoriser demain avec argumentaire vendeur court
+- \`gestion_fin_journee\`: conseil gestion invendus et fin de service
+- \`message_encouragement\`: phrase motivante personnalisée au contexte du jour
+
+**\`briefing_gerant\`** : synthèse pour la gestion
+- \`titre\`: "Briefing Gérant"
+- \`tendances_ca\`: analyse CA du jour + comparaison explicite avec même jour semaine précédente (\`vs_meme_jour\` et données \`sem_précédente\`)
+- \`points_attention\`[]: 2-3 alertes concrètes (stock, marge, tendance baisse)
+- \`opportunites_business\`[]: 2-3 opportunités actionnables à saisir cette semaine
+- \`recommendation\`: recommandation stratégique prioritaire, une phrase d'action
+
+**\`matieres_premieres\`** : consommation MP du jour (section obligatoire)
+- \`resume\`: synthèse courte (ex: "Journée intense : 28kg farine, 4kg beurre consommés")
+- \`alertes\`[]: stocks faibles ou consommations anormalement hautes (vide si RAS)
+- \`details\`[]: [{ingredient, quantite, observation?}] pour chaque MP significative du jour
+
+**\`defis\`** : défis gamification — section OBLIGATOIRE, minimum 2 défis
+Un défi boulanger + un défi vendeuse. Basés sur les données réelles du jour.
+Objectifs progressifs réalistes (+5% à +15% max). Atteignables demain, pas utopiques.
+\`\`\`json
+[{
+  "cible": "boulanger",
+  "titre": "<accrocheur et court, ex: Zéro pain invendu !>",
+  "objectif": "<précis et chiffré, ex: Descendre le taux invendu boulangerie sous 5% (actuel: 12%)>",
+  "conseil": "<comment y arriver en pratique, 1-2 phrases concrètes>",
+  "motivation": "<phrase d'encouragement sincère et courte>"
+},
+{
+  "cible": "vendeuse",
+  "titre": "<accrocheur et court>",
+  "objectif": "<précis et chiffré>",
+  "conseil": "<comment y arriver en pratique>",
+  "motivation": "<phrase d'encouragement sincère>"
 }]
 \`\`\``;
 }
@@ -955,12 +1002,14 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
         ? `${nb_jours_histo}j-tendances`
         : `${nb_jours_histo}j-fiable`;
 
-  // Historique même jour de semaine
+  // Historique même jour de semaine (pour demain)
   let histoMemeJourStr = '';
   if (histo_meme_jour.length > 0) {
+    const dernierMemeJour = histo_meme_jour[0]; // semaine précédente — même jour que demain
     const moyCA = Math.round(histo_meme_jour.reduce((s, h) => s + h.ca, 0) / histo_meme_jour.length);
     const moyInv = (histo_meme_jour.reduce((s, h) => s + h.taux_invendu, 0) / histo_meme_jour.length).toFixed(1);
-    histoMemeJourStr = `\n${demain_info.jour_semaine}s récents (${histo_meme_jour.length} sem): ca_moy=${moyCA}€ inv_moy=${moyInv}%`;
+    histoMemeJourStr = `\n${demain_info.jour_semaine}s (${histo_meme_jour.length}sem): ca_moy=${moyCA}€ inv_moy=${moyInv}%` +
+      ` | sem_précédente: ca=${dernierMemeJour.ca}€ inv=${dernierMemeJour.taux_invendu}% prod=${dernierMemeJour.total_produit}pcs`;
   }
 
   // Pré-commandes demain — gérées dans buildUserPromptEnrichi (non disponible dans CatalogueEntree)
@@ -992,13 +1041,20 @@ export function buildUserPrompt(payload: PayloadEnrichi): string {
     journee.total_mp.chocolat_kg > 0 ? `chocolat:${journee.total_mp.chocolat_kg}kg` : '',
   ].filter(Boolean).join(' | ');
 
+  // Données semaine précédente pour aujourd'hui (dernier même jour de semaine dans histo 14j)
+  const todayDow = journee.jour_semaine;
+  const dernierMemeJourAujourd = historique_14j.find(h => h.jour_semaine === todayDow);
+  const semPrecAujourdStr = dernierMemeJourAujourd
+    ? ` | ${todayDow}_sem_préc: ca=${dernierMemeJourAujourd.ca}€ inv=${dernierMemeJourAujourd.taux_invendu}% prod=${dernierMemeJourAujourd.total_produit}pcs`
+    : '';
+
   return `# CONTEXTE
 date=${demain_info.date} | jour=${demain_info.jour_semaine}${demain_info.est_weekend ? '(WE)' : ''} | meteo_demain=${meteoStr}
 impact_trafic=${impactTrafic} | event=${eventStr} | cycle=${cycle}
 
 # AUJOURD'HUI (résumé)
 ${journee.jour_semaine} S${journee.semaine_annee} | ca=${journee.ca_estime}€ | invendu=${journee.taux_invendu}%(${journee.total_invendu}/${journee.total_produit}pcs) | score=${performance_globale.score_jour}/100
-vs_hier=${performance_globale.tendance_vs_hier >= 0 ? '+' : ''}${performance_globale.tendance_vs_hier}% | vs_meme_jour=${performance_globale.tendance_vs_meme_jour >= 0 ? '+' : ''}${performance_globale.tendance_vs_meme_jour}%
+vs_hier=${performance_globale.tendance_vs_hier >= 0 ? '+' : ''}${performance_globale.tendance_vs_hier}% | vs_meme_jour=${performance_globale.tendance_vs_meme_jour >= 0 ? '+' : ''}${performance_globale.tendance_vs_meme_jour}%${semPrecAujourdStr}
 top: ${performance_globale.top_succes.map(p => `${p.nom}(${p.taux_vente}%v)`).join(',')} | flop: ${performance_globale.flops.map(p => `${p.nom}(${p.taux_invendu}%inv)`).join(',')}
 
 # PRODUITS_AUJOURD'HUI (produit_id|nom*=excellent!=faible|prod|vendu%|invendu_pcs)

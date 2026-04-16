@@ -13,7 +13,7 @@ import {
   ChevronRight, Loader2, Check, BarChart2, ArrowUpRight, ArrowDownRight,
   Minus, Play, CheckCircle2, X, Info, Calendar, ChevronLeft, Wheat,
   Package2, Sun, CloudRain, Eye, Coffee, Users, Briefcase,
-  Heart, Star, MessageSquare,
+  Heart, Star, MessageSquare, Trophy, Target, Lightbulb,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { UpgradeModal, StarterBanner, useUpgradeModal, type QuotaInfo } from './upgrade-modal';
@@ -113,6 +113,13 @@ interface RapportJSON {
   briefing_gerant?:      BriefingGerant;
   consignes_transmises?: ConsignesTransmises;
   message_levain?:       string;
+  defis?: {
+    cible:      'boulanger' | 'vendeuse';
+    titre:      string;
+    objectif:   string;
+    conseil:    string;
+    motivation: string;
+  }[];
 
   // Compatibilité schéma v2
   succes?:               string[];
@@ -819,6 +826,48 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                         <p className="text-blue-300/90 text-xs leading-relaxed">💡 {briefingGerant.recommendation}</p>
                       </div>
                     )}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── DÉFIS GAMIFICATION ── */}
+              {rj.defis && rj.defis.length > 0 && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+                  className="rounded-2xl overflow-hidden border"
+                  style={{ background: 'rgba(234,179,8,0.05)', borderColor: 'rgba(234,179,8,0.2)' }}>
+                  <div className="flex items-center gap-3 px-5 py-3.5 border-b border-white/6">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(234,179,8,0.12)' }}>
+                      <Trophy size={14} className="text-yellow-400" />
+                    </div>
+                    <div>
+                      <p className="text-yellow-400 text-[10px] font-semibold uppercase tracking-widest">Défis pour demain</p>
+                      <p className="text-white/25 text-[9px]">Objectifs atteignables · progressez ensemble</p>
+                    </div>
+                  </div>
+                  <div className="px-5 py-4 space-y-4">
+                    {rj.defis.map((d, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{d.cible === 'boulanger' ? '👨‍🍳' : '💁‍♀️'}</span>
+                          <div>
+                            <p className="text-white/80 text-sm font-semibold leading-tight">{d.titre}</p>
+                            <p className="text-white/30 text-[10px] capitalize">{d.cible}</p>
+                          </div>
+                        </div>
+                        <div className="bg-white/4 border border-white/7 rounded-xl px-3 py-2.5 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <Target size={11} className="text-yellow-400/70 mt-0.5 flex-shrink-0" />
+                            <p className="text-white/70 text-xs leading-relaxed">{d.objectif}</p>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <Lightbulb size={11} className="text-amber-300/60 mt-0.5 flex-shrink-0" />
+                            <p className="text-white/50 text-xs leading-relaxed">{d.conseil}</p>
+                          </div>
+                        </div>
+                        <p className="text-yellow-300/60 text-xs italic pl-1">💪 {d.motivation}</p>
+                        {i < rj.defis!.length - 1 && <div className="border-t border-white/5 pt-1" />}
+                      </div>
+                    ))}
                   </div>
                 </motion.div>
               )}
