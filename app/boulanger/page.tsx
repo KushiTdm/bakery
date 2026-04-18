@@ -346,7 +346,7 @@ const DRAWER_AI_ITEM: DrawerItem = {
 const DRAWER_ITEMS: DrawerItem[] = [
   { id: 'commandes',  label: 'Commandes',    icon: ShoppingBag, desc: 'Click & collect et anti-gaspi du jour',  href: '/boulanger/commandes', accent: 'rgba(58,123,213,0.12)',  color: '#6FA8EA',               permission: 'commandes'  },
   { id: 'catalogue',  label: 'Produits',     icon: BookOpen,    desc: 'Gérer votre catalogue & photos',         view: 'catalogue',            accent: 'rgba(61,158,106,0.1)',   color: '#5CC994',               permission: 'catalogue'  },
-  { id: 'dashboard',  label: 'Statistiques', icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
+  { id: 'dashboard',  label: 'Dashboard',    icon: BarChart2,   desc: 'Historique & analyse performance',       view: 'dashboard',            accent: 'rgba(193,154,107,0.1)',  color: '#C19A6B',               permission: 'dashboard'  },
   { id: 'vitrine',    label: 'Vitrine',      icon: Palette,     desc: 'Personnaliser votre page d\'accueil',    view: 'vitrine',              accent: 'rgba(236,149,81,0.1)',   color: '#EC9551',               permission: null         },
   { id: 'equipe',     label: 'Équipe',       icon: Users,       desc: 'Membres, invitations, rôles',            view: 'equipe',               accent: 'rgba(184,130,214,0.1)',  color: '#B882D6',               permission: 'equipe'     },
   { id: 'parametres', label: 'Paramètres',   icon: Settings,    desc: 'Flash, créneaux, adresse, plan',         view: 'parametres',           accent: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)', permission: 'parametres' },
@@ -358,42 +358,38 @@ const DRAWER_SUPERVISION_ITEM: DrawerItem = {
   view: 'supervision', accent: 'rgba(168,85,247,0.1)', color: '#A855F7', permission: 'equipe',
 };
 
-function DrawerItemButton({
-  item, isActive, isCmds, pendingOrders, onClick, activeColor,
+function DrawerGridCard({
+  item, isActive, badge, onClick, activeColor,
 }: {
   item: DrawerItem;
   isActive: boolean;
-  isCmds?: boolean;
-  pendingOrders?: number;
+  badge?: number;
   onClick: () => void;
   activeColor?: string;
 }) {
   const Icon = item.icon;
-  const accentColor = activeColor ?? '#C19A6B';
+  const accent = activeColor ?? item.color;
   return (
-    <motion.button whileTap={{ scale: 0.97 }} onClick={onClick}
-      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border text-left transition-all select-none"
+    <motion.button whileTap={{ scale: 0.96 }} onClick={onClick}
+      className="relative flex flex-col items-center justify-center gap-2 px-2 py-4 rounded-2xl border transition-all select-none"
       style={{
-        background:  isActive ? `${accentColor}20` : item.accent,
-        borderColor: isActive ? `${accentColor}40` : isCmds ? 'rgba(58,123,213,0.25)' : `${item.color}20`,
+        background:  isActive ? `${accent}1A` : item.accent,
+        borderColor: isActive ? `${accent}55` : `${item.color}1F`,
       }}>
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 relative"
-        style={{ background: item.accent, border: `1px solid ${item.color}22` }}>
-        <Icon size={16} style={{ color: item.color }} strokeWidth={1.8} />
-        {isCmds && pendingOrders && pendingOrders > 0 && (
-          <span className="absolute -top-1 -right-1 text-white font-black text-[9px] min-w-[15px] h-[15px] flex items-center justify-center rounded-full px-0.5"
-            style={{ background: '#3A7BD5' }}>
-            {pendingOrders}
-          </span>
-        )}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute top-1.5 right-1.5 text-white font-black text-[9px] min-w-[16px] h-[16px] flex items-center justify-center rounded-full px-1 z-10"
+          style={{ background: '#3A7BD5' }}>
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+        style={{ background: `${item.color}18`, border: `1px solid ${item.color}2A` }}>
+        <Icon size={18} style={{ color: item.color }} strokeWidth={1.9} />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm truncate" style={{ color: isActive ? accentColor : isCmds ? '#6FA8EA' : 'white' }}>
-          {item.label}
-        </p>
-        <p className="text-[11px] mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.3)' }}>{item.desc}</p>
-      </div>
-      <ChevronRight size={13} className="flex-shrink-0" style={{ color: isActive ? accentColor : 'rgba(255,255,255,0.18)' }} />
+      <p className="text-[12px] font-semibold text-center leading-tight"
+        style={{ color: isActive ? accent : 'rgba(255,255,255,0.82)' }}>
+        {item.label}
+      </p>
     </motion.button>
   );
 }
@@ -457,80 +453,99 @@ function PlusDrawer({
                 </button>
               </div>
 
-              <div className="px-3 sm:px-4 pb-6 overflow-y-auto flex-1 min-h-0 space-y-1">
+              <div className="px-3 sm:px-4 pb-6 overflow-y-auto flex-1 min-h-0">
 
-                <SectionLabel label="Quotidien" />
-
-                <DrawerItemButton
-                  item={DRAWER_AI_ITEM}
-                  isActive={activeView === 'ia'}
-                  activeColor="#A855F7"
-                  onClick={() => { onNavigate('ia'); onClose(); }}
-                />
-
-                {canRead('commandes') && (() => {
-                  const item = DRAWER_ITEMS.find(d => d.id === 'commandes')!;
-                  return (
-                    <DrawerItemButton key="commandes" item={item}
-                      isActive={false} isCmds pendingOrders={pendingOrders}
-                      onClick={() => navigate(item)} />
-                  );
-                })()}
-
-                <SectionLabel label="Gestion" />
-
-                {(['catalogue', 'dashboard', 'vitrine'] as DrawerItemId[]).map(id => {
-                  const item = DRAWER_ITEMS.find(d => d.id === id);
-                  if (!item) return null;
-                  if (item.permission && !canRead(item.permission as Parameters<typeof canRead>[0])) return null;
-                  if (id === 'vitrine' && userRole !== 'owner') return null;
-                  return (
-                    <DrawerItemButton key={id} item={item}
-                      isActive={item.view ? activeView === item.view : false}
-                      onClick={() => navigate(item)} />
-                  );
-                })}
-
-                {(canRead('equipe') || canRead('parametres')) && (
-                  <SectionLabel label="Administration" />
-                )}
-
-                {canRead('equipe') && (() => {
-                  const item = DRAWER_ITEMS.find(d => d.id === 'equipe')!;
-                  return (
-                    <DrawerItemButton key="equipe" item={item}
-                      isActive={activeView === item.view}
-                      onClick={() => navigate(item)} />
-                  );
-                })()}
-
-                {canRead('equipe') && (
-                  <DrawerItemButton
-                    item={DRAWER_SUPERVISION_ITEM}
-                    isActive={activeView === 'supervision'}
+                {/* Pilotage : ce que le boulanger consulte plusieurs fois par jour */}
+                <SectionLabel label="Pilotage" />
+                <div className="grid grid-cols-2 gap-2">
+                  <DrawerGridCard
+                    item={DRAWER_AI_ITEM}
+                    isActive={activeView === 'ia'}
                     activeColor="#A855F7"
-                    onClick={() => { onNavigate('supervision'); onClose(); }}
+                    onClick={() => { onNavigate('ia'); onClose(); }}
                   />
+                  {canRead('commandes') && (() => {
+                    const item = DRAWER_ITEMS.find(d => d.id === 'commandes')!;
+                    return (
+                      <DrawerGridCard key="commandes" item={item}
+                        isActive={false} badge={pendingOrders}
+                        onClick={() => navigate(item)} />
+                    );
+                  })()}
+                  {canRead('dashboard') && (() => {
+                    const item = DRAWER_ITEMS.find(d => d.id === 'dashboard')!;
+                    return (
+                      <DrawerGridCard key="dashboard" item={item}
+                        isActive={activeView === item.view}
+                        onClick={() => navigate(item)} />
+                    );
+                  })()}
+                </div>
+
+                {/* Contenu : ce que le boulanger met à jour périodiquement */}
+                {(canRead('catalogue') || userRole === 'owner') && (
+                  <>
+                    <SectionLabel label="Contenu" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {canRead('catalogue') && (() => {
+                        const item = DRAWER_ITEMS.find(d => d.id === 'catalogue')!;
+                        return (
+                          <DrawerGridCard key="catalogue" item={item}
+                            isActive={activeView === item.view}
+                            onClick={() => navigate(item)} />
+                        );
+                      })()}
+                      {userRole === 'owner' && (() => {
+                        const item = DRAWER_ITEMS.find(d => d.id === 'vitrine')!;
+                        return (
+                          <DrawerGridCard key="vitrine" item={item}
+                            isActive={activeView === item.view}
+                            onClick={() => navigate(item)} />
+                        );
+                      })()}
+                    </div>
+                  </>
                 )}
 
-                {canRead('parametres') && (() => {
-                  const item = DRAWER_ITEMS.find(d => d.id === 'parametres')!;
-                  return (
-                    <DrawerItemButton key="parametres" item={item}
-                      isActive={activeView === item.view}
-                      onClick={() => navigate(item)} />
-                  );
-                })()}
-
-                <div className="pt-3 mt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <button onClick={logout}
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-colors"
-                    style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(239,68,68,0.12)' }}>
-                      <LogOut size={16} style={{ color: '#EF4444' }} />
+                {/* Organisation : réglages ponctuels, équipe */}
+                {(canRead('equipe') || canRead('parametres')) && (
+                  <>
+                    <SectionLabel label="Organisation" />
+                    <div className="grid grid-cols-2 gap-2">
+                      {canRead('equipe') && (() => {
+                        const item = DRAWER_ITEMS.find(d => d.id === 'equipe')!;
+                        return (
+                          <DrawerGridCard key="equipe" item={item}
+                            isActive={activeView === item.view}
+                            onClick={() => navigate(item)} />
+                        );
+                      })()}
+                      {canRead('equipe') && (
+                        <DrawerGridCard key="supervision"
+                          item={DRAWER_SUPERVISION_ITEM}
+                          isActive={activeView === 'supervision'}
+                          activeColor="#A855F7"
+                          onClick={() => { onNavigate('supervision'); onClose(); }}
+                        />
+                      )}
+                      {canRead('parametres') && (() => {
+                        const item = DRAWER_ITEMS.find(d => d.id === 'parametres')!;
+                        return (
+                          <DrawerGridCard key="parametres" item={item}
+                            isActive={activeView === item.view}
+                            onClick={() => navigate(item)} />
+                        );
+                      })()}
                     </div>
-                    <span className="text-sm font-semibold" style={{ color: '#EF4444' }}>Déconnexion</span>
+                  </>
+                )}
+
+                <div className="pt-4 mt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <button onClick={logout}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-2xl transition-colors"
+                    style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.18)' }}>
+                    <LogOut size={14} style={{ color: '#EF4444' }} />
+                    <span className="text-xs font-semibold" style={{ color: '#EF4444' }}>Déconnexion</span>
                   </button>
                 </div>
               </div>

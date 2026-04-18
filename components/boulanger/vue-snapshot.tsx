@@ -6,7 +6,7 @@
 // ✅ Snapshot 14h optionnel (stat mi-journée)
 // ✅ FIX : snapshot14h limité par snapshot10h même quand snapshot10h === 0
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, AlertTriangle, TrendingDown, Check, Loader2, Plus, Minus } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
@@ -20,10 +20,32 @@ const SEUIL_FOURNEE_PCT = 30; // % restant → suggestion 2ème fournée
 
 // CSS injecté une seule fois pour styliser le slider natif
 const SLIDER_CSS = `
-  .snap-slider { -webkit-appearance: none; appearance: none; height: 10px; border-radius: 999px; outline: none; cursor: pointer; width: 100%; }
-  .snap-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: white; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.45); transition: transform 0.1s; }
+  .snap-slider { -webkit-appearance: none; appearance: none; height: 14px; border-radius: 999px; outline: none; cursor: pointer; width: 100%; position: relative; z-index: 2; }
+  .snap-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.55), 0 0 0 3px var(--thumb-ring, rgba(255,255,255,0.15));
+    transition: transform 0.12s ease, box-shadow 0.15s ease;
+    border: 0;
+  }
+  .snap-slider::-webkit-slider-thumb:hover { transform: scale(1.06); }
   .snap-slider::-webkit-slider-thumb:active { transform: scale(1.18); }
-  .snap-slider::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: white; cursor: pointer; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.45); }
+  .snap-slider::-moz-range-thumb {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: white; cursor: pointer; border: 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.55), 0 0 0 3px var(--thumb-ring, rgba(255,255,255,0.15));
+  }
+  .snap-track-wrap { position: relative; flex: 1; }
+  .snap-ticks {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 13px; z-index: 1;
+  }
+  .snap-tick { width: 2px; height: 6px; background: rgba(255,255,255,0.18); border-radius: 1px; }
+  .snap-tick.mid { height: 8px; background: rgba(255,255,255,0.24); }
 `;
 
 // ─── Cellule curseur ──────────────────────────────────────────
@@ -35,39 +57,60 @@ function SnapshotCellSlider({
   max,
   onChange,
   disabled,
+  isDone,
 }: {
   value:    number;
   max:      number;
   onChange: (v: number) => void;
   disabled?: boolean;
+  isDone?:   boolean;
 }) {
   const [mode, setMode] = useState<'slider' | 'exact'>(max === 0 ? 'exact' : 'slider');
+  // Suit si la vendeuse a touché ce slider dans la session en cours.
+  // Sans ce flag, value=0 serait ambigu : "rien saisi" vs "tout vendu".
+  const [touched, setTouched] = useState(false);
 
-  // Couleurs basées sur le % RESTANT
-  const pct      = max > 0 ? value / max : 0;
+  // "value" est connu (non ambigu) si : snapshot déjà validé, interaction courante,
+  // ou valeur strictement > 0. Sinon (value=0 initial), on considère "plein" par défaut.
+  const isKnown = isDone || touched || value > 0;
+  const remaining = isKnown ? value : max;
+
+  // Couleurs basées sur le % RESTANT effectif
+  const pct      = max > 0 ? remaining / max : 0;
   const color    = pct > 0.60 ? '#4ade80' : pct > 0.20 ? '#fbbf24' : '#f87171';
   const bgColor  = pct > 0.60 ? 'rgba(74,222,128,0.10)'  : pct > 0.20 ? 'rgba(251,191,36,0.10)'  : 'rgba(248,113,113,0.10)';
   const bdrColor = pct > 0.60 ? 'rgba(74,222,128,0.22)'  : pct > 0.20 ? 'rgba(251,191,36,0.22)'  : 'rgba(248,113,113,0.22)';
 
-  // Position du curseur = quantité VENDUE (0 = plein, max = tout vendu)
-  // Cas initial : value=0 et non validé → on considère "rien vendu" (plein)
-  const soldDisplayed    = (value === 0 && !disabled) ? 0 : (max - value);
-  const remainingDisplay = max - soldDisplayed;
-  const soldPct          = max > 0 ? `${(soldDisplayed / max * 100).toFixed(1)}%` : '0%';
+  // Position du curseur = quantité VENDUE (0 = plein à gauche, max = vide à droite)
+  const soldDisplayed = max - remaining;
+  const soldPct       = max > 0 ? `${(soldDisplayed / max * 100).toFixed(1)}%` : '0%';
 
-  // Couleurs pour la barre désactivée (même logique mais basée sur value réel)
-  const pctDis    = max > 0 ? value / max : 0;
-  const colorDis  = pctDis > 0.60 ? 'rgba(74,222,128,0.35)'  : pctDis > 0.20 ? 'rgba(251,191,36,0.35)'  : 'rgba(248,113,113,0.35)';
+  // Libellé d'état dynamique
+  const stateLabel =
+    !isKnown      ? 'À renseigner'
+    : remaining === 0   ? 'Vide'
+    : remaining === max ? 'Plein'
+    : pct > 0.75 ? '¾ restant'
+    : pct > 0.45 ? '½ restant'
+    : pct > 0.20 ? '¼ restant'
+    : 'Presque vide';
+
+  // Couleurs pour la barre désactivée (production = 0 ou slot vérouillé)
+  const pctDis     = max > 0 ? value / max : 0;
+  const colorDis   = pctDis > 0.60 ? 'rgba(74,222,128,0.35)'  : pctDis > 0.20 ? 'rgba(251,191,36,0.35)'  : 'rgba(248,113,113,0.35)';
   const soldPctDis = max > 0 ? `${((max - value) / max * 100).toFixed(1)}%` : '0%';
 
   // Gradient : gris (vendu, gauche) → coloré (reste, droite)
   const trackGradient = (sp: string, c: string) =>
-    `linear-gradient(to right, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.12) ${sp}, ${c} ${sp}, ${c} 100%)`;
+    `linear-gradient(to right, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.10) ${sp}, ${c} ${sp}, ${c} 100%)`;
 
   // Appelé avec la quantité VENDUE — convertit en restant pour onChange
   const handleSoldChange = (newSold: number) => {
+    if (!touched) setTouched(true);
     onChange(max - newSold);
   };
+
+  const markInteracted = () => { if (!touched) setTouched(true); };
 
   // ── Vue désactivée (slot déjà validé) ──
   if (disabled) {
@@ -94,7 +137,7 @@ function SnapshotCellSlider({
         {/* − */}
         <motion.button
           whileTap={{ scale: 0.85 }}
-          onPointerDown={() => value > 0 && onChange(value - 1)}
+          onPointerDown={() => { if (value > 0) { markInteracted(); onChange(value - 1); } }}
           disabled={value <= 0}
           className={`
             w-11 h-11 rounded-xl flex items-center justify-center
@@ -124,7 +167,7 @@ function SnapshotCellSlider({
         {/* + */}
         <motion.button
           whileTap={{ scale: 0.85 }}
-          onPointerDown={() => value < max && onChange(value + 1)}
+          onPointerDown={() => { if (value < max) { markInteracted(); onChange(value + 1); } }}
           disabled={value >= max}
           className={`
             w-11 h-11 rounded-xl flex items-center justify-center
@@ -158,33 +201,68 @@ function SnapshotCellSlider({
   // ── Mode curseur (slider) ──
   // Points d'ancrage : exprimés en % VENDU, libellés par % RESTANT
   const snapPoints = [
-    { soldFrac: 0,    label: 'Plein'   },   // 0% vendu = tout en stock
-    { soldFrac: 0.25, label: '¾ rest.' },   // 25% vendu = 75% restant
-    { soldFrac: 0.5,  label: '½ rest.' },   // 50% vendu = 50% restant
-    { soldFrac: 0.75, label: '¼ rest.' },   // 75% vendu = 25% restant
-    { soldFrac: 1,    label: 'Vide'    },   // 100% vendu = 0 restant
+    { soldFrac: 0,    label: 'Plein'   },
+    { soldFrac: 0.25, label: '¾'       },
+    { soldFrac: 0.5,  label: '½'       },
+    { soldFrac: 0.75, label: '¼'       },
+    { soldFrac: 1,    label: 'Vide'    },
   ];
 
   return (
-    <div className="w-full space-y-1">
+    <div className="w-full space-y-2">
+      {/* Ligne d'état compacte : libellé + ratio vendus/max */}
+      <div className="flex items-center justify-between px-0.5">
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wider transition-colors"
+          style={{ color: isKnown ? color : 'rgba(255,255,255,0.35)' }}
+        >
+          {stateLabel}
+        </span>
+        <span className="text-[10px] font-mono tabular-nums text-white/45">
+          <span style={{ color: color }}>{remaining}</span>
+          <span className="text-white/25"> / {max} </span>
+          {isKnown && soldDisplayed > 0 && (
+            <span className="text-white/40">· {soldDisplayed} vendu{soldDisplayed > 1 ? 's' : ''}</span>
+          )}
+        </span>
+      </div>
+
       <div className="flex items-center gap-2">
-        <input
-          type="range"
-          min={0}
-          max={max}
-          value={soldDisplayed}
-          onChange={e => handleSoldChange(Number(e.target.value))}
-          className="snap-slider flex-1 touch-manipulation"
-          style={{ background: trackGradient(soldPct, color) }}
-        />
+        <div className="snap-track-wrap">
+          <input
+            type="range"
+            min={0}
+            max={max}
+            value={soldDisplayed}
+            onChange={e => handleSoldChange(Number(e.target.value))}
+            className="snap-slider touch-manipulation"
+            style={{
+              background: trackGradient(soldPct, color),
+              ['--thumb-ring' as string]: `${color}55`,
+            }}
+            aria-label={`Stock restant : ${remaining} sur ${max}`}
+          />
+          {/* Repères visuels sur la piste */}
+          <div className="snap-ticks">
+            <span className="snap-tick" />
+            <span className="snap-tick" />
+            <span className="snap-tick mid" />
+            <span className="snap-tick" />
+            <span className="snap-tick" />
+          </div>
+        </div>
 
         {/* Badge : restant */}
-        <div
+        <motion.div
+          key={remaining}
+          initial={{ scale: 1.12 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.15 }}
           className="w-12 h-10 rounded-xl flex items-center justify-center text-sm font-bold font-mono tabular-nums border flex-shrink-0"
           style={{ background: bgColor, borderColor: bdrColor, color }}
         >
-          {remainingDisplay}
-        </div>
+          {remaining}
+        </motion.div>
 
         {/* Basculer en mode exact */}
         <motion.button
@@ -202,19 +280,20 @@ function SnapshotCellSlider({
       <div className="flex gap-1">
         {snapPoints.map(({ soldFrac, label }) => {
           const snapSold = Math.round(max * soldFrac);
-          const isNear   = Math.abs(soldDisplayed - snapSold) <= Math.max(1, Math.round(max * 0.04));
+          const isNear   = isKnown && Math.abs(soldDisplayed - snapSold) <= Math.max(1, Math.round(max * 0.04));
           return (
             <button
               key={soldFrac}
               onClick={() => handleSoldChange(snapSold)}
               className={`
-                flex-1 py-1 rounded-lg text-[9px] font-medium
+                flex-1 py-1 rounded-lg text-[10px] font-semibold
                 transition-colors select-none touch-manipulation
                 ${isNear
-                  ? 'text-white/70 bg-white/10'
-                  : 'text-white/20 hover:text-white/50 hover:bg-white/5'
+                  ? 'text-white bg-white/12 shadow-inner'
+                  : 'text-white/25 hover:text-white/55 hover:bg-white/5'
                 }
               `}
+              style={isNear ? { color } : undefined}
             >
               {label}
             </button>
@@ -281,6 +360,26 @@ export default function VueSnapshot() {
 
   const heure        = new Date().getHours();
   const slotSuggere: Slot = heure < 12 ? '10h' : '14h';
+
+  // Ordre figé par slot : évite que la liste se ré-ordonne pendant l'interaction
+  // (sinon un produit qui passe à 0 migre en bas et le drag "saute" sur le produit du dessous).
+  // Se recalcule uniquement quand on change de slot ou que la liste de produits évolue.
+  const stockIdsKey = todayStocks.map(s => s.id).join('|');
+  const orderedIdsByCategory = useMemo(() => {
+    const sortByStock = (a: StockEntry, b: StockEntry) => {
+      const aReste = slotActif === '10h' ? a.snapshot10h : a.snapshot14h;
+      const bReste = slotActif === '10h' ? b.snapshot10h : b.snapshot14h;
+      if ((a.production === 0) !== (b.production === 0)) return a.production === 0 ? 1 : -1;
+      if ((aReste === 0) !== (bReste === 0)) return aReste === 0 ? 1 : -1;
+      return bReste - aReste;
+    };
+    const map: Record<string, string[]> = {};
+    for (const cat of CATEGORY_ORDER) {
+      map[cat] = todayStocks.filter(s => s.category === cat).sort(sortByStock).map(s => s.id);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slotActif, stockIdsKey]);
 
   if (authLoading) {
     return (
@@ -389,19 +488,14 @@ export default function VueSnapshot() {
 
       {/* ── Liste produits groupée par catégorie ── */}
       {(() => {
-        // Tri : stock le plus élevé d'abord, stock vide en dernier, production=0 tout en bas
-        const sortByStock = (a: StockEntry, b: StockEntry) => {
-          const aReste = slotActif === '10h' ? a.snapshot10h : a.snapshot14h;
-          const bReste = slotActif === '10h' ? b.snapshot10h : b.snapshot14h;
-          if ((a.production === 0) !== (b.production === 0)) return a.production === 0 ? 1 : -1;
-          if ((aReste === 0) !== (bReste === 0)) return aReste === 0 ? 1 : -1;
-          return bReste - aReste;
-        };
-
+        // Ordre figé par slot (voir useMemo plus haut) — données lues live depuis todayStocks
+        const stockById = new Map(todayStocks.map(s => [s.id, s]));
         const grouped = CATEGORY_ORDER
           .map(cat => ({
             category: cat,
-            items: todayStocks.filter(s => s.category === cat).sort(sortByStock),
+            items: (orderedIdsByCategory[cat] ?? [])
+              .map(id => stockById.get(id))
+              .filter((s): s is StockEntry => s !== undefined),
           }))
           .filter(g => g.items.length > 0);
 
@@ -473,10 +567,12 @@ export default function VueSnapshot() {
 
                   {/* Curseur — toujours éditable même si slot validé */}
                   <SnapshotCellSlider
+                    key={`${stock.id}-${slotActif}`}
                     value={reste}
                     max={base}
                     onChange={val => handleChange(stock, slotActif, val)}
                     disabled={isBlocked}
+                    isDone={isDone}
                   />
                 </div>
               );

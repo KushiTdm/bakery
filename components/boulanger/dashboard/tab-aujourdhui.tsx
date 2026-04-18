@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp, TrendingDown, Award, AlertTriangle,
   BarChart2, Info, Package, ArrowUpRight,
-  ChevronDown, Flame, Zap, Target,
+  ChevronDown, Flame, Target, Eye,
 } from 'lucide-react';
 import { useBoulanger } from '@/context/boulanger-context';
 import type { Defi } from '@/lib/types';
@@ -291,6 +291,7 @@ export default function TabAujourdhui({
   const [selectedMetric, setSelectedMetric] = useState<'ca' | 'invendu'>('ca');
   const [periodDays, setPeriodDays] = useState<7 | 14 | 30>(14);
   const [productTableExpanded, setProductTableExpanded] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const hasHistory = history.length >= 1;
   const hasEnoughTrend = history.length >= 3;
@@ -460,52 +461,32 @@ export default function TabAujourdhui({
         </>
       )}
 
-      {/* ── Spotlight: Best & Worst product ── */}
-      {hasHistory && productWaste.length >= 2 && (
-        <div className="grid grid-cols-2 gap-3">
-          <motion.div
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="rounded-2xl p-4 border"
-            style={{ background: 'rgba(61,158,106,0.07)', borderColor: 'rgba(61,158,106,0.2)' }}
-          >
-            <div className="flex items-center gap-1.5 mb-2">
-              <Award size={12} className="text-green-400" />
-              <p className="text-green-400 text-[9px] font-bold uppercase tracking-wider">Meilleur</p>
-            </div>
-            <p className="text-2xl mb-0.5">{bestProduct!.emoji}</p>
-            <p className="text-white font-semibold text-sm leading-tight">{bestProduct!.name}</p>
-            <p className="text-green-400 text-xs font-mono font-bold mt-1">
-              {bestProduct!.rate.toFixed(1)}%
+      {/* ── Recommandation : l'insight à retenir ── */}
+      {hasHistory && avgInvendu !== null && worstProduct && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="rounded-2xl p-4 border"
+          style={{ background: 'rgba(193,154,107,0.07)', borderColor: 'rgba(193,154,107,0.2)' }}
+        >
+          <div className="flex items-center gap-2 mb-2.5">
+            <Flame size={13} className="text-[#C19A6B]" />
+            <p className="text-[#C19A6B] text-[10px] font-bold uppercase tracking-wider">
+              À retenir aujourd'hui
             </p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, x: 8 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="rounded-2xl p-4 border"
-            style={{
-              background: worstProduct!.rate > 8 ? 'rgba(226,85,85,0.07)' : 'rgba(212,137,26,0.06)',
-              borderColor: worstProduct!.rate > 8 ? 'rgba(226,85,85,0.2)' : 'rgba(212,137,26,0.2)',
-            }}
-          >
-            <div className="flex items-center gap-1.5 mb-2">
-              <AlertTriangle size={12} style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }} />
-              <p className="text-[9px] font-bold uppercase tracking-wider"
-                style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }}>
-                À réduire
-              </p>
-            </div>
-            <p className="text-2xl mb-0.5">{worstProduct!.emoji}</p>
-            <p className="text-white font-semibold text-sm leading-tight">{worstProduct!.name}</p>
-            <p className="text-xs font-mono font-bold mt-1"
-              style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }}>
-              {worstProduct!.rate.toFixed(1)}%
-            </p>
-          </motion.div>
-        </div>
+          </div>
+          <p className="text-white/70 text-sm leading-relaxed">
+            {avgInvendu > 8
+              ? `Taux d'invendu élevé (${avgInvendu.toFixed(1)}%). Réduisez la production de "${worstProduct.name}" de ~15%.`
+              : avgInvendu < 3
+                ? `Excellent ! Taux optimal (${avgInvendu.toFixed(1)}%). Augmentez légèrement les best-sellers.`
+                : `Taux correct (${avgInvendu.toFixed(1)}%). Surveillez "${worstProduct.name}" (${worstProduct.rate.toFixed(0)}%).`
+            }
+          </p>
+        </motion.div>
       )}
 
-      {/* ── Active Challenges ── */}
+      {/* ── Défis actifs ── */}
       {activeDefis.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
@@ -522,123 +503,181 @@ export default function TabAujourdhui({
         </div>
       )}
 
-      {/* ── Bar Chart ── */}
+      {/* ── Toggle "Voir le détail" ── */}
       {hasHistory && (
-        <div
-          className="rounded-2xl overflow-hidden border"
-          style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setDetailsOpen(v => !v)}
+          className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-2xl border transition-colors"
+          style={{
+            background: detailsOpen ? 'rgba(193,154,107,0.08)' : 'rgba(255,255,255,0.025)',
+            borderColor: detailsOpen ? 'rgba(193,154,107,0.25)' : 'rgba(255,255,255,0.07)',
+          }}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b"
-            style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-            <p className="text-sm font-semibold"
-              style={{ fontFamily: 'Playfair Display, serif', color: '#C19A6B' }}>
-              {periodDays} derniers jours
-            </p>
-            <div className="flex gap-1 p-0.5 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.05)' }}>
-              {[
-                { id: 'ca' as const, label: 'CA' },
-                { id: 'invendu' as const, label: 'Invendu' },
-              ].map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setSelectedMetric(opt.id)}
-                  className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
-                  style={{
-                    background: selectedMetric === opt.id
-                      ? (opt.id === 'ca' ? 'rgba(193,154,107,0.2)' : 'rgba(226,85,85,0.15)')
-                      : 'transparent',
-                    color: selectedMetric === opt.id
-                      ? (opt.id === 'ca' ? '#C19A6B' : '#E25555')
-                      : 'rgba(255,255,255,0.3)',
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center gap-2">
+            <Eye size={14} className="text-[#C19A6B]" />
+            <span className="text-xs font-semibold" style={{ color: detailsOpen ? '#C19A6B' : 'rgba(255,255,255,0.6)' }}>
+              {detailsOpen ? 'Masquer le détail' : 'Voir le détail · produits, graphique'}
+            </span>
           </div>
-          <div className="px-4 py-4">
-            <BarChart history={filteredHistory} metric={selectedMetric} />
-          </div>
-          <div className="px-4 pb-3 flex items-center gap-4 text-[9px] text-white/25">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-sm" style={{ background: '#C19A6B' }} />
-              Aujourd'hui
-            </div>
-            {selectedMetric === 'invendu' && (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-sm" style={{ background: '#3D9E6A' }} />
-                  {'< 5%'}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-sm" style={{ background: '#E25555' }} />
-                  {'> 8%'}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+          <motion.div animate={{ rotate: detailsOpen ? 180 : 0 }}>
+            <ChevronDown size={14} style={{ color: detailsOpen ? '#C19A6B' : 'rgba(255,255,255,0.3)' }} />
+          </motion.div>
+        </motion.button>
       )}
 
-      {/* ── Product Table (collapsible) ── */}
-      {hasHistory && productWaste.length > 0 && (
-        <div
-          className="rounded-2xl overflow-hidden border"
-          style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}
-        >
-          <button
-            onClick={() => setProductTableExpanded(!productTableExpanded)}
-            className="w-full flex items-center justify-between px-4 py-3 border-b"
-            style={{ borderColor: 'rgba(255,255,255,0.06)' }}
+      {/* ── Détails collapsibles ── */}
+      <AnimatePresence initial={false}>
+        {detailsOpen && hasHistory && (
+          <motion.div
+            key="details"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="overflow-hidden"
           >
-            <div className="flex items-center gap-2">
-              <BarChart2 size={13} className="text-[#C19A6B]" />
-              <p className="text-xs font-semibold"
-                style={{ fontFamily: 'Playfair Display, serif', color: 'rgba(255,255,255,0.65)' }}>
-                Performance produits · {filteredHistory.length}j
-              </p>
-            </div>
-            <motion.div animate={{ rotate: productTableExpanded ? 180 : 0 }}>
-              <ChevronDown size={14} className="text-white/25" />
-            </motion.div>
-          </button>
-          <ProductTable productWaste={productWaste} collapsed={!productTableExpanded} />
-          {!productTableExpanded && productWaste.length > 3 && (
-            <div className="px-4 py-2 text-center">
-              <p className="text-[10px] text-white/20">
-                + {productWaste.length - 3} produits · appuyez pour voir tout
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+            <div className="space-y-4 pt-1">
 
-      {/* ── Recommendation ── */}
-      {hasHistory && avgInvendu !== null && worstProduct && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="rounded-2xl p-4 border"
-          style={{ background: 'rgba(193,154,107,0.07)', borderColor: 'rgba(193,154,107,0.2)' }}
-        >
-          <div className="flex items-center gap-2 mb-2.5">
-            <Flame size={13} className="text-[#C19A6B]" />
-            <p className="text-[#C19A6B] text-[10px] font-bold uppercase tracking-wider">
-              Recommandation
-            </p>
-          </div>
-          <p className="text-white/60 text-sm leading-relaxed">
-            {avgInvendu > 8
-              ? `Taux d'invendu élevé (${avgInvendu.toFixed(1)}%). Réduisez la production de "${worstProduct.name}" de ~15%.`
-              : avgInvendu < 3
-                ? `Excellent ! Taux optimal (${avgInvendu.toFixed(1)}%). Augmentez légèrement les best-sellers.`
-                : `Taux correct (${avgInvendu.toFixed(1)}%). Surveillez "${worstProduct.name}" (${worstProduct.rate.toFixed(0)}%).`
-            }
-          </p>
-        </motion.div>
-      )}
+              {/* Spotlight Best/Worst */}
+              {productWaste.length >= 2 && (
+                <div className="grid grid-cols-2 gap-3">
+                  <motion.div
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="rounded-2xl p-4 border"
+                    style={{ background: 'rgba(61,158,106,0.07)', borderColor: 'rgba(61,158,106,0.2)' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Award size={12} className="text-green-400" />
+                      <p className="text-green-400 text-[9px] font-bold uppercase tracking-wider">Meilleur</p>
+                    </div>
+                    <p className="text-2xl mb-0.5">{bestProduct!.emoji}</p>
+                    <p className="text-white font-semibold text-sm leading-tight">{bestProduct!.name}</p>
+                    <p className="text-green-400 text-xs font-mono font-bold mt-1">
+                      {bestProduct!.rate.toFixed(1)}%
+                    </p>
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="rounded-2xl p-4 border"
+                    style={{
+                      background: worstProduct!.rate > 8 ? 'rgba(226,85,85,0.07)' : 'rgba(212,137,26,0.06)',
+                      borderColor: worstProduct!.rate > 8 ? 'rgba(226,85,85,0.2)' : 'rgba(212,137,26,0.2)',
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <AlertTriangle size={12} style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }} />
+                      <p className="text-[9px] font-bold uppercase tracking-wider"
+                        style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }}>
+                        À réduire
+                      </p>
+                    </div>
+                    <p className="text-2xl mb-0.5">{worstProduct!.emoji}</p>
+                    <p className="text-white font-semibold text-sm leading-tight">{worstProduct!.name}</p>
+                    <p className="text-xs font-mono font-bold mt-1"
+                      style={{ color: worstProduct!.rate > 8 ? '#E25555' : '#D4891A' }}>
+                      {worstProduct!.rate.toFixed(1)}%
+                    </p>
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Bar Chart */}
+              <div
+                className="rounded-2xl overflow-hidden border"
+                style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}
+              >
+                <div className="flex items-center justify-between px-4 py-3 border-b"
+                  style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <p className="text-sm font-semibold"
+                    style={{ fontFamily: 'Playfair Display, serif', color: '#C19A6B' }}>
+                    {periodDays} derniers jours
+                  </p>
+                  <div className="flex gap-1 p-0.5 rounded-lg"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}>
+                    {[
+                      { id: 'ca' as const, label: 'CA' },
+                      { id: 'invendu' as const, label: 'Invendu' },
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setSelectedMetric(opt.id)}
+                        className="px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all"
+                        style={{
+                          background: selectedMetric === opt.id
+                            ? (opt.id === 'ca' ? 'rgba(193,154,107,0.2)' : 'rgba(226,85,85,0.15)')
+                            : 'transparent',
+                          color: selectedMetric === opt.id
+                            ? (opt.id === 'ca' ? '#C19A6B' : '#E25555')
+                            : 'rgba(255,255,255,0.3)',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="px-4 py-4">
+                  <BarChart history={filteredHistory} metric={selectedMetric} />
+                </div>
+                <div className="px-4 pb-3 flex items-center gap-4 text-[9px] text-white/25">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-sm" style={{ background: '#C19A6B' }} />
+                    Aujourd'hui
+                  </div>
+                  {selectedMetric === 'invendu' && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-sm" style={{ background: '#3D9E6A' }} />
+                        {'< 5%'}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-sm" style={{ background: '#E25555' }} />
+                        {'> 8%'}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Table */}
+              {productWaste.length > 0 && (
+                <div
+                  className="rounded-2xl overflow-hidden border"
+                  style={{ background: 'rgba(255,255,255,0.025)', borderColor: 'rgba(255,255,255,0.07)' }}
+                >
+                  <button
+                    onClick={() => setProductTableExpanded(!productTableExpanded)}
+                    className="w-full flex items-center justify-between px-4 py-3 border-b"
+                    style={{ borderColor: 'rgba(255,255,255,0.06)' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <BarChart2 size={13} className="text-[#C19A6B]" />
+                      <p className="text-xs font-semibold"
+                        style={{ fontFamily: 'Playfair Display, serif', color: 'rgba(255,255,255,0.65)' }}>
+                        Performance produits · {filteredHistory.length}j
+                      </p>
+                    </div>
+                    <motion.div animate={{ rotate: productTableExpanded ? 180 : 0 }}>
+                      <ChevronDown size={14} className="text-white/25" />
+                    </motion.div>
+                  </button>
+                  <ProductTable productWaste={productWaste} collapsed={!productTableExpanded} />
+                  {!productTableExpanded && productWaste.length > 3 && (
+                    <div className="px-4 py-2 text-center">
+                      <p className="text-[10px] text-white/20">
+                        + {productWaste.length - 3} produits · appuyez pour voir tout
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
