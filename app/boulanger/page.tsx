@@ -30,6 +30,7 @@ import TourWizard, { useTour } from '@/components/boulanger/tour-wizard';
 import OnboardingWizard from '@/components/boulanger/onboarding-wizard';
 import WorkflowGuard from '@/components/boulanger/workflow-guard';
 import VueJournee, { STEP_CONFIG } from '@/components/boulanger/vue-journee';
+import CommandesView from '@/components/boulanger/commandes-view';
 import { useWorkflowJournee } from '@/hooks/use-workflow-journee';
 import type { ViewType, PermissionKey } from '@/lib/types';
 import { ROLE_LABELS } from '@/lib/types';
@@ -464,14 +465,6 @@ function PlusDrawer({
                     activeColor="#A855F7"
                     onClick={() => { onNavigate('ia'); onClose(); }}
                   />
-                  {canRead('commandes') && (() => {
-                    const item = DRAWER_ITEMS.find(d => d.id === 'commandes')!;
-                    return (
-                      <DrawerGridCard key="commandes" item={item}
-                        isActive={false} badge={pendingOrders}
-                        onClick={() => navigate(item)} />
-                    );
-                  })()}
                   {canRead('dashboard') && (() => {
                     const item = DRAWER_ITEMS.find(d => d.id === 'dashboard')!;
                     return (
@@ -575,7 +568,7 @@ function ViewBlocked() {
 // Nav items
 // ─────────────────────────────────────────────────────────────
 
-type LocalView = 'accueil' | 'journee' | ViewType;
+type LocalView = 'accueil' | 'journee' | 'commandes' | ViewType;
 
 const ALL_NAV_ITEMS: { id: LocalView | 'commandes'; label: string; icon: React.ElementType }[] = [
   { id: 'accueil',    label: 'Accueil',    icon: Home },
@@ -695,12 +688,12 @@ function AppShell() {
 
   const handleNavClick = useCallback((v: LocalView) => {
     setLocalView(v);
-    if (v !== 'accueil' && v !== 'journee') setActiveView(v as ViewType);
+    if (v !== 'accueil' && v !== 'journee' && v !== 'commandes') setActiveView(v as ViewType);
   }, [setActiveView]);
 
   const handleDeepNavigate = useCallback((v: ViewType | 'commandes' | 'journee') => {
     if (v === 'commandes') {
-      router.push('/boulanger/commandes');
+      setLocalView('commandes');
     } else if (v === 'journee') {
       setLocalView('journee');
     } else {
@@ -859,6 +852,7 @@ function AppShell() {
             {localView === 'equipe'     && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
             {localView === 'vitrine'    && (userRole === 'owner'  ? <VitrinEditor />  : <ViewBlocked />)}
             {localView === 'ia'         && <VueRapportIA />}
+            {localView === 'commandes'  && <CommandesView onBack={() => setLocalView('accueil')} />}
             {localView === 'supervision' && (
               canRead('equipe')
                 ? <DashboardSupervision isOwner={userRole === 'owner'} />
@@ -882,18 +876,12 @@ function AppShell() {
           {ALL_NAV_ITEMS.map(item => {
             const Icon = item.icon;
             const isCommandes = item.id === 'commandes';
-            const isActive = isCommandes ? false : localView === item.id;
+            const isActive = localView === item.id;
             const activeColor = item.id === 'accueil' ? 'rgba(255,255,255,0.9)' : isCommandes ? '#6FA8EA' : '#C19A6B';
             return (
               <motion.button
                 key={item.id}
-                onClick={() => {
-                  if (isCommandes) {
-                    router.push('/boulanger/commandes');
-                  } else {
-                    handleNavClick(item.id as LocalView);
-                  }
-                }}
+                onClick={() => handleNavClick(item.id as LocalView)}
                 whileTap={{ scale: 0.88 }}
                 className="flex flex-col items-center justify-center gap-1 touch-manipulation select-none px-1 relative">
                 {isCommandes && pendingCount > 0 && (
