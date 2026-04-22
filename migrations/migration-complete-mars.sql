@@ -864,6 +864,9 @@ CREATE TABLE IF NOT EXISTS public.ai_rapports (
   erreur_msg            text,
   modele_ia             text DEFAULT 'glm-4-flash',
   tokens_utilises       integer,
+  tokens_input          integer,
+  tokens_output         integer,
+  cout_usd              numeric(10,6),
   created_at            timestamptz DEFAULT now(),
   updated_at            timestamptz DEFAULT now(),
   meteo_id              uuid REFERENCES public.meteo_journees(id),
@@ -1123,6 +1126,36 @@ CREATE INDEX IF NOT EXISTS idx_recettes_boulangerie ON public.recettes_produits 
 CREATE INDEX IF NOT EXISTS idx_recettes_produit ON public.recettes_produits (produit_id);
 
 
+-- waitlist
+CREATE TABLE IF NOT EXISTS public.waitlist (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  nom_boulangerie text        NOT NULL,
+  ville           text        NOT NULL,
+  email_contact   text        NOT NULL UNIQUE,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+
+-- =============================================================================
+-- VUES
+-- =============================================================================
+
+CREATE OR REPLACE VIEW admin_ia_metrics AS
+SELECT
+  DATE(created_at AT TIME ZONE 'Europe/Paris') AS jour,
+  COUNT(*)                                      AS nb_rapports,
+  SUM(tokens_input)                             AS total_tokens_input,
+  SUM(tokens_output)                            AS total_tokens_output,
+  COALESCE(SUM(tokens_utilises), 0)             AS total_tokens,
+  SUM(cout_usd)                                 AS cout_total_usd,
+  AVG(cout_usd)                                 AS cout_moyen_usd,
+  modele_ia
+FROM ai_rapports
+WHERE statut = 'genere'
+GROUP BY DATE(created_at AT TIME ZONE 'Europe/Paris'), modele_ia
+ORDER BY jour DESC;
+
+
 -- =============================================================================
 -- TRIGGERS
 -- =============================================================================
@@ -1215,6 +1248,7 @@ ALTER TABLE public.profils_clients     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_penalites    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_subscriptions  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.recettes_produits   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.waitlist            ENABLE ROW LEVEL SECURITY;
 
 
 -- ----- boulangeries -----
@@ -1415,13 +1449,22 @@ CREATE POLICY recettes_owner_delete ON public.recettes_produits FOR DELETE
   USING (boulangerie_id IN (SELECT id FROM boulangeries WHERE user_id = auth.uid()));
 
 
+-- ----- waitlist -----
+CREATE POLICY waitlist_service_only ON public.waitlist
+  FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+
 -- =============================================================================
 -- FIN DE MIGRATION
 -- =============================================================================
--- Tables : 19
+-- Tables : 20 (+ waitlist)
 -- Fonctions : 17 (+ verifier_stock_commande signature principale)
+-- Vues : 1 (admin_ia_metrics)
 -- Triggers : 17
--- Policies RLS : ~50
+-- Policies RLS : ~51
 -- Fix clé : uq_recette_categorie_fallback inclut AND nom_recette IS NULL
 --           pour autoriser plusieurs recettes nommées par catégorie
+-- ai_rapports : ajout tokens_input, tokens_output, cout_usd
+-- waitlist : RLS activé, accès restreint à service_role uniquement
 -- =============================================================================
