@@ -342,8 +342,8 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
   const [applying,       setApply]   = useState(false);
   const [error,          setError]   = useState<string | null>(null);
   const [applied,        setApplied] = useState(false);
-  const [tab,            setTab]     = useState<'briefing' | 'analyse' | 'plan' | 'matieres'>('briefing');
   const [showHisto,      setShowHisto] = useState(false);
+  const [gamiStats,      setGamiStats] = useState<{ reussisToday: number; totalToday: number; streak: number; xpToday: number } | null>(null);
 
   // today en timezone boulangerie (via API) — pas new Date() en UTC
   const [today,      setToday]      = useState<string>('');
@@ -415,7 +415,6 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
       if (j.quota_info)     setQuotaInfo(j.quota_info);
       if (j.starter_preview !== undefined) setStarterPreview(!!j.starter_preview);
       if (j.previsions?.every(p => p.appliquee)) setApplied(true);
-      setTab(j.rapport?.rapport_json?.briefing_matin ? 'briefing' : 'analyse');
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [today]);
@@ -435,6 +434,35 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
   }, []);
 
   useEffect(() => { if (today) { loadRapport(); loadHisto(); } }, [today, loadRapport, loadHisto]);
+
+  // Stats gamification (défis du jour + streak) pour badge hero
+  useEffect(() => {
+    if (!today) return;
+    (async () => {
+      try {
+        const tok = await getToken();
+        if (!tok) return;
+        const res = await fetch(`/api/boulanger/defis?date=${today}`, {
+          headers: { Authorization: `Bearer ${tok}` },
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const j = await res.json() as {
+          defisToday?: { statut: string; xp_gagne?: number }[];
+          profil?: { streak_actuel?: number };
+        };
+        const defisToday = j.defisToday ?? [];
+        const reussisToday = defisToday.filter(d => d.statut === 'reussi').length;
+        const xpToday = defisToday.reduce((s, d) => s + (d.xp_gagne ?? 0), 0);
+        setGamiStats({
+          reussisToday,
+          totalToday: defisToday.length,
+          streak: j.profil?.streak_actuel ?? 0,
+          xpToday,
+        });
+      } catch { /* silent */ }
+    })();
+  }, [today, currentRapport?.id]);
 
   useEffect(() => {
     if (currentRapport?.statut !== 'en_cours') {
@@ -488,7 +516,6 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
       if (j.starter_preview !== undefined) setStarterPreview(!!j.starter_preview);
       if (j.rapport)   setCR(j.rapport);
       if (j.previsions) setPrev(j.previsions);
-      setTab(j.rapport?.rapport_json?.briefing_matin ? 'briefing' : 'analyse');
     } catch { setError('Erreur réseau'); }
     finally { setGen(false); }
   };
@@ -566,7 +593,6 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
               <HistoCard key={r.id} r={r} onSelect={() => {
                 setCR(r); setPrev([]); setApplied(true); setShowHisto(false);
                 setStarterPreview(!!(r.rapport_json?._starter_preview));
-                setTab(r.rapport_json?.briefing_matin ? 'briefing' : 'analyse');
               }} />
             ))}
           </div>
@@ -696,31 +722,146 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
       {hasRapport && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
 
-          {/* Score card */}
-          <div className="rounded-2xl overflow-hidden border"
-            style={{ background: 'linear-gradient(135deg,rgba(193,154,107,0.12),rgba(193,154,107,0.04))', borderColor: 'rgba(193,154,107,0.25)' }}>
-            <div className="flex items-center gap-5 px-5 py-5">
-              <ScoreRing score={currentRapport!.score_performance ?? 0} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <Sparkles size={12} className="text-[#C19A6B]" />
-                  <span className="text-[#C19A6B] text-[10px] font-semibold uppercase tracking-widest">Score du jour</span>
+          {/* ══ HERO STICKY — Score + Verdict + Pills + Gami ══ */}
+          <div className="sticky top-0 z-20 -mx-4 px-4 pt-2 pb-3 backdrop-blur-xl"
+            style={{ background: 'rgba(26,15,10,0.82)' }}>
+            <div className="rounded-2xl overflow-hidden border"
+              style={{ background: 'linear-gradient(135deg,rgba(193,154,107,0.12),rgba(193,154,107,0.04))', borderColor: 'rgba(193,154,107,0.25)' }}>
+              <div className="flex items-center gap-4 px-4 py-3">
+                <div className="flex-shrink-0 scale-[0.82] origin-left -my-2 -ml-1">
+                  <ScoreRing score={currentRapport!.score_performance ?? 0} />
                 </div>
-                <p className="text-white font-bold text-base leading-snug" style={{ fontFamily: 'Playfair Display, serif' }}>
-                  {currentRapport!.verdict_flash ?? '—'}
-                </p>
-                {synthese?.resume && (
-                  <p className="text-white/45 text-xs mt-1.5 leading-relaxed">{synthese.resume}</p>
+                <div className="flex-1 min-w-0 -ml-4">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Sparkles size={10} className="text-[#C19A6B]" />
+                    <span className="text-[#C19A6B] text-[9px] font-semibold uppercase tracking-widest">Verdict</span>
+                  </div>
+                  <p className="text-white font-bold text-sm leading-tight line-clamp-2" style={{ fontFamily: 'Playfair Display, serif' }}>
+                    {currentRapport!.verdict_flash ?? '—'}
+                  </p>
+                  {gamiStats && (gamiStats.totalToday > 0 || gamiStats.streak > 0) && (
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      {gamiStats.totalToday > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1"
+                          style={{
+                            background: gamiStats.reussisToday === gamiStats.totalToday ? 'rgba(74,222,128,0.15)' : 'rgba(234,179,8,0.15)',
+                            border: gamiStats.reussisToday === gamiStats.totalToday ? '1px solid rgba(74,222,128,0.3)' : '1px solid rgba(234,179,8,0.25)',
+                            color: gamiStats.reussisToday === gamiStats.totalToday ? 'rgb(134 239 172)' : 'rgb(250 204 21)',
+                          }}>
+                          <Trophy size={9} /> {gamiStats.reussisToday}/{gamiStats.totalToday}
+                        </span>
+                      )}
+                      {gamiStats.streak > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)', color: 'rgb(251 146 60)' }}>
+                          🔥 {gamiStats.streak}j
+                        </span>
+                      )}
+                      {gamiStats.xpToday > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: 'rgba(193,154,107,0.15)', border: '1px solid rgba(193,154,107,0.3)', color: '#C19A6B' }}>
+                          +{gamiStats.xpToday} XP
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* 3 pills d'action prioritaires */}
+              {(() => {
+                type PillColor = 'green' | 'amber' | 'red' | 'info';
+                const pills: { icon: string; label: string; color: PillColor }[] = [];
+                const topVente = analyseProduits?.top_ventes?.[0];
+                if (topVente) {
+                  const pct = topVente.taux_vente != null ? ` ${topVente.taux_vente}%` : '';
+                  pills.push({ icon: '▲', label: `${topVente.emoji ?? ''} ${topVente.nom}${pct}`.trim(), color: 'green' });
+                } else if (succes[0]) {
+                  pills.push({ icon: '▲', label: toStr(succes[0]).slice(0, 38), color: 'green' });
+                }
+                const critique = analyseProduits?.invendus_critiques?.[0];
+                if (critique) {
+                  const pct = critique.taux_invendu != null ? ` ${critique.taux_invendu}%` : '';
+                  pills.push({ icon: '⚠', label: `${critique.emoji ?? ''} ${critique.nom}${pct}`.trim(), color: 'red' });
+                } else if (flops[0]) {
+                  pills.push({ icon: '⚠', label: toStr(flops[0]).slice(0, 38), color: 'amber' });
+                }
+                const top3 = rj.briefing_matin?.top3_a_produire?.[0];
+                if (top3) {
+                  pills.push({ icon: '🥖', label: `Demain : ${toStr(top3).slice(0, 32)}`, color: 'info' });
+                } else if (rj.briefing_matin?.meteo_resume) {
+                  pills.push({ icon: '🌤', label: rj.briefing_matin.meteo_resume.slice(0, 38), color: 'info' });
+                }
+                if (pills.length === 0) return null;
+                const colorMap: Record<PillColor, { bg: string; border: string; text: string }> = {
+                  green: { bg: 'rgba(74,222,128,0.1)',  border: 'rgba(74,222,128,0.25)',  text: 'rgb(134 239 172)' },
+                  amber: { bg: 'rgba(251,191,36,0.1)',  border: 'rgba(251,191,36,0.25)',  text: 'rgb(252 211 77)'  },
+                  red:   { bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.25)', text: 'rgb(252 165 165)' },
+                  info:  { bg: 'rgba(139,92,246,0.1)',  border: 'rgba(139,92,246,0.25)',  text: 'rgb(196 181 253)' },
+                };
+                return (
+                  <div className="px-3 pb-3 flex gap-1.5 overflow-x-auto scrollbar-none">
+                    {pills.map((p, i) => {
+                      const c = colorMap[p.color];
+                      return (
+                        <div key={i} className="flex-shrink-0 px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 whitespace-nowrap"
+                          style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text }}>
+                          <span>{p.icon}</span>{p.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* ══ TL;DR 30 secondes ══ */}
+          {(synthese?.points_forts?.[0] || analyseProduits?.invendus_critiques?.[0] || flops[0] || rj.briefing_matin?.top3_a_produire?.[0]) && (
+            <motion.section
+              initial={{ opacity: 0, y: 8 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-40px' }}
+              transition={{ duration: 0.4 }}
+              className="rounded-2xl border overflow-hidden"
+              style={{ background: 'rgba(193,154,107,0.05)', borderColor: 'rgba(193,154,107,0.18)' }}>
+              <div className="px-4 py-2 border-b border-white/6 flex items-center gap-2">
+                <Zap size={11} className="text-[#C19A6B]" />
+                <p className="text-[#C19A6B] text-[10px] font-bold uppercase tracking-widest">Récap 30 secondes</p>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                {synthese?.points_forts?.[0] && (
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-green-400 text-base leading-none mt-0.5">●</span>
+                    <p className="text-white/80 text-sm leading-snug">{toStr(synthese.points_forts[0])}</p>
+                  </div>
+                )}
+                {(analyseProduits?.invendus_critiques?.[0] || flops[0]) && (
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-amber-400 text-base leading-none mt-0.5">●</span>
+                    <p className="text-white/80 text-sm leading-snug">
+                      {analyseProduits?.invendus_critiques?.[0]
+                        ? `${analyseProduits.invendus_critiques[0].emoji ?? ''} ${analyseProduits.invendus_critiques[0].nom} — ${analyseProduits.invendus_critiques[0].commentaire ?? 'à surveiller'}`
+                        : toStr(flops[0])}
+                    </p>
+                  </div>
+                )}
+                {rj.briefing_matin?.top3_a_produire?.[0] && (
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-purple-400 text-base leading-none mt-0.5">●</span>
+                    <p className="text-white/80 text-sm leading-snug">
+                      <strong className="text-white/95">Demain :</strong> {toStr(rj.briefing_matin.top3_a_produire[0])}
+                    </p>
+                  </div>
                 )}
               </div>
-            </div>
-            {(synthese?.message_equipe || rj.message_levain) && (
-              <div className="px-5 pb-4 border-t border-white/6 pt-3 space-y-1">
-                {synthese?.message_equipe && <p className="text-white/50 text-xs">👥 {synthese.message_equipe}</p>}
-                {rj.message_levain && <p className="text-[#C19A6B]/70 text-xs italic">💬 {rj.message_levain}</p>}
-              </div>
-            )}
-          </div>
+              {(synthese?.message_equipe || rj.message_levain) && (
+                <div className="px-4 py-2 border-t border-white/5 space-y-1">
+                  {synthese?.message_equipe && <p className="text-white/45 text-[11px]">👥 {synthese.message_equipe}</p>}
+                  {rj.message_levain && <p className="text-[#C19A6B]/70 text-[11px] italic">💬 {rj.message_levain}</p>}
+                </div>
+              )}
+            </motion.section>
+          )}
 
           {/* Consignes owner */}
           {(consignes?.au_boulanger || consignes?.a_la_vendeuse) && (
@@ -731,32 +872,19 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
             </div>
           )}
 
-          {/* Onglets — masqués en aperçu Starter (sauf analyse partielle) */}
+          {/* ══ SECTION DEMAIN — briefing + vendeuse + gérant + défis ══ */}
           {!starterPreview && (
-            <div className="flex gap-1 p-1 rounded-2xl bg-white/5 border border-white/8 overflow-x-auto">
-              {([
-                { id: 'briefing' as const, label: 'Demain',              icon: Coffee   },
-                { id: 'analyse'  as const, label: 'Bilan',               icon: BarChart2 },
-                { id: 'plan'     as const, label: `Plan (${previsions.length})`, icon: Play },
-                { id: 'matieres' as const, label: 'Matières',            icon: Wheat    },
-              ] as const).map(t => {
-                const Icon = t.icon;
-                const ia   = tab === t.id;
-                return (
-                  <button key={t.id} onClick={() => setTab(t.id)}
-                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                      ia ? 'bg-[#C19A6B]/20 text-[#C19A6B] border border-[#C19A6B]/30' : 'text-white/40 hover:text-white/60'
-                    }`}>
-                    <Icon size={12} strokeWidth={ia ? 2.2 : 1.8} />{t.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ── TAB BRIEFING ── */}
-          {!starterPreview && tab === 'briefing' && (
-            <div className="space-y-3">
+            <motion.section
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.45 }}
+              className="space-y-3">
+              <div className="flex items-center gap-2 pt-1">
+                <Coffee size={13} className="text-[#C19A6B]" />
+                <h2 className="text-white/90 text-[11px] font-bold uppercase tracking-widest" style={{ fontFamily: 'Playfair Display, serif' }}>Demain</h2>
+                <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" />
+              </div>
               {rj.briefing_matin ? (
                 <BriefingMatinCard bm={rj.briefing_matin} previsions={previsions}
                   onApply={handleApply} applying={applying} applied={allApplied}
@@ -886,12 +1014,22 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                   </div>
                 </motion.div>
               )}
-            </div>
+            </motion.section>
           )}
 
-          {/* ── TAB ANALYSE ── */}
-          {!starterPreview && tab === 'analyse' && (
-            <div className="space-y-3">
+          {/* ══ SECTION BILAN — synthèse + succès + flops + contexte + commandes + alertes ══ */}
+          {!starterPreview && (
+            <motion.section
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.45 }}
+              className="space-y-3">
+              <div className="flex items-center gap-2 pt-1">
+                <BarChart2 size={13} className="text-[#C19A6B]" />
+                <h2 className="text-white/90 text-[11px] font-bold uppercase tracking-widest" style={{ fontFamily: 'Playfair Display, serif' }}>Bilan du jour</h2>
+                <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" />
+              </div>
               {v3 && synthese && (
                 <div className="rounded-2xl bg-white/4 border border-white/8 px-4 py-4 space-y-3">
                   {synthese.resume && <p className="text-white/65 text-sm leading-relaxed">{synthese.resume}</p>}
@@ -980,12 +1118,22 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                   {alertes.map((a, i) => <p key={i} className="text-red-300/80 text-sm">{toStr(a)}</p>)}
                 </div>
               )}
-            </div>
+            </motion.section>
           )}
 
-          {/* ── TAB PLAN ── */}
-          {!starterPreview && tab === 'plan' && (
-            <div className="space-y-3">
+          {/* ══ SECTION PLAN — bouton appliquer + table prévisions ══ */}
+          {!starterPreview && (
+            <motion.section
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.45 }}
+              className="space-y-3">
+              <div className="flex items-center gap-2 pt-1">
+                <Play size={12} className="text-[#C19A6B]" />
+                <h2 className="text-white/90 text-[11px] font-bold uppercase tracking-widest" style={{ fontFamily: 'Playfair Display, serif' }}>Plan production ({previsions.length})</h2>
+                <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" />
+              </div>
               {!isToday && (
                 <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
                   <p className="text-white/40 text-xs">Rapport passé — prévisions à titre indicatif.</p>
@@ -1035,47 +1183,70 @@ export default function VueRapportIA({ onClose }: { onClose?: () => void }) {
                   </div>
                 )
               }
-            </div>
+            </motion.section>
           )}
 
-          {/* ── TAB MATIÈRES ── */}
-          {!starterPreview && tab === 'matieres' && (
-            <div className="space-y-3">
-              {rj.matieres_premieres ? (
-                <>
-                  <div className="rounded-2xl bg-white/4 border border-white/8 px-4 py-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Wheat size={13} className="text-[#C19A6B]" />
-                      <p className="text-white/40 text-[10px] font-semibold uppercase tracking-wider">Résumé journée</p>
-                    </div>
-                    <p className="text-white/65 text-sm leading-relaxed">{rj.matieres_premieres.resume}</p>
-                  </div>
-                  {rj.matieres_premieres.details && rj.matieres_premieres.details.length > 0 && (
-                    <div className="rounded-2xl border overflow-hidden bg-white/3 border-white/7">
-                      <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
-                        <Package2 size={13} className="text-white/35" />
-                        <p className="text-white/35 text-[10px] font-semibold uppercase tracking-wider">Détail par ingrédient</p>
-                      </div>
-                      {rj.matieres_premieres.details.map((d, i) => (
-                        <div key={i} className="flex items-start gap-3 px-4 py-3 border-b border-white/4 last:border-0">
-                          <div className="flex-1">
-                            <p className="text-white/75 text-sm font-medium capitalize">{d.ingredient}</p>
-                            {d.observation && <p className="text-white/35 text-xs mt-0.5">{d.observation}</p>}
-                          </div>
-                          <span className="text-[#C19A6B] font-bold font-mono text-sm flex-shrink-0">{d.quantite}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-8">
-                  <Wheat size={28} className="text-white/15 mx-auto mb-3" />
-                  <p className="text-white/30 text-sm">Non disponible pour ce rapport</p>
+          {/* ══ SECTION MATIÈRES — ingrédients + observations ══ */}
+          {!starterPreview && rj.matieres_premieres && (
+            <motion.section
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.45 }}
+              className="space-y-3">
+              <div className="flex items-center gap-2 pt-1">
+                <Wheat size={13} className="text-[#C19A6B]" />
+                <h2 className="text-white/90 text-[11px] font-bold uppercase tracking-widest" style={{ fontFamily: 'Playfair Display, serif' }}>Matières premières</h2>
+                <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" />
+              </div>
+              {rj.matieres_premieres.resume && (
+                <div className="rounded-2xl bg-white/4 border border-white/8 px-4 py-4">
+                  <p className="text-white/65 text-sm leading-relaxed">{rj.matieres_premieres.resume}</p>
                 </div>
               )}
-            </div>
+              {rj.matieres_premieres.details && rj.matieres_premieres.details.length > 0 && (
+                <div className="rounded-2xl border overflow-hidden bg-white/3 border-white/7">
+                  <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
+                    <Package2 size={13} className="text-white/35" />
+                    <p className="text-white/35 text-[10px] font-semibold uppercase tracking-wider">Détail par ingrédient</p>
+                  </div>
+                  {rj.matieres_premieres.details.map((d, i) => (
+                    <div key={i} className="flex items-start gap-3 px-4 py-3 border-b border-white/4 last:border-0">
+                      <div className="flex-1">
+                        <p className="text-white/75 text-sm font-medium capitalize">{d.ingredient}</p>
+                        {d.observation && <p className="text-white/35 text-xs mt-0.5">{d.observation}</p>}
+                      </div>
+                      <span className="text-[#C19A6B] font-bold font-mono text-sm flex-shrink-0">{d.quantite}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.section>
           )}
+        </motion.div>
+      )}
+
+      {/* ══ CTA STICKY BOTTOM — "Appliquer pour demain" ══ */}
+      {hasRapport && isToday && !allApplied && previsions.length > 0 && !starterPreview && (
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          className="fixed bottom-4 left-4 right-4 z-30 max-w-md mx-auto pointer-events-none">
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={handleApply}
+            disabled={applying}
+            className="pointer-events-auto w-full py-3.5 rounded-2xl flex items-center justify-center gap-2.5 font-bold text-sm disabled:opacity-60"
+            style={{
+              background: 'linear-gradient(135deg,#C19A6B,rgba(193,154,107,0.85))',
+              color: '#1A0F0A',
+              boxShadow: '0 10px 40px rgba(193,154,107,0.45), 0 2px 6px rgba(0,0,0,0.2)',
+            }}>
+            {applying
+              ? <><Loader2 size={16} className="animate-spin" /> Application…</>
+              : <><Play size={15} /> Appliquer pour {demainLabel}</>}
+          </motion.button>
         </motion.div>
       )}
 

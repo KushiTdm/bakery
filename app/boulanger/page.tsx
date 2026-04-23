@@ -20,6 +20,7 @@ import VueSnapshot   from '@/components/boulanger/vue-snapshot';
 import VueSoir       from '@/components/boulanger/vue-soir';
 import VueFlash      from '@/components/boulanger/vue-flash';
 import VueRapportIA  from '@/components/boulanger/vue-rapport-ia';
+import VueRapportMensuel from '@/components/boulanger/vue-rapport-mensuel';
 import Dashboard     from '@/components/boulanger/dashboard-v2';
 import DashboardSupervision from '@/components/boulanger/dashboard-supervision';
 import Catalogue     from '@/components/boulanger/catalogue';
@@ -324,7 +325,7 @@ function VueAccueil({
 // Drawer "Plus"
 // ─────────────────────────────────────────────────────────────
 
-type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision' | 'vitrine';
+type DrawerItemId = 'commandes' | 'catalogue' | 'dashboard' | 'equipe' | 'parametres' | 'ia' | 'supervision' | 'vitrine' | 'rapport-mensuel';
 
 interface DrawerItem {
   id: DrawerItemId;
@@ -342,6 +343,12 @@ const DRAWER_AI_ITEM: DrawerItem = {
   id: 'ia', label: 'Rapport IA', icon: Sparkles,
   desc: 'Analyse complète par Levain, votre assistant IA',
   view: 'ia', accent: 'rgba(168,85,247,0.12)', color: '#A855F7', permission: null,
+};
+
+const DRAWER_MENSUEL_ITEM: DrawerItem = {
+  id: 'rapport-mensuel', label: 'Rapport mensuel', icon: CalendarDays,
+  desc: 'Synthèse du mois + contexte quartier',
+  view: 'rapport-mensuel', accent: 'rgba(193,154,107,0.12)', color: '#C19A6B', permission: 'dashboard',
 };
 
 const DRAWER_ITEMS: DrawerItem[] = [
@@ -473,6 +480,12 @@ function PlusDrawer({
                         onClick={() => navigate(item)} />
                     );
                   })()}
+                  {canRead('dashboard') && (
+                    <DrawerGridCard key="rapport-mensuel"
+                      item={DRAWER_MENSUEL_ITEM}
+                      isActive={activeView === 'rapport-mensuel'}
+                      onClick={() => { onNavigate('rapport-mensuel'); onClose(); }} />
+                  )}
                 </div>
 
                 {/* Contenu : ce que le boulanger met à jour périodiquement */}
@@ -852,6 +865,7 @@ function AppShell() {
             {localView === 'equipe'     && (canRead('equipe')     ? <EquipeManager /> : <ViewBlocked />)}
             {localView === 'vitrine'    && (userRole === 'owner'  ? <VitrinEditor />  : <ViewBlocked />)}
             {localView === 'ia'         && <VueRapportIA />}
+            {localView === 'rapport-mensuel' && (canRead('dashboard') ? <VueRapportMensuel /> : <ViewBlocked />)}
             {localView === 'commandes'  && <CommandesView onBack={() => setLocalView('accueil')} />}
             {localView === 'supervision' && (
               canRead('equipe')

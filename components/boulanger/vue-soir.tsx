@@ -13,12 +13,14 @@ import {
   Zap, ZapOff, Package, Loader2, Check, ChevronDown,
   Plus, Minus, Sparkles, Send, ChefHat,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useBoulanger } from '@/context/boulanger-context';
 import type { StockEntry } from '@/context/boulanger-context';
 import { supabase } from '@/lib/supabase';
 import VueRapportIA from './vue-rapport-ia';
 import FeedbackVendeuse, { type FeedbackVendeuseData } from './feedback-vendeuse';
 import WizardPreRapport, { type WizardPreRapportData } from './wizard-pre-rapport';
+import { CelebrationOverlay, type CelebrationResult } from './celebration-overlay';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -85,6 +87,7 @@ export default function VueSoir() {
   const [feedbackSent, setFeedbackSent]  = useState(false);
   const [wizardData,   setWizardData]    = useState<WizardPreRapportData | null>(null);
   const [savingFeedback, setSavingFeedback] = useState(false);
+  const [celebration,    setCelebration]   = useState<CelebrationResult | null>(null);
 
   const isOwner   = userRole === 'owner';
   const isGerant  = userRole === 'gerant';
@@ -163,7 +166,7 @@ export default function VueSoir() {
     }
   };
 
-  // Clôture + résolution défis + passe au wizard ou rapport
+  // Clôture + résolution défis + célébration
   const handleCloturer = async () => {
     if (cloture || cloturing) return;
     setCloturing(true);
@@ -171,20 +174,63 @@ export default function VueSoir() {
       await closeDayAndSave(commandesOnline);
       setCloture(true);
 
-      // Résolution des défis du jour (non-bloquant)
+      // Résolution des défis — on attend la réponse pour pouvoir afficher
+      // la célébration (XP, badges, streak). Erreurs via toast sonner.
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          fetch('/api/boulanger/defis/resolve', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({}),
-          }).catch(() => {});
+        if (!session?.access_token) return;
+
+        const res = await fetch('/api/boulanger/defis/resolve', {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body:    JSON.stringify({}),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({} as { error?: string }));
+          toast.error('Impossible de calculer vos défis', {
+            description: err?.error ?? 'Réessaiera au prochain chargement.',
+          });
+          return;
         }
-      } catch { /* non-bloquant */ }
+
+        const data = await res.json() as CelebrationResult & { alreadyResolved?: boolean };
+
+        // Si tout était déjà résolu (ex. clôture relancée sans nouvelle journée), on évite
+        // de rejouer la célébration, mais on toast léger pour confirmer l'action.
+        if (data.alreadyResolved) {
+          toast.success('Journée clôturée', {
+            description: data.defisReussis > 0
+              ? `${data.defisReussis}/${data.totalDefis} défis réussis — déjà comptabilisés.`
+              : 'Tout est déjà à jour.',
+          });
+          return;
+        }
+
+        setCelebration({
+          xpEarned:     data.xpEarned,
+          newBadges:    data.newBadges ?? [],
+          defisReussis: data.defisReussis,
+          totalDefis:   data.totalDefis,
+          streak:       data.streak,
+          streakDelta:  data.streakDelta ?? 0,
+          niveau:       data.niveau,
+          xpTotal:      data.xpTotal,
+        });
+      } catch (err) {
+        console.warn('[vue-soir] defis/resolve error', err);
+        toast.error('Clôture enregistrée', {
+          description: 'Défis non résolus (problème réseau). Rechargez la page plus tard.',
+        });
+      }
+    } catch (err) {
+      console.error('[vue-soir] closeDayAndSave error', err);
+      toast.error('Clôture impossible', {
+        description: 'Vérifiez votre connexion et réessayez.',
+      });
     } finally {
       setCloturing(false);
     }
@@ -394,6 +440,12 @@ export default function VueSoir() {
           />
         )}
       </AnimatePresence>
+
+      <CelebrationOverlay
+        open={celebration !== null}
+        result={celebration}
+        onClose={() => setCelebration(null)}
+      />
     </>
   );
 }
