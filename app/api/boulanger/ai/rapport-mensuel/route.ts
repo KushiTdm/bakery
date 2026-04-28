@@ -12,7 +12,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { getBoulangerSession, canAccess } from '@/lib/auth-boulanger';
 import { aggregateMonth } from '@/lib/rapport-mensuel-aggregate';
-import { fetchNeighborhood } from '@/lib/google-places';
 import {
   RAPPORT_MENSUEL_SYSTEM_PROMPT,
   buildRapportMensuelUserPrompt,
@@ -167,17 +166,8 @@ export async function generateRapportMensuel(
       .eq('id', boulangerieId)
       .single();
 
-    // 4. Agrégations + quartier en parallèle
-    // fetchNeighborhood a ses propres gardes (cache, cooldown 24h, cap 3 tentatives)
-    // et ne doit jamais throw — ceinture + bretelles : on l'enveloppe quand même
-    // pour que l'échec du quartier ne casse jamais la génération du rapport.
-    const [aggregates, neighborhood] = await Promise.all([
-      aggregateMonth(admin, boulangerieId, mois),
-      fetchNeighborhood(admin, boulangerieId).catch(err => {
-        console.error('[rapport-mensuel] neighborhood fetch threw unexpectedly', err);
-        return null;
-      }),
-    ]);
+    // 4. Agrégations
+    const aggregates = await aggregateMonth(admin, boulangerieId, mois);
 
     const ctx: RapportMensuelContext = {
       nomBoulangerie: (boul?.nom as string | null) ?? 'Votre boulangerie',
@@ -185,7 +175,6 @@ export async function generateRapportMensuel(
       typeClientele:  (boul?.type_clientele as string | null) ?? null,
       specialites:    (boul?.specialites as string[] | null) ?? [],
       aggregates,
-      neighborhood,
     };
 
     // 5. Appel z.ai
@@ -278,14 +267,7 @@ export async function generateRapportMensuel(
         invendus_delta_pct:  aggregates.comparaison_m_precedent.invendus_delta_pct,
         commandes_delta_pct: aggregates.comparaison_m_precedent.commandes_delta_pct,
       },
-      contexte_quartier: neighborhood ? {
-        ...(parsed.contexte_quartier as object ?? {}),
-        type_quartier:                 neighborhood.type_quartier,
-        density_score:                 neighborhood.density_score,
-        population_estimee_rayon_500m: neighborhood.population_estimee_rayon_500m,
-        concurrents_directs:           neighborhood.concurrents,
-        commerces_proximite:           neighborhood.commerces_proximite,
-      } : (parsed.contexte_quartier ?? null),
+      contexte_quartier: parsed.contexte_quartier ?? null,
     };
 
     // 7. Update

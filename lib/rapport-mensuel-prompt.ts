@@ -6,7 +6,6 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { MonthlyAggregates } from './rapport-mensuel-aggregate';
-import type { NeighborhoodData }  from './google-places';
 
 export interface RapportMensuelContext {
   nomBoulangerie:   string;
@@ -14,7 +13,6 @@ export interface RapportMensuelContext {
   typeClientele:    string | null;
   specialites:      string[];
   aggregates:       MonthlyAggregates;
-  neighborhood:     NeighborhoodData | null;
 }
 
 export const RAPPORT_MENSUEL_SYSTEM_PROMPT = `Tu es Levain, l'assistant IA d'une boulangerie artisanale française.
@@ -22,7 +20,6 @@ Tu rédiges un rapport MENSUEL destiné au gérant. Ce rapport doit être :
 - CHALEUREUX et ENCOURAGEANT : commence par valoriser ce qui a été réussi.
 - CONCRET : chiffres précis, exemples réels, comparaisons avec le mois précédent.
 - ACTIONABLE : 3 à 5 axes d'amélioration avec "pourquoi" et "comment".
-- ANCRÉ : tiens compte du quartier (démographie, concurrents, type de commerces autour).
 - SYNTHÉTIQUE : lecture 5 minutes max. Le gérant est souvent pressé.
 
 Tu dois ABSOLUMENT répondre en JSON strict avec EXACTEMENT ce schéma :
@@ -86,7 +83,6 @@ function fmtPct(n: number | null): string {
 
 export function buildRapportMensuelUserPrompt(ctx: RapportMensuelContext): string {
   const a = ctx.aggregates;
-  const n = ctx.neighborhood;
   const compar = a.comparaison_m_precedent;
 
   const lines: string[] = [];
@@ -140,30 +136,6 @@ export function buildRapportMensuelUserPrompt(ctx: RapportMensuelContext): strin
     for (const j of a.jour_semaine_analyse) {
       lines.push(`- ${j.jour_label} : CA moyen ${fmtEuro(j.ca_moyen)}, invendus ${j.invendus_pct}%  (n=${j.n})`);
     }
-    lines.push('');
-  }
-
-  // ── Quartier ──
-  if (n) {
-    lines.push(`## Contexte quartier (rayon 800m)`);
-    lines.push(`- Type de quartier : ${n.type_quartier}`);
-    lines.push(`- Score de densité : ${n.density_score}`);
-    if (n.population_estimee_rayon_500m != null) {
-      lines.push(`- Population estimée (rayon 500m) : ~${n.population_estimee_rayon_500m}`);
-    }
-    lines.push(`- Commerces : boulangeries ${n.commerces_proximite.boulangeries}, cafés ${n.commerces_proximite.cafes}, restaurants ${n.commerces_proximite.restaurants}, écoles ${n.commerces_proximite.ecoles}, bureaux ${n.commerces_proximite.bureaux}, supermarchés ${n.commerces_proximite.supermarches}`);
-    if (n.concurrents.length > 0) {
-      lines.push(`- Concurrents directs (top 5) :`);
-      for (const c of n.concurrents.slice(0, 5)) {
-        const note = c.note_google != null ? ` ★${c.note_google}` : '';
-        const avis = c.nombre_avis != null ? ` (${c.nombre_avis} avis)` : '';
-        lines.push(`  - ${c.nom} — ${c.distance_m}m${note}${avis}`);
-      }
-    }
-    lines.push('');
-  } else {
-    lines.push(`## Contexte quartier`);
-    lines.push(`Données quartier non disponibles (clé API manquante ou coordonnées absentes).`);
     lines.push('');
   }
 
